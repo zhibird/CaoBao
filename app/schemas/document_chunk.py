@@ -1,0 +1,29 @@
+from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class DocumentChunkingRequest(BaseModel):
+    team_id: str = Field(min_length=1, max_length=64)
+    max_chars: int = Field(default=600, ge=100, le=4000)
+    overlap: int = Field(default=80, ge=0, le=1000)
+
+
+class DocumentChunkResponse(BaseModel):
+    chunk_id: str
+    document_id: str
+    team_id: str
+    chunk_index: int
+    content: str
+    start_char: int
+    end_char: int
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class DocumentChunkingResult(BaseModel):
+    document_id: str
+    team_id: str
+    total_chunks: int
+    chunks: list[DocumentChunkResponse]

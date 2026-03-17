@@ -1,0 +1,152 @@
+import json
+from datetime import datetime, timezone
+from typing import Any
+
+from pydantic import BaseModel, Field
+
+from app.schemas.retrieval import RetrievalHit
+
+
+class ChatEchoRequest(BaseModel):
+    user_id: str = Field(min_length=1, max_length=64)
+    team_id: str = Field(min_length=1, max_length=64)
+    message: str = Field(min_length=1, max_length=2000)
+
+
+class ChatEchoResponse(BaseModel):
+    user_id: str
+    team_id: str
+    answer: str
+    created_at: str
+
+    @classmethod
+    def from_message(cls, user_id: str, team_id: str, answer: str) -> "ChatEchoResponse":
+        return cls(
+            user_id=user_id,
+            team_id=team_id,
+            answer=answer,
+            created_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+
+class ChatAskRequest(BaseModel):
+    user_id: str = Field(min_length=1, max_length=64)
+    team_id: str = Field(min_length=1, max_length=64)
+    question: str = Field(min_length=1, max_length=2000)
+    top_k: int = Field(default=5, ge=1, le=20)
+    document_id: str | None = Field(default=None, min_length=1, max_length=36)
+
+
+class ChatAskResponse(BaseModel):
+    user_id: str
+    team_id: str
+    question: str
+    answer: str
+    hits: list[RetrievalHit]
+    created_at: str
+
+    @classmethod
+    def from_result(
+        cls,
+        user_id: str,
+        team_id: str,
+        question: str,
+        answer: str,
+        hits: list[RetrievalHit],
+    ) -> "ChatAskResponse":
+        return cls(
+            user_id=user_id,
+            team_id=team_id,
+            question=question,
+            answer=answer,
+            hits=hits,
+            created_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+
+class ChatActionRequest(BaseModel):
+    user_id: str = Field(min_length=1, max_length=64)
+    team_id: str = Field(min_length=1, max_length=64)
+    action: str = Field(min_length=1, max_length=64)
+    arguments: dict[str, Any] = Field(default_factory=dict)
+
+
+class ChatActionResponse(BaseModel):
+    user_id: str
+    team_id: str
+    action: str
+    result: dict[str, Any]
+    created_at: str
+
+    @classmethod
+    def from_result(
+        cls,
+        *,
+        user_id: str,
+        team_id: str,
+        action: str,
+        result: dict[str, Any],
+    ) -> "ChatActionResponse":
+        return cls(
+            user_id=user_id,
+            team_id=team_id,
+            action=action,
+            result=result,
+            created_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+
+class ChatHistoryItem(BaseModel):
+    message_id: str
+    team_id: str
+    user_id: str
+    channel: str
+    request_text: str
+    response_text: str
+    request_payload: dict[str, Any]
+    response_payload: dict[str, Any]
+    created_at: str
+
+    @classmethod
+    def from_record(cls, record: Any) -> "ChatHistoryItem":
+        return cls(
+            message_id=record.message_id,
+            team_id=record.team_id,
+            user_id=record.user_id,
+            channel=record.channel,
+            request_text=record.request_text,
+            response_text=record.response_text,
+            request_payload=_safe_json_loads(record.request_payload_json),
+            response_payload=_safe_json_loads(record.response_payload_json),
+            created_at=record.created_at.isoformat(),
+        )
+
+
+class ChatHistoryListResponse(BaseModel):
+    team_id: str
+    user_id: str | None
+    limit: int
+    items: list[ChatHistoryItem]
+
+    @classmethod
+    def from_result(
+        cls,
+        *,
+        team_id: str,
+        user_id: str | None,
+        limit: int,
+        items: list[ChatHistoryItem],
+    ) -> "ChatHistoryListResponse":
+        return cls(team_id=team_id, user_id=user_id, limit=limit, items=items)
+
+
+def _safe_json_loads(raw: str) -> dict[str, Any]:
+    try:
+        decoded = json.loads(raw)
+    except (TypeError, json.JSONDecodeError):
+        return {}
+
+    if isinstance(decoded, dict):
+        return decoded
+
+    return {}
