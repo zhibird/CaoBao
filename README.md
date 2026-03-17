@@ -2,6 +2,26 @@
 
 这是一个面向新手、从零开始的最小版项目。目标不是一次做成“大而全”的系统，而是先做出一个能跑通的 MVP（CaiBao），再一层层补能力。
 
+## 技术栈
+
+1. 后端
+   1. Python 3.11（见 `Dockerfile`）
+   2. FastAPI（Web 框架）
+   3. Uvicorn（ASGI Server）
+   4. Pydantic Settings（配置管理：`.env` / 环境变量）
+2. 数据库
+   1. SQLAlchemy 2.x（ORM）
+   2. SQLite（默认：文件库，Docker 下默认落在挂载卷 `/data/CaiBao.db`）
+3. 测试与调用
+   1. Pytest（测试框架）
+   2. HTTPX（HTTP Client，用于测试/接口调用）
+4. 部署
+   1. Docker（容器化，见 `Dockerfile`）
+   2. Docker Compose（本地/服务器一键拉起，见 `docker-compose.yml`）
+5. LLM 接入（可选）
+   1. 通过环境变量 `LLM_PROVIDER` / `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL` 切换
+   2. 默认 `LLM_PROVIDER=mock`，也可对接 OpenAI 兼容接口（默认 `LLM_BASE_URL=https://api.openai.com/v1`）
+
 ## 1. 最小版能力
 
 1. 用户 / 团队配置
