@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.exceptions import DomainValidationError, EntityNotFoundError
 from app.models.chat_history import ChatHistory
+from app.models.conversation import Conversation
 from app.models.team import Team
 
 
@@ -21,6 +22,7 @@ class ChatHistoryService:
         *,
         team_id: str,
         user_id: str,
+        conversation_id: str | None,
         channel: str,
         request_text: str,
         response_text: str,
@@ -31,10 +33,20 @@ class ChatHistoryService:
         if normalized_channel not in {"echo", "ask", "action"}:
             raise DomainValidationError("channel must be one of: echo, ask, action.")
 
+        if conversation_id is not None:
+            conversation = self.db.get(Conversation, conversation_id)
+            if conversation is None:
+                raise EntityNotFoundError(f"Conversation '{conversation_id}' does not exist.")
+            if conversation.team_id != team_id or conversation.user_id != user_id:
+                raise DomainValidationError(
+                    f"Conversation '{conversation_id}' does not belong to team/user."
+                )
+
         message = ChatHistory(
             message_id=str(uuid4()),
             team_id=team_id,
             user_id=user_id,
+            conversation_id=conversation_id,
             channel=normalized_channel,
             request_text=request_text,
             response_text=response_text,
@@ -47,7 +59,14 @@ class ChatHistoryService:
         self.db.refresh(message)
         return message
 
-    def list_history(self, *, team_id: str, user_id: str | None = None, limit: int = 20) -> list[ChatHistory]:
+    def list_history(
+        self,
+        *,
+        team_id: str,
+        user_id: str | None = None,
+        conversation_id: str | None = None,
+        limit: int = 20,
+    ) -> list[ChatHistory]:
         self._ensure_team_exists(team_id)
 
         if limit < 1 or limit > 200:
@@ -56,6 +75,19 @@ class ChatHistoryService:
         stmt = select(ChatHistory).where(ChatHistory.team_id == team_id)
         if user_id is not None:
             stmt = stmt.where(ChatHistory.user_id == user_id)
+        if conversation_id is not None:
+            conversation = self.db.get(Conversation, conversation_id)
+            if conversation is None:
+                raise EntityNotFoundError(f"Conversation '{conversation_id}' does not exist.")
+            if conversation.team_id != team_id:
+                raise DomainValidationError(
+                    f"Conversation '{conversation_id}' does not belong to team '{team_id}'."
+                )
+            if user_id is not None and conversation.user_id != user_id:
+                raise DomainValidationError(
+                    f"Conversation '{conversation_id}' does not belong to user '{user_id}'."
+                )
+            stmt = stmt.where(ChatHistory.conversation_id == conversation_id)
 
         stmt = stmt.order_by(ChatHistory.created_at.desc(), ChatHistory.message_id.desc()).limit(limit)
         return list(self.db.scalars(stmt).all())

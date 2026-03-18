@@ -24,6 +24,7 @@ class ActionChatService:
         return ChatActionResponse.from_result(
             user_id=payload.user_id,
             team_id=payload.team_id,
+            conversation_id=payload.conversation_id,
             action=payload.action,
             result=result,
         )

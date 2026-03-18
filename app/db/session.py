@@ -1,6 +1,7 @@
 from collections.abc import Generator
 
 from sqlalchemy import create_engine
+from sqlalchemy import inspect
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import get_settings
@@ -35,6 +36,33 @@ def get_db_session() -> Generator[Session, None, None]:
 
 
 def init_db() -> None:
-    from app.models import chat_history, chunk_embedding, document, document_chunk, incident, team, user  # noqa: F401
+    from app.models import (  # noqa: F401
+        chat_history,
+        chunk_embedding,
+        conversation,
+        document,
+        document_chunk,
+        incident,
+        team,
+        user,
+    )
 
     Base.metadata.create_all(bind=engine)
+    _ensure_phase1_columns()
+
+
+def _ensure_phase1_columns() -> None:
+    """Best-effort lightweight migration for existing DB files."""
+    inspector = inspect(engine)
+
+    if "documents" in inspector.get_table_names():
+        document_cols = {item["name"] for item in inspector.get_columns("documents")}
+        if "conversation_id" not in document_cols:
+            with engine.begin() as conn:
+                conn.exec_driver_sql("ALTER TABLE documents ADD COLUMN conversation_id VARCHAR(36)")
+
+    if "chat_history" in inspector.get_table_names():
+        history_cols = {item["name"] for item in inspector.get_columns("chat_history")}
+        if "conversation_id" not in history_cols:
+            with engine.begin() as conn:
+                conn.exec_driver_sql("ALTER TABLE chat_history ADD COLUMN conversation_id VARCHAR(36)")

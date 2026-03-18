@@ -22,6 +22,11 @@ class Document(Base):
         nullable=False,
         index=True,
     )
+    conversation_id: Mapped[str | None] = mapped_column(
+        ForeignKey("conversations.conversation_id"),
+        nullable=True,
+        index=True,
+    )
     source_name: Mapped[str] = mapped_column(String(255), nullable=False)
     content_type: Mapped[str] = mapped_column(String(16), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)

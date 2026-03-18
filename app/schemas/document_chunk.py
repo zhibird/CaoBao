@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class DocumentChunkingRequest(BaseModel):
     team_id: str = Field(min_length=1, max_length=64)
+    conversation_id: str | None = Field(default=None, min_length=1, max_length=36)
     max_chars: int = Field(default=600, ge=100, le=4000)
     overlap: int = Field(default=80, ge=0, le=1000)
 

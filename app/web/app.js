@@ -4,6 +4,7 @@ const STORAGE_KEYS = {
   teamName: "caibao.teamName",
   userId: "caibao.userId",
   displayName: "caibao.displayName",
+  conversationId: "caibao.conversationId",
   selectedModel: "caibao.selectedModel",
   customModels: "caibao.customModels",
 };
@@ -15,8 +16,10 @@ const state = {
   teamName: "",
   userId: "",
   displayName: "",
+  conversationId: "",
   selectedModel: PRESET_MODELS[0],
   customModels: [],
+  conversations: [],
   history: [],
   documents: [],
   sending: false,
@@ -94,7 +97,9 @@ function bindEvents() {
     loadAllData().catch((error) => showToast(error.message, true));
   });
 
-  els.newSessionBtn.addEventListener("click", clearConversation);
+  els.newSessionBtn.addEventListener("click", () => {
+    createAndSwitchConversation().catch((error) => showToast(error.message, true));
+  });
 
   els.toggleImportBtn.addEventListener("click", () => {
     els.importPanel.classList.toggle("hidden");
@@ -125,6 +130,7 @@ function hydrateState() {
   state.teamName = localStorage.getItem(STORAGE_KEYS.teamName) || "";
   state.userId = localStorage.getItem(STORAGE_KEYS.userId) || "";
   state.displayName = localStorage.getItem(STORAGE_KEYS.displayName) || "";
+  state.conversationId = localStorage.getItem(STORAGE_KEYS.conversationId) || "";
   state.selectedModel = localStorage.getItem(STORAGE_KEYS.selectedModel) || PRESET_MODELS[0];
 
   try {
@@ -141,6 +147,10 @@ function persistIdentity() {
   localStorage.setItem(STORAGE_KEYS.teamName, state.teamName);
   localStorage.setItem(STORAGE_KEYS.userId, state.userId);
   localStorage.setItem(STORAGE_KEYS.displayName, state.displayName);
+}
+
+function persistConversation() {
+  localStorage.setItem(STORAGE_KEYS.conversationId, state.conversationId || "");
 }
 
 function updateIdentityCard() {
@@ -231,7 +241,9 @@ async function handleSaveAuth() {
     state.teamName = teamName;
     state.userId = userId;
     state.displayName = displayName;
+    state.conversationId = "";
     persistIdentity();
+    persistConversation();
 
     updateIdentityCard();
     closeAuthModal();
@@ -291,55 +303,182 @@ async function loadAllData() {
     return;
   }
 
+  await loadConversations();
+  await ensureActiveConversation();
   await Promise.all([loadHistory(), loadDocuments()]);
 }
 
-async function loadHistory() {
+async function loadConversations() {
   const query = new URLSearchParams({
     team_id: state.teamId,
     user_id: state.userId,
-    limit: "80",
+    limit: "100",
   });
-  const response = await apiRequest(`/chat/history?${query.toString()}`);
-  state.history = Array.isArray(response.items) ? response.items : [];
-  renderHistory();
+  const response = await apiRequest(`/conversations?${query.toString()}`);
+  state.conversations = Array.isArray(response) ? response : [];
+  renderConversationList();
 }
 
-function renderHistory() {
+async function ensureActiveConversation() {
+  if (!state.conversations.length) {
+    const created = await createConversation("新会话");
+    state.conversations = [created];
+  }
+
+  const exists = state.conversations.some((item) => item.conversation_id === state.conversationId);
+  if (!exists) {
+    state.conversationId = state.conversations[0].conversation_id;
+    persistConversation();
+  }
+
+  renderConversationList();
+}
+
+function renderConversationList() {
   els.historyList.innerHTML = "";
 
-  if (!state.history.length) {
-    appendEmpty(els.historyList, "暂无聊天记录");
+  if (!state.conversations.length) {
+    appendEmpty(els.historyList, "暂无会话");
     return;
   }
 
-  for (const item of state.history) {
+  for (const item of state.conversations) {
     const li = document.createElement("li");
-    const title = truncate(item.request_text || "(空消息)", 26);
-    const channel = String(item.channel || "ask").toUpperCase();
+    li.classList.toggle("active", item.conversation_id === state.conversationId);
+
+    const title = truncate(item.title || "新会话", 24);
+    const createdAt = formatTime(item.created_at);
 
     li.innerHTML = `
-      <div class="history-title">${escapeHtml(channel)} · ${escapeHtml(title)}</div>
-      <div class="history-meta">${escapeHtml(formatTime(item.created_at))}</div>
+      <div class="history-row">
+        <div class="history-title">${escapeHtml(title)}</div>
+        <button class="history-delete" type="button" data-id="${escapeHtml(item.conversation_id)}">删</button>
+      </div>
+      <div class="history-meta">${escapeHtml(createdAt)}</div>
     `;
 
-    li.addEventListener("click", () => previewHistory(item));
+    li.addEventListener("click", () => {
+      switchConversation(item.conversation_id).catch((error) => showToast(error.message, true));
+    });
+    const deleteBtn = li.querySelector(".history-delete");
+    if (deleteBtn) {
+      deleteBtn.addEventListener("click", (event) => {
+        event.stopPropagation();
+        deleteConversation(item.conversation_id).catch((error) => showToast(error.message, true));
+      });
+    }
     els.historyList.appendChild(li);
   }
 }
 
-function previewHistory(item) {
-  clearConversation();
+async function switchConversation(conversationId) {
+  state.conversationId = conversationId;
+  persistConversation();
+  renderConversationList();
+  await Promise.all([loadHistory(), loadDocuments()]);
+}
 
-  appendMessage("user", item.request_text || "");
-  const hits = item.response_payload && Array.isArray(item.response_payload.hits) ? item.response_payload.hits : [];
-  const model = item.response_payload && item.response_payload.model ? item.response_payload.model : "";
-  appendMessage("assistant", item.response_text || "", { hits, model });
+async function createConversation(title) {
+  return apiRequest("/conversations", {
+    method: "POST",
+    body: {
+      team_id: state.teamId,
+      user_id: state.userId,
+      title,
+    },
+  });
+}
+
+async function createAndSwitchConversation() {
+  if (!ensureIdentity()) {
+    openAuthModal();
+    showToast("请先登录团队与用户", true);
+    return;
+  }
+
+  if (!state.conversationId) {
+    await ensureActiveConversation();
+  }
+
+  if (!state.conversationId) {
+    await ensureActiveConversation();
+  }
+
+  const created = await createConversation("新会话");
+  state.conversationId = created.conversation_id;
+  persistConversation();
+  await loadConversations();
+  clearConversation();
+  await Promise.all([loadDocuments(), loadHistory()]);
+}
+
+async function deleteConversation(conversationId) {
+  if (!window.confirm("确认删除这个会话？会同时删除该会话下的聊天记录和会话文件。")) {
+    return;
+  }
+
+  const query = new URLSearchParams({
+    team_id: state.teamId,
+    user_id: state.userId,
+  });
+  await apiRequest(`/conversations/${encodeURIComponent(conversationId)}?${query.toString()}`, {
+    method: "DELETE",
+  });
+
+  if (state.conversationId === conversationId) {
+    state.conversationId = "";
+    persistConversation();
+  }
+
+  await loadConversations();
+  await ensureActiveConversation();
+  await Promise.all([loadHistory(), loadDocuments()]);
+  showToast("会话已删除");
+}
+
+async function loadHistory() {
+  if (!state.conversationId) {
+    clearConversation();
+    return;
+  }
+
+  const query = new URLSearchParams({
+    team_id: state.teamId,
+    user_id: state.userId,
+    conversation_id: state.conversationId,
+    limit: "200",
+  });
+  const response = await apiRequest(`/chat/history?${query.toString()}`);
+  state.history = Array.isArray(response.items) ? response.items : [];
+  renderCurrentConversationMessages();
+}
+
+function renderCurrentConversationMessages() {
+  clearConversation();
+  if (!state.history.length) {
+    return;
+  }
+
+  const ordered = [...state.history].reverse();
+  for (const item of ordered) {
+    appendMessage("user", item.request_text || "");
+    const hits = item.response_payload && Array.isArray(item.response_payload.hits) ? item.response_payload.hits : [];
+    const model = item.response_payload && item.response_payload.model ? item.response_payload.model : "";
+    appendMessage("assistant", item.response_text || "", { hits, model });
+  }
 }
 
 async function loadDocuments() {
+  if (!state.conversationId) {
+    state.documents = [];
+    renderDocuments();
+    renderDocSelect();
+    return;
+  }
+
   const query = new URLSearchParams({
     team_id: state.teamId,
+    conversation_id: state.conversationId,
   });
   const response = await apiRequest(`/documents?${query.toString()}`);
   state.documents = Array.isArray(response) ? response : [];
@@ -413,6 +552,7 @@ async function handleSend() {
     const payload = {
       user_id: state.userId,
       team_id: state.teamId,
+      conversation_id: state.conversationId,
       question,
       top_k: 5,
       model: state.selectedModel,
@@ -435,15 +575,56 @@ async function handleSend() {
     await loadHistory();
   } catch (error) {
     const message = String(error.message || "发送失败");
-    appendMessage("assistant", `请求失败：${message}`);
-    if (message.includes("No indexed chunks found")) {
-      showToast("当前无索引数据，请先通过 + 导入文档并勾选自动索引", true);
+
+    const fallbackResult = await tryEchoFallback(question, message);
+    if (fallbackResult) {
+      appendMessage("assistant", fallbackResult.answer, {
+        model: "offline-echo",
+      });
+      await loadHistory();
+      showToast(fallbackResult.notice);
     } else {
+      appendMessage("assistant", `请求失败：${message}`);
       showToast(message, true);
     }
   } finally {
     state.sending = false;
     els.sendBtn.disabled = false;
+  }
+}
+
+function shouldUseEchoFallback(errorMessage) {
+  const text = String(errorMessage || "").toLowerCase();
+  return (
+    text.includes("no indexed chunks found") ||
+    text.includes("llm_api_key is required") ||
+    text.includes("llm request failed") ||
+    text.includes("timed out")
+  );
+}
+
+async function tryEchoFallback(question, errorMessage) {
+  if (!shouldUseEchoFallback(errorMessage)) {
+    return null;
+  }
+
+  try {
+    const echoResponse = await apiRequest("/chat/echo", {
+      method: "POST",
+      body: {
+        user_id: state.userId,
+        team_id: state.teamId,
+        conversation_id: state.conversationId,
+        message: question,
+      },
+    });
+
+    return {
+      answer: `离线回复：${echoResponse.answer || question}`,
+      notice: "已自动切换离线回复（Echo）",
+    };
+  } catch {
+    return null;
   }
 }
 
@@ -474,6 +655,7 @@ async function handleImportDocument() {
       method: "POST",
       body: {
         team_id: state.teamId,
+        conversation_id: state.conversationId,
         source_name: sourceName,
         content_type: contentType,
         content,
@@ -487,6 +669,7 @@ async function handleImportDocument() {
         method: "POST",
         body: {
           team_id: state.teamId,
+          conversation_id: state.conversationId,
           max_chars: Number(els.maxChars.value || 600),
           overlap: Number(els.overlap.value || 80),
         },
@@ -498,6 +681,7 @@ async function handleImportDocument() {
         method: "POST",
         body: {
           team_id: state.teamId,
+          conversation_id: state.conversationId,
           document_id: documentId,
         },
       });

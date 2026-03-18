@@ -6,6 +6,7 @@ from app.services.action_chat_service import ActionChatService
 from app.services.chat_history_service import ChatHistoryService
 from app.services.chat_service import ChatService
 from app.services.chunk_service import ChunkService
+from app.services.conversation_service import ConversationService
 from app.services.document_service import DocumentService
 from app.services.embedding_service import EmbeddingService
 from app.services.llm_service import LLMService
@@ -26,6 +27,13 @@ def get_user_service(db: Session = Depends(get_db_session)) -> UserService:
 
 def get_document_service(db: Session = Depends(get_db_session)) -> DocumentService:
     return DocumentService(db)
+
+
+def get_conversation_service(
+    db: Session = Depends(get_db_session),
+    user_service: UserService = Depends(get_user_service),
+) -> ConversationService:
+    return ConversationService(db=db, user_service=user_service)
 
 
 def get_chunk_service(db: Session = Depends(get_db_session)) -> ChunkService:

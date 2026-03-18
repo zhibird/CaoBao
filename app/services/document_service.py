@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import EntityNotFoundError
+from app.models.conversation import Conversation
 from app.models.document import Document
 from app.models.team import Team
 from app.schemas.document import DocumentImportRequest
@@ -19,9 +20,19 @@ class DocumentService:
         if team is None:
             raise EntityNotFoundError(f"Team '{payload.team_id}' does not exist.")
 
+        if payload.conversation_id is not None:
+            conversation = self.db.get(Conversation, payload.conversation_id)
+            if conversation is None:
+                raise EntityNotFoundError(f"Conversation '{payload.conversation_id}' does not exist.")
+            if conversation.team_id != payload.team_id:
+                raise EntityNotFoundError(
+                    f"Conversation '{payload.conversation_id}' does not belong to team '{payload.team_id}'."
+                )
+
         document = Document(
             document_id=str(uuid4()),
             team_id=payload.team_id,
+            conversation_id=payload.conversation_id,
             source_name=payload.source_name,
             content_type=payload.content_type,
             content=payload.content,
@@ -33,19 +44,25 @@ class DocumentService:
         self.db.refresh(document)
         return document
 
-    def list_documents(self, team_id: str) -> list[Document]:
-        stmt = (
-            select(Document)
-            .where(Document.team_id == team_id)
-            .order_by(Document.created_at.desc())
-        )
+    def list_documents(self, team_id: str, conversation_id: str | None = None) -> list[Document]:
+        stmt = select(Document).where(Document.team_id == team_id)
+        if conversation_id is not None:
+            stmt = stmt.where(Document.conversation_id == conversation_id)
+        stmt = stmt.order_by(Document.created_at.desc())
         return list(self.db.scalars(stmt).all())
 
-    def get_document_in_team(self, document_id: str, team_id: str) -> Document:
+    def get_document_in_team(
+        self,
+        document_id: str,
+        team_id: str,
+        conversation_id: str | None = None,
+    ) -> Document:
         stmt = select(Document).where(
             Document.document_id == document_id,
             Document.team_id == team_id,
         )
+        if conversation_id is not None:
+            stmt = stmt.where(Document.conversation_id == conversation_id)
         document = self.db.scalar(stmt)
         if document is None:
             raise EntityNotFoundError(

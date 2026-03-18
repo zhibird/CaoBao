@@ -26,6 +26,14 @@ class LLMService:
 
         return self._openai_compatible_answer(question=question, hits=hits, model=model)
 
+    def answer_chat(self, message: str, model: str | None = None) -> str:
+        """General chat answer without retrieval context."""
+        provider = self.settings.llm_provider.lower().strip()
+        if provider == "mock":
+            return self._mock_chat_answer(message=message)
+
+        return self._openai_compatible_chat_answer(message=message, model=model)
+
     def _mock_answer(self, question: str, hits: list[dict[str, object]]) -> str:
         if not hits:
             return "No relevant knowledge chunks were found, so I cannot answer this yet."
@@ -36,6 +44,12 @@ class LLMService:
 
         answer = self._pick_best_sentence(question=question, candidates=candidates)
         return f"[Mock Answer] {answer}"
+
+    def _mock_chat_answer(self, message: str) -> str:
+        normalized = message.strip()
+        if not normalized:
+            return "[Mock Chat] Please tell me what you want to discuss."
+        return f"[Mock Chat] {normalized}"
 
     def _openai_compatible_answer(
         self,
@@ -54,44 +68,79 @@ class LLMService:
         )
         user_prompt = f"Question:\n{question}\n\nContext:\n{context}"
 
+        payload = self._build_payload(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        )
+
+        try:
+            response = self._post_chat_completion(payload)
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise DomainValidationError(f"LLM request failed: {exc}") from exc
+
+        return self._parse_llm_answer(response.json())
+
+    def _openai_compatible_chat_answer(
+        self,
+        message: str,
+        model: str | None = None,
+    ) -> str:
+        if not self.settings.llm_api_key:
+            raise DomainValidationError("LLM_API_KEY is required when llm_provider is not 'mock'.")
+
+        system_prompt = "You are CaiBao, a helpful enterprise assistant."
+        payload = self._build_payload(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": message},
+            ],
+        )
+
+        try:
+            response = self._post_chat_completion(payload)
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise DomainValidationError(f"LLM request failed: {exc}") from exc
+
+        return self._parse_llm_answer(response.json())
+
+    def _build_payload(self, model: str | None, messages: list[dict[str, str]]) -> dict[str, object]:
+        selected_model = model.strip() if model else self.settings.llm_model
+        return {
+            "model": selected_model,
+            "messages": messages,
+            "temperature": self.settings.llm_temperature,
+            "max_tokens": self.settings.llm_max_tokens,
+        }
+
+    def _post_chat_completion(self, payload: dict[str, object]) -> httpx.Response:
         base_url = self.settings.llm_base_url.rstrip("/")
         url = f"{base_url}/chat/completions"
         headers = {
             "Authorization": f"Bearer {self.settings.llm_api_key}",
             "Content-Type": "application/json",
         }
-        selected_model = model.strip() if model else self.settings.llm_model
-        payload = {
-            "model": selected_model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            "temperature": self.settings.llm_temperature,
-            "max_tokens": self.settings.llm_max_tokens,
-        }
+        return httpx.post(
+            url,
+            headers=headers,
+            json=payload,
+            timeout=self.settings.llm_timeout_seconds,
+        )
 
+    def _parse_llm_answer(self, body: dict[str, object]) -> str:
         try:
-            response = httpx.post(
-                url,
-                headers=headers,
-                json=payload,
-                timeout=self.settings.llm_timeout_seconds,
-            )
-            response.raise_for_status()
-        except httpx.HTTPError as exc:
-            raise DomainValidationError(f"LLM request failed: {exc}") from exc
-
-        body = response.json()
-        try:
-            content = body["choices"][0]["message"]["content"]
+            content = body["choices"][0]["message"]["content"]  # type: ignore[index]
         except (KeyError, IndexError, TypeError) as exc:
             raise DomainValidationError("LLM response format is invalid.") from exc
 
         answer = str(content).strip()
         if not answer:
             raise DomainValidationError("LLM returned an empty answer.")
-
         return answer
 
     def _build_context(self, hits: list[dict[str, object]]) -> str:

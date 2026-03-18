@@ -17,13 +17,18 @@ class ChunkService:
         self,
         document_id: str,
         team_id: str,
+        conversation_id: str | None,
         max_chars: int,
         overlap: int,
     ) -> list[DocumentChunk]:
         if overlap >= max_chars:
             raise DomainValidationError("overlap must be smaller than max_chars.")
 
-        document = self._get_document_in_team(document_id=document_id, team_id=team_id)
+        document = self._get_document_in_team(
+            document_id=document_id,
+            team_id=team_id,
+            conversation_id=conversation_id,
+        )
         pieces = self._split_text(
             text=document.content,
             max_chars=max_chars,
@@ -61,10 +66,23 @@ class ChunkService:
         self.db.add_all(chunks)
         self.db.commit()
 
-        return self.list_chunks(document_id=document_id, team_id=team_id)
+        return self.list_chunks(
+            document_id=document_id,
+            team_id=team_id,
+            conversation_id=conversation_id,
+        )
 
-    def list_chunks(self, document_id: str, team_id: str) -> list[DocumentChunk]:
-        self._get_document_in_team(document_id=document_id, team_id=team_id)
+    def list_chunks(
+        self,
+        document_id: str,
+        team_id: str,
+        conversation_id: str | None,
+    ) -> list[DocumentChunk]:
+        self._get_document_in_team(
+            document_id=document_id,
+            team_id=team_id,
+            conversation_id=conversation_id,
+        )
 
         stmt = (
             select(DocumentChunk)
@@ -76,11 +94,18 @@ class ChunkService:
         )
         return list(self.db.scalars(stmt).all())
 
-    def _get_document_in_team(self, document_id: str, team_id: str) -> Document:
+    def _get_document_in_team(
+        self,
+        document_id: str,
+        team_id: str,
+        conversation_id: str | None,
+    ) -> Document:
         stmt = select(Document).where(
             Document.document_id == document_id,
             Document.team_id == team_id,
         )
+        if conversation_id is not None:
+            stmt = stmt.where(Document.conversation_id == conversation_id)
         document = self.db.scalar(stmt)
         if document is None:
             raise EntityNotFoundError(

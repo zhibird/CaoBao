@@ -22,12 +22,14 @@ def index_chunks(
         indexed = retrieval_service.index_chunks(
             team_id=payload.team_id,
             document_id=payload.document_id,
+            conversation_id=payload.conversation_id,
         )
     except EntityNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
     return RetrievalIndexResult(
         team_id=payload.team_id,
+        conversation_id=payload.conversation_id,
         document_id=payload.document_id,
         indexed_chunks=indexed,
     )
@@ -44,12 +46,14 @@ def search_chunks(
             query=payload.query,
             top_k=payload.top_k,
             document_id=payload.document_id,
+            conversation_id=payload.conversation_id,
         )
     except EntityNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
     return RetrievalSearchResult(
         team_id=payload.team_id,
+        conversation_id=payload.conversation_id,
         query=payload.query,
         top_k=payload.top_k,
         hits=hits,

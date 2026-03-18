@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.exceptions import EntityNotFoundError
 from app.models.chunk_embedding import ChunkEmbedding
+from app.models.document import Document
 from app.models.document_chunk import DocumentChunk
 from app.models.team import Team
 from app.services.embedding_service import EmbeddingService
@@ -16,10 +17,19 @@ class RetrievalService:
         self.db = db
         self.embedding_service = embedding_service
 
-    def index_chunks(self, team_id: str, document_id: str | None = None) -> int:
+    def index_chunks(
+        self,
+        team_id: str,
+        document_id: str | None = None,
+        conversation_id: str | None = None,
+    ) -> int:
         self._ensure_team_exists(team_id=team_id)
 
         stmt = select(DocumentChunk).where(DocumentChunk.team_id == team_id)
+        if conversation_id is not None:
+            stmt = stmt.join(Document, Document.document_id == DocumentChunk.document_id).where(
+                Document.conversation_id == conversation_id
+            )
         if document_id is not None:
             stmt = stmt.where(DocumentChunk.document_id == document_id)
 
@@ -61,6 +71,7 @@ class RetrievalService:
         query: str,
         top_k: int,
         document_id: str | None = None,
+        conversation_id: str | None = None,
     ) -> list[dict[str, object]]:
         self._ensure_team_exists(team_id=team_id)
 
@@ -71,6 +82,10 @@ class RetrievalService:
             .join(DocumentChunk, ChunkEmbedding.chunk_id == DocumentChunk.chunk_id)
             .where(ChunkEmbedding.team_id == team_id)
         )
+        if conversation_id is not None:
+            stmt = stmt.join(Document, Document.document_id == ChunkEmbedding.document_id).where(
+                Document.conversation_id == conversation_id
+            )
         if document_id is not None:
             stmt = stmt.where(ChunkEmbedding.document_id == document_id)
 
@@ -95,6 +110,26 @@ class RetrievalService:
 
         scored_hits.sort(key=lambda item: item["score"], reverse=True)
         return scored_hits[:top_k]
+
+    def has_indexed_chunks(
+        self,
+        team_id: str,
+        document_id: str | None = None,
+        conversation_id: str | None = None,
+    ) -> bool:
+        """Check whether indexed chunks exist for the team/document scope."""
+        self._ensure_team_exists(team_id=team_id)
+
+        stmt = select(ChunkEmbedding.embedding_id).where(ChunkEmbedding.team_id == team_id)
+        if conversation_id is not None:
+            stmt = stmt.join(Document, Document.document_id == ChunkEmbedding.document_id).where(
+                Document.conversation_id == conversation_id
+            )
+        if document_id is not None:
+            stmt = stmt.where(ChunkEmbedding.document_id == document_id)
+
+        first_embedding_id = self.db.scalar(stmt.limit(1))
+        return first_embedding_id is not None
 
     def _ensure_team_exists(self, team_id: str) -> None:
         team = self.db.get(Team, team_id)

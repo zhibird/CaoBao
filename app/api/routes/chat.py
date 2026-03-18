@@ -36,6 +36,7 @@ def chat_echo(
         chat_history_service.record_message(
             team_id=payload.team_id,
             user_id=payload.user_id,
+            conversation_id=payload.conversation_id,
             channel="echo",
             request_text=payload.message,
             response_text=response.answer,
@@ -60,6 +61,7 @@ def chat_ask(
         chat_history_service.record_message(
             team_id=payload.team_id,
             user_id=payload.user_id,
+            conversation_id=payload.conversation_id,
             channel="ask",
             request_text=payload.question,
             response_text=response.answer,
@@ -89,6 +91,7 @@ def chat_action(
         chat_history_service.record_message(
             team_id=payload.team_id,
             user_id=payload.user_id,
+            conversation_id=payload.conversation_id,
             channel="action",
             request_text=payload.action,
             response_text=response_text,
@@ -106,15 +109,22 @@ def chat_action(
 def chat_history(
     team_id: str = Query(min_length=1, max_length=64),
     user_id: str | None = Query(default=None, min_length=1, max_length=64),
+    conversation_id: str | None = Query(default=None, min_length=1, max_length=36),
     limit: int = Query(default=20, ge=1, le=200),
     chat_history_service: ChatHistoryService = Depends(get_chat_history_service),
 ) -> ChatHistoryListResponse:
     try:
-        records = chat_history_service.list_history(team_id=team_id, user_id=user_id, limit=limit)
+        records = chat_history_service.list_history(
+            team_id=team_id,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            limit=limit,
+        )
         items = [ChatHistoryItem.from_record(item) for item in records]
         return ChatHistoryListResponse.from_result(
             team_id=team_id,
             user_id=user_id,
+            conversation_id=conversation_id,
             limit=limit,
             items=items,
         )

@@ -10,20 +10,29 @@ from app.schemas.retrieval import RetrievalHit
 class ChatEchoRequest(BaseModel):
     user_id: str = Field(min_length=1, max_length=64)
     team_id: str = Field(min_length=1, max_length=64)
+    conversation_id: str | None = Field(default=None, min_length=1, max_length=36)
     message: str = Field(min_length=1, max_length=2000)
 
 
 class ChatEchoResponse(BaseModel):
     user_id: str
     team_id: str
+    conversation_id: str | None = None
     answer: str
     created_at: str
 
     @classmethod
-    def from_message(cls, user_id: str, team_id: str, answer: str) -> "ChatEchoResponse":
+    def from_message(
+        cls,
+        user_id: str,
+        team_id: str,
+        answer: str,
+        conversation_id: str | None = None,
+    ) -> "ChatEchoResponse":
         return cls(
             user_id=user_id,
             team_id=team_id,
+            conversation_id=conversation_id,
             answer=answer,
             created_at=datetime.now(timezone.utc).isoformat(),
         )
@@ -32,6 +41,7 @@ class ChatEchoResponse(BaseModel):
 class ChatAskRequest(BaseModel):
     user_id: str = Field(min_length=1, max_length=64)
     team_id: str = Field(min_length=1, max_length=64)
+    conversation_id: str | None = Field(default=None, min_length=1, max_length=36)
     question: str = Field(min_length=1, max_length=2000)
     top_k: int = Field(default=5, ge=1, le=20)
     document_id: str | None = Field(default=None, min_length=1, max_length=36)
@@ -41,6 +51,7 @@ class ChatAskRequest(BaseModel):
 class ChatAskResponse(BaseModel):
     user_id: str
     team_id: str
+    conversation_id: str | None = None
     question: str
     answer: str
     hits: list[RetrievalHit]
@@ -52,6 +63,7 @@ class ChatAskResponse(BaseModel):
         cls,
         user_id: str,
         team_id: str,
+        conversation_id: str | None,
         question: str,
         answer: str,
         hits: list[RetrievalHit],
@@ -60,6 +72,7 @@ class ChatAskResponse(BaseModel):
         return cls(
             user_id=user_id,
             team_id=team_id,
+            conversation_id=conversation_id,
             question=question,
             answer=answer,
             hits=hits,
@@ -71,6 +84,7 @@ class ChatAskResponse(BaseModel):
 class ChatActionRequest(BaseModel):
     user_id: str = Field(min_length=1, max_length=64)
     team_id: str = Field(min_length=1, max_length=64)
+    conversation_id: str | None = Field(default=None, min_length=1, max_length=36)
     action: str = Field(min_length=1, max_length=64)
     arguments: dict[str, Any] = Field(default_factory=dict)
 
@@ -78,6 +92,7 @@ class ChatActionRequest(BaseModel):
 class ChatActionResponse(BaseModel):
     user_id: str
     team_id: str
+    conversation_id: str | None = None
     action: str
     result: dict[str, Any]
     created_at: str
@@ -88,12 +103,14 @@ class ChatActionResponse(BaseModel):
         *,
         user_id: str,
         team_id: str,
+        conversation_id: str | None,
         action: str,
         result: dict[str, Any],
     ) -> "ChatActionResponse":
         return cls(
             user_id=user_id,
             team_id=team_id,
+            conversation_id=conversation_id,
             action=action,
             result=result,
             created_at=datetime.now(timezone.utc).isoformat(),
@@ -104,6 +121,7 @@ class ChatHistoryItem(BaseModel):
     message_id: str
     team_id: str
     user_id: str
+    conversation_id: str | None
     channel: str
     request_text: str
     response_text: str
@@ -117,6 +135,7 @@ class ChatHistoryItem(BaseModel):
             message_id=record.message_id,
             team_id=record.team_id,
             user_id=record.user_id,
+            conversation_id=record.conversation_id,
             channel=record.channel,
             request_text=record.request_text,
             response_text=record.response_text,
@@ -129,6 +148,7 @@ class ChatHistoryItem(BaseModel):
 class ChatHistoryListResponse(BaseModel):
     team_id: str
     user_id: str | None
+    conversation_id: str | None
     limit: int
     items: list[ChatHistoryItem]
 
@@ -138,10 +158,17 @@ class ChatHistoryListResponse(BaseModel):
         *,
         team_id: str,
         user_id: str | None,
+        conversation_id: str | None,
         limit: int,
         items: list[ChatHistoryItem],
     ) -> "ChatHistoryListResponse":
-        return cls(team_id=team_id, user_id=user_id, limit=limit, items=items)
+        return cls(
+            team_id=team_id,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            limit=limit,
+            items=items,
+        )
 
 
 def _safe_json_loads(raw: str) -> dict[str, Any]:

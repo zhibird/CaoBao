@@ -19,4 +19,5 @@ class ChatService:
             user_id=payload.user_id,
             team_id=payload.team_id,
             answer=answer,
+            conversation_id=payload.conversation_id,
         )

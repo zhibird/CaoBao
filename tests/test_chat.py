@@ -138,7 +138,7 @@ def test_chat_ask_returns_answer_and_hits(client) -> None:
     assert len(body["hits"]) >= 1
 
 
-def test_chat_ask_requires_indexed_chunks(client) -> None:
+def test_chat_ask_falls_back_to_chat_mode_without_index(client) -> None:
     suffix = uuid4().hex[:8]
     team_id = f"team_ask_no_index_{suffix}"
     user_id = f"u_ask_no_index_{suffix}"
@@ -174,7 +174,13 @@ def test_chat_ask_requires_indexed_chunks(client) -> None:
         },
     )
 
-    assert ask_response.status_code == 404
+    assert ask_response.status_code == 200
+    body = ask_response.json()
+    assert body["user_id"] == user_id
+    assert body["team_id"] == team_id
+    assert body["answer"]
+    assert body["answer"].startswith("[Mock Chat]")
+    assert body["hits"] == []
 
 
 def test_chat_action_create_incident(client) -> None:

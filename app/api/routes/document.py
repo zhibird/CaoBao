@@ -30,9 +30,13 @@ def import_document(
 @router.get("", response_model=list[DocumentResponse])
 def list_documents(
     team_id: str = Query(min_length=1, max_length=64),
+    conversation_id: str | None = Query(default=None, min_length=1, max_length=36),
     document_service: DocumentService = Depends(get_document_service),
 ) -> list[DocumentResponse]:
-    documents = document_service.list_documents(team_id=team_id)
+    documents = document_service.list_documents(
+        team_id=team_id,
+        conversation_id=conversation_id,
+    )
     return [DocumentResponse.model_validate(document) for document in documents]
 
 
@@ -40,12 +44,14 @@ def list_documents(
 def get_document(
     document_id: str,
     team_id: str = Query(min_length=1, max_length=64),
+    conversation_id: str | None = Query(default=None, min_length=1, max_length=36),
     document_service: DocumentService = Depends(get_document_service),
 ) -> DocumentResponse:
     try:
         document = document_service.get_document_in_team(
             document_id=document_id,
             team_id=team_id,
+            conversation_id=conversation_id,
         )
     except EntityNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
@@ -63,6 +69,7 @@ def chunk_document(
         chunks = chunk_service.chunk_document(
             document_id=document_id,
             team_id=payload.team_id,
+            conversation_id=payload.conversation_id,
             max_chars=payload.max_chars,
             overlap=payload.overlap,
         )
@@ -83,10 +90,15 @@ def chunk_document(
 def list_chunks(
     document_id: str,
     team_id: str = Query(min_length=1, max_length=64),
+    conversation_id: str | None = Query(default=None, min_length=1, max_length=36),
     chunk_service: ChunkService = Depends(get_chunk_service),
 ) -> list[DocumentChunkResponse]:
     try:
-        chunks = chunk_service.list_chunks(document_id=document_id, team_id=team_id)
+        chunks = chunk_service.list_chunks(
+            document_id=document_id,
+            team_id=team_id,
+            conversation_id=conversation_id,
+        )
     except EntityNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 

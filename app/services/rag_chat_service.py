@@ -22,11 +22,33 @@ class RagChatService:
             team_id=payload.team_id,
         )
 
+        should_use_rag = self.retrieval_service.has_indexed_chunks(
+            team_id=payload.team_id,
+            document_id=payload.document_id,
+            conversation_id=payload.conversation_id,
+        )
+
+        if not should_use_rag:
+            answer = self.llm_service.answer_chat(
+                message=payload.question,
+                model=payload.model,
+            )
+            return ChatAskResponse.from_result(
+                user_id=payload.user_id,
+                team_id=payload.team_id,
+                conversation_id=payload.conversation_id,
+                question=payload.question,
+                answer=answer,
+                hits=[],
+                model=payload.model,
+            )
+
         raw_hits = self.retrieval_service.search_chunks(
             team_id=payload.team_id,
             query=payload.question,
             top_k=payload.top_k,
             document_id=payload.document_id,
+            conversation_id=payload.conversation_id,
         )
 
         answer = self.llm_service.answer_question(
@@ -39,6 +61,7 @@ class RagChatService:
         return ChatAskResponse.from_result(
             user_id=payload.user_id,
             team_id=payload.team_id,
+            conversation_id=payload.conversation_id,
             question=payload.question,
             answer=answer,
             hits=hits,

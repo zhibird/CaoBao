@@ -22,6 +22,11 @@ class ChatHistory(Base):
         nullable=False,
         index=True,
     )
+    conversation_id: Mapped[str | None] = mapped_column(
+        ForeignKey("conversations.conversation_id"),
+        nullable=True,
+        index=True,
+    )
     channel: Mapped[str] = mapped_column(String(16), nullable=False)
     request_text: Mapped[str] = mapped_column(Text, nullable=False)
     response_text: Mapped[str] = mapped_column(Text, nullable=False)
