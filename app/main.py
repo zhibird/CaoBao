@@ -1,7 +1,9 @@
-﻿from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.api.router import api_router
 from app.core.config import get_settings
@@ -32,6 +34,14 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(api_router, prefix=settings.api_prefix)
+
+    web_dir = Path(__file__).resolve().parent / "web"
+    app.mount("/web", StaticFiles(directory=web_dir), name="web")
+
+    @app.get("/", include_in_schema=False)
+    def serve_frontend() -> FileResponse:
+        return FileResponse(web_dir / "index.html")
+
     return app
 
 

@@ -32,6 +32,7 @@ class RagChatService:
         answer = self.llm_service.answer_question(
             question=payload.question,
             hits=raw_hits,
+            model=payload.model,
         )
 
         hits = [RetrievalHit.model_validate(item) for item in raw_hits]
@@ -41,4 +42,5 @@ class RagChatService:
             question=payload.question,
             answer=answer,
             hits=hits,
+            model=payload.model,
         )

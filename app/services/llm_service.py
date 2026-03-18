@@ -14,12 +14,17 @@ class LLMService:
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
 
-    def answer_question(self, question: str, hits: list[dict[str, object]]) -> str:
+    def answer_question(
+        self,
+        question: str,
+        hits: list[dict[str, object]],
+        model: str | None = None,
+    ) -> str:
         provider = self.settings.llm_provider.lower().strip()
         if provider == "mock":
             return self._mock_answer(question=question, hits=hits)
 
-        return self._openai_compatible_answer(question=question, hits=hits)
+        return self._openai_compatible_answer(question=question, hits=hits, model=model)
 
     def _mock_answer(self, question: str, hits: list[dict[str, object]]) -> str:
         if not hits:
@@ -32,7 +37,12 @@ class LLMService:
         answer = self._pick_best_sentence(question=question, candidates=candidates)
         return f"[Mock Answer] {answer}"
 
-    def _openai_compatible_answer(self, question: str, hits: list[dict[str, object]]) -> str:
+    def _openai_compatible_answer(
+        self,
+        question: str,
+        hits: list[dict[str, object]],
+        model: str | None = None,
+    ) -> str:
         if not self.settings.llm_api_key:
             raise DomainValidationError("LLM_API_KEY is required when llm_provider is not 'mock'.")
 
@@ -50,8 +60,9 @@ class LLMService:
             "Authorization": f"Bearer {self.settings.llm_api_key}",
             "Content-Type": "application/json",
         }
+        selected_model = model.strip() if model else self.settings.llm_model
         payload = {
-            "model": self.settings.llm_model,
+            "model": selected_model,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},

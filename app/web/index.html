@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CaiBao Chat</title>
+  <link rel="stylesheet" href="/web/styles.css" />
+</head>
+<body>
+  <div class="bg-orb orb-a" aria-hidden="true"></div>
+  <div class="bg-orb orb-b" aria-hidden="true"></div>
+  <div class="noise" aria-hidden="true"></div>
+
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="sidebar-top">
+        <div class="product-badge">CaiBao</div>
+        <button id="newSessionBtn" class="primary-btn" type="button">+ 新会话</button>
+
+        <p class="section-title">聊天记录</p>
+        <ul id="historyList" class="history-list"></ul>
+
+        <p class="section-title">项目文档</p>
+        <ul id="documentList" class="document-list"></ul>
+      </div>
+
+      <button id="profileBtn" class="profile-card" type="button">
+        <div class="avatar" id="avatarText">未</div>
+        <div class="profile-meta">
+          <strong id="profileName">未登录</strong>
+          <span id="profileTeam">点击登录或切换用户</span>
+        </div>
+      </button>
+    </aside>
+
+    <main class="main-pane">
+      <header class="main-topbar">
+        <div class="picker-group">
+          <label for="modelSelect">模型</label>
+          <select id="modelSelect" aria-label="选择模型"></select>
+        </div>
+
+        <div class="picker-group">
+          <label for="docSelect">文档范围</label>
+          <select id="docSelect" aria-label="选择文档范围">
+            <option value="">全部文档</option>
+          </select>
+        </div>
+
+        <button id="refreshAllBtn" class="ghost-btn" type="button">刷新数据</button>
+      </header>
+
+      <section class="conversation">
+        <h1 id="heroTitle">有什么我能帮您的吗？</h1>
+        <div id="messageList" class="message-list"></div>
+      </section>
+
+      <section class="composer-zone">
+        <div id="importPanel" class="import-panel hidden">
+          <div class="panel-row">
+            <div class="field">
+              <label for="fileInput">文件导入</label>
+              <input id="fileInput" type="file" accept=".txt,.md,text/plain,text/markdown" />
+            </div>
+            <div class="field">
+              <label for="sourceName">source_name</label>
+              <input id="sourceName" type="text" placeholder="例如：ops-guide.md" />
+            </div>
+            <div class="field compact">
+              <label for="contentType">content_type</label>
+              <select id="contentType">
+                <option value="md">md</option>
+                <option value="txt">txt</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="fileContent">内容</label>
+            <textarea id="fileContent" rows="6" placeholder="支持粘贴文本，或选择 .txt/.md 文件自动填充"></textarea>
+          </div>
+
+          <div class="panel-row">
+            <label class="inline-check">
+              <input id="autoChunk" type="checkbox" checked />
+              导入后自动切分
+            </label>
+            <label class="inline-check">
+              <input id="autoIndex" type="checkbox" checked />
+              自动建立索引
+            </label>
+            <div class="field compact">
+              <label for="maxChars">max_chars</label>
+              <input id="maxChars" type="number" min="100" max="4000" value="600" />
+            </div>
+            <div class="field compact">
+              <label for="overlap">overlap</label>
+              <input id="overlap" type="number" min="0" max="1000" value="80" />
+            </div>
+            <button id="importBtn" class="primary-btn" type="button">导入并处理</button>
+          </div>
+        </div>
+
+        <div class="composer">
+          <button id="toggleImportBtn" class="icon-btn" type="button" title="导入文件">+</button>
+          <textarea id="messageInput" rows="1" placeholder="输入你的问题，Enter 发送，Shift+Enter 换行"></textarea>
+          <button id="sendBtn" class="send-btn" type="button">发送</button>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="authModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="authTitle">
+    <div class="modal-card">
+      <h2 id="authTitle">登录 / 切换用户</h2>
+      <p class="modal-tip">首次登录会自动创建团队和用户；若已存在会直接复用。</p>
+
+      <div class="field">
+        <label for="teamIdInput">team_id</label>
+        <input id="teamIdInput" type="text" placeholder="例如：team_ops" />
+      </div>
+      <div class="field">
+        <label for="teamNameInput">team_name</label>
+        <input id="teamNameInput" type="text" placeholder="例如：运维团队" />
+      </div>
+      <div class="field">
+        <label for="userIdInput">user_id</label>
+        <input id="userIdInput" type="text" placeholder="例如：u_zhangsan" />
+      </div>
+      <div class="field">
+        <label for="displayNameInput">display_name</label>
+        <input id="displayNameInput" type="text" placeholder="例如：张三" />
+      </div>
+
+      <div class="modal-actions">
+        <button id="cancelAuthBtn" class="ghost-btn" type="button">取消</button>
+        <button id="saveAuthBtn" class="primary-btn" type="button">保存并登录</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="/web/app.js" defer></script>
+</body>
+</html>
