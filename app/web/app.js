@@ -352,7 +352,10 @@ function renderConversationList() {
     li.innerHTML = `
       <div class="history-row">
         <div class="history-title">${escapeHtml(title)}</div>
-        <button class="history-delete" type="button" data-id="${escapeHtml(item.conversation_id)}">删</button>
+        <div class="history-actions">
+          <button class="history-rename" type="button" data-id="${escapeHtml(item.conversation_id)}">改名</button>
+          <button class="history-delete" type="button" data-id="${escapeHtml(item.conversation_id)}">删</button>
+        </div>
       </div>
       <div class="history-meta">${escapeHtml(createdAt)}</div>
     `;
@@ -365,6 +368,13 @@ function renderConversationList() {
       deleteBtn.addEventListener("click", (event) => {
         event.stopPropagation();
         deleteConversation(item.conversation_id).catch((error) => showToast(error.message, true));
+      });
+    }
+    const renameBtn = li.querySelector(".history-rename");
+    if (renameBtn) {
+      renameBtn.addEventListener("click", (event) => {
+        event.stopPropagation();
+        renameConversation(item).catch((error) => showToast(error.message, true));
       });
     }
     els.historyList.appendChild(li);
@@ -389,15 +399,41 @@ async function createConversation(title) {
   });
 }
 
+async function renameConversation(conversation) {
+  const currentTitle = String(conversation.title || "新会话").trim();
+  const input = window.prompt("输入新的会话名称", currentTitle);
+  if (input === null) {
+    return;
+  }
+
+  const title = input.trim();
+  if (!title) {
+    showToast("会话名称不能为空", true);
+    return;
+  }
+
+  if (title === currentTitle) {
+    return;
+  }
+
+  await apiRequest(`/conversations/${encodeURIComponent(conversation.conversation_id)}`, {
+    method: "PATCH",
+    body: {
+      team_id: state.teamId,
+      user_id: state.userId,
+      title,
+    },
+  });
+
+  await loadConversations();
+  showToast("会话已重命名");
+}
+
 async function createAndSwitchConversation() {
   if (!ensureIdentity()) {
     openAuthModal();
     showToast("请先登录团队与用户", true);
     return;
-  }
-
-  if (!state.conversationId) {
-    await ensureActiveConversation();
   }
 
   if (!state.conversationId) {
@@ -453,6 +489,66 @@ async function loadHistory() {
   renderCurrentConversationMessages();
 }
 
+async function deleteHistoryMessage(messageId) {
+  if (!messageId) {
+    return;
+  }
+
+  if (!window.confirm("确认删除这一轮对话吗？")) {
+    return;
+  }
+
+  const query = new URLSearchParams({
+    team_id: state.teamId,
+    user_id: state.userId,
+    conversation_id: state.conversationId,
+  });
+
+  await apiRequest(`/chat/history/${encodeURIComponent(messageId)}?${query.toString()}`, {
+    method: "DELETE",
+  });
+  await loadHistory();
+  showToast("消息已删除");
+}
+
+async function editHistoryMessage(messageId, currentText, channel) {
+  if (!messageId) {
+    return;
+  }
+
+  if (channel === "action") {
+    showToast("工具调用消息不支持编辑", true);
+    return;
+  }
+
+  const input = window.prompt("编辑用户消息", currentText || "");
+  if (input === null) {
+    return;
+  }
+
+  const requestText = input.trim();
+  if (!requestText) {
+    showToast("消息不能为空", true);
+    return;
+  }
+
+  if (requestText === (currentText || "").trim()) {
+    return;
+  }
+
+  await apiRequest(`/chat/history/${encodeURIComponent(messageId)}`, {
+    method: "PUT",
+    body: {
+      team_id: state.teamId,
+      user_id: state.userId,
+      request_text: requestText,
+    },
+  });
+
+  await loadHistory();
+  showToast("消息已更新并重新生成回复");
+}
+
 function renderCurrentConversationMessages() {
   clearConversation();
   if (!state.history.length) {
@@ -461,10 +557,20 @@ function renderCurrentConversationMessages() {
 
   const ordered = [...state.history].reverse();
   for (const item of ordered) {
-    appendMessage("user", item.request_text || "");
+    appendMessage("user", item.request_text || "", {
+      createdAt: item.created_at,
+      messageId: item.message_id,
+      channel: item.channel,
+      editable: item.channel !== "action",
+      deletable: true,
+    });
     const hits = item.response_payload && Array.isArray(item.response_payload.hits) ? item.response_payload.hits : [];
     const model = item.response_payload && item.response_payload.model ? item.response_payload.model : "";
-    appendMessage("assistant", item.response_text || "", { hits, model });
+    appendMessage("assistant", item.response_text || "", {
+      createdAt: item.created_at,
+      hits,
+      model,
+    });
   }
 }
 
@@ -738,11 +844,14 @@ function appendMessage(role, content, options = {}) {
   const left = document.createElement("span");
   left.textContent = role === "user" ? state.displayName || "你" : "CaiBao";
 
+  const createdDate = options.createdAt ? new Date(options.createdAt) : new Date();
+  const timeText = Number.isNaN(createdDate.valueOf()) ? formatClock(new Date()) : formatClock(createdDate);
+
   const right = document.createElement("span");
   if (role === "assistant" && options.model) {
-    right.textContent = `${formatClock(new Date())} · ${options.model}`;
+    right.textContent = `${timeText} · ${options.model}`;
   } else {
-    right.textContent = formatClock(new Date());
+    right.textContent = timeText;
   }
 
   head.appendChild(left);
@@ -754,6 +863,39 @@ function appendMessage(role, content, options = {}) {
 
   message.appendChild(head);
   message.appendChild(body);
+
+  if (role === "user" && options.messageId && (options.editable || options.deletable)) {
+    const tools = document.createElement("div");
+    tools.className = "message-tools";
+
+    if (options.editable) {
+      const editBtn = document.createElement("button");
+      editBtn.className = "message-tool-btn";
+      editBtn.type = "button";
+      editBtn.textContent = "编辑";
+      editBtn.addEventListener("click", () => {
+        editHistoryMessage(options.messageId, content, options.channel).catch((error) => {
+          showToast(error.message, true);
+        });
+      });
+      tools.appendChild(editBtn);
+    }
+
+    if (options.deletable) {
+      const deleteBtn = document.createElement("button");
+      deleteBtn.className = "message-tool-btn";
+      deleteBtn.type = "button";
+      deleteBtn.textContent = "删除";
+      deleteBtn.addEventListener("click", () => {
+        deleteHistoryMessage(options.messageId).catch((error) => {
+          showToast(error.message, true);
+        });
+      });
+      tools.appendChild(deleteBtn);
+    }
+
+    message.appendChild(tools);
+  }
 
   if (role === "assistant" && Array.isArray(options.hits) && options.hits.length) {
     const hitBox = document.createElement("div");

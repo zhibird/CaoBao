@@ -87,6 +87,41 @@ def test_create_list_delete_conversation(client) -> None:
     assert conversation_id not in listed_ids_after
 
 
+def test_rename_conversation(client) -> None:
+    suffix = uuid4().hex[:8]
+    team_id, user_id = _create_team_and_user(client, suffix)
+
+    conversation_id = _create_conversation(
+        client=client,
+        team_id=team_id,
+        user_id=user_id,
+        title="Before Rename",
+    )
+
+    rename_response = client.patch(
+        f"/api/v1/conversations/{conversation_id}",
+        json={
+            "team_id": team_id,
+            "user_id": user_id,
+            "title": "After Rename",
+        },
+    )
+    assert rename_response.status_code == 200
+    assert rename_response.json()["title"] == "After Rename"
+
+    list_response = client.get(
+        "/api/v1/conversations",
+        params={
+            "team_id": team_id,
+            "user_id": user_id,
+            "limit": 20,
+        },
+    )
+    assert list_response.status_code == 200
+    listed = {item["conversation_id"]: item for item in list_response.json()}
+    assert listed[conversation_id]["title"] == "After Rename"
+
+
 def test_conversation_scoped_documents_and_history(client) -> None:
     suffix = uuid4().hex[:8]
     team_id, user_id = _create_team_and_user(client, suffix)

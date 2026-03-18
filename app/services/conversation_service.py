@@ -70,6 +70,24 @@ class ConversationService:
 
         return conversation
 
+    def rename(self, *, conversation_id: str, team_id: str, user_id: str, title: str) -> Conversation:
+        normalized_title = title.strip()
+        if not normalized_title:
+            raise DomainValidationError("title cannot be empty.")
+
+        if len(normalized_title) > 255:
+            raise DomainValidationError("title length must be less than or equal to 255.")
+
+        conversation = self.ensure_access(
+            conversation_id=conversation_id,
+            team_id=team_id,
+            user_id=user_id,
+        )
+        conversation.title = normalized_title
+        self.db.commit()
+        self.db.refresh(conversation)
+        return conversation
+
     def delete(self, *, conversation_id: str, team_id: str, user_id: str) -> None:
         self.ensure_access(conversation_id=conversation_id, team_id=team_id, user_id=user_id)
 

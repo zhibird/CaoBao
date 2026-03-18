@@ -1,3 +1,6 @@
+import json
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.api.deps import (
@@ -14,6 +17,7 @@ from app.schemas.chat import (
     ChatAskResponse,
     ChatEchoRequest,
     ChatEchoResponse,
+    ChatHistoryEditRequest,
     ChatHistoryItem,
     ChatHistoryListResponse,
 )
@@ -105,6 +109,97 @@ def chat_action(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
+@router.delete("/history/{message_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_chat_history_message(
+    message_id: str,
+    team_id: str = Query(min_length=1, max_length=64),
+    user_id: str = Query(min_length=1, max_length=64),
+    conversation_id: str | None = Query(default=None, min_length=1, max_length=36),
+    chat_history_service: ChatHistoryService = Depends(get_chat_history_service),
+) -> None:
+    try:
+        chat_history_service.delete_message(
+            message_id=message_id,
+            team_id=team_id,
+            user_id=user_id,
+            conversation_id=conversation_id,
+        )
+    except EntityNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except DomainValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.put("/history/{message_id}", response_model=ChatHistoryItem)
+def edit_chat_history_message(
+    message_id: str,
+    payload: ChatHistoryEditRequest,
+    chat_service: ChatService = Depends(get_chat_service),
+    rag_chat_service: RagChatService = Depends(get_rag_chat_service),
+    chat_history_service: ChatHistoryService = Depends(get_chat_history_service),
+) -> ChatHistoryItem:
+    try:
+        message = chat_history_service.get_message(
+            message_id=message_id,
+            team_id=payload.team_id,
+            user_id=payload.user_id,
+        )
+
+        channel = message.channel.strip().lower()
+        if channel == "action":
+            raise DomainValidationError("Action messages do not support editing.")
+
+        if channel == "echo":
+            echo_payload = ChatEchoRequest(
+                user_id=payload.user_id,
+                team_id=payload.team_id,
+                conversation_id=message.conversation_id,
+                message=payload.request_text,
+            )
+            echo_response = chat_service.echo(echo_payload)
+
+            request_text = echo_payload.message
+            response_text = echo_response.answer
+            request_payload = echo_payload.model_dump()
+            response_payload = echo_response.model_dump()
+        else:
+            previous_payload = _safe_json_to_dict(message.request_payload_json)
+            top_k = _resolve_top_k(payload.top_k, previous_payload)
+            document_id = _resolve_optional_string(payload.document_id, previous_payload.get("document_id"))
+            model = _resolve_optional_string(payload.model, previous_payload.get("model"))
+
+            ask_payload = ChatAskRequest(
+                user_id=payload.user_id,
+                team_id=payload.team_id,
+                conversation_id=message.conversation_id,
+                question=payload.request_text,
+                top_k=top_k,
+                document_id=document_id,
+                model=model,
+            )
+            ask_response = rag_chat_service.ask(ask_payload)
+
+            request_text = ask_payload.question
+            response_text = ask_response.answer
+            request_payload = ask_payload.model_dump()
+            response_payload = ask_response.model_dump()
+
+        updated = chat_history_service.update_message(
+            message_id=message_id,
+            team_id=payload.team_id,
+            user_id=payload.user_id,
+            request_text=request_text,
+            response_text=response_text,
+            request_payload=request_payload,
+            response_payload=response_payload,
+        )
+        return ChatHistoryItem.from_record(updated)
+    except EntityNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except DomainValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
 @router.get("/history", response_model=ChatHistoryListResponse)
 def chat_history(
     team_id: str = Query(min_length=1, max_length=64),
@@ -132,3 +227,30 @@ def chat_history(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except DomainValidationError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+def _safe_json_to_dict(raw: str) -> dict[str, Any]:
+    try:
+        decoded = json.loads(raw)
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    if isinstance(decoded, dict):
+        return decoded
+    return {}
+
+
+def _resolve_optional_string(current: str | None, previous: object) -> str | None:
+    if current is not None:
+        return current
+    if isinstance(previous, str) and previous.strip():
+        return previous
+    return None
+
+
+def _resolve_top_k(current: int | None, previous_payload: dict[str, Any]) -> int:
+    if current is not None:
+        return current
+    previous = previous_payload.get("top_k")
+    if isinstance(previous, int) and 1 <= previous <= 20:
+        return previous
+    return 5

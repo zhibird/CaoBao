@@ -4,7 +4,7 @@ import json
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import DomainValidationError, EntityNotFoundError
@@ -91,6 +91,79 @@ class ChatHistoryService:
 
         stmt = stmt.order_by(ChatHistory.created_at.desc(), ChatHistory.message_id.desc()).limit(limit)
         return list(self.db.scalars(stmt).all())
+
+    def get_message(
+        self,
+        *,
+        message_id: str,
+        team_id: str,
+        user_id: str,
+        conversation_id: str | None = None,
+    ) -> ChatHistory:
+        message = self.db.get(ChatHistory, message_id)
+        if message is None:
+            raise EntityNotFoundError(f"Message '{message_id}' does not exist.")
+
+        if message.team_id != team_id or message.user_id != user_id:
+            raise DomainValidationError("Message does not belong to the provided team/user.")
+
+        if conversation_id is not None and message.conversation_id != conversation_id:
+            raise DomainValidationError(
+                f"Message '{message_id}' does not belong to conversation '{conversation_id}'."
+            )
+
+        return message
+
+    def delete_message(
+        self,
+        *,
+        message_id: str,
+        team_id: str,
+        user_id: str,
+        conversation_id: str | None = None,
+    ) -> None:
+        self.get_message(
+            message_id=message_id,
+            team_id=team_id,
+            user_id=user_id,
+            conversation_id=conversation_id,
+        )
+
+        self.db.execute(delete(ChatHistory).where(ChatHistory.message_id == message_id))
+        self.db.commit()
+
+    def update_message(
+        self,
+        *,
+        message_id: str,
+        team_id: str,
+        user_id: str,
+        request_text: str,
+        response_text: str,
+        request_payload: dict[str, object],
+        response_payload: dict[str, object],
+    ) -> ChatHistory:
+        message = self.get_message(
+            message_id=message_id,
+            team_id=team_id,
+            user_id=user_id,
+        )
+
+        message.request_text = request_text
+        message.response_text = response_text
+        message.request_payload_json = json.dumps(
+            request_payload,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        message.response_payload_json = json.dumps(
+            response_payload,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        self.db.commit()
+        self.db.refresh(message)
+        return message
 
     def _ensure_team_exists(self, team_id: str) -> None:
         team = self.db.get(Team, team_id)

@@ -171,6 +171,15 @@ class ChatHistoryListResponse(BaseModel):
         )
 
 
+class ChatHistoryEditRequest(BaseModel):
+    team_id: str = Field(min_length=1, max_length=64)
+    user_id: str = Field(min_length=1, max_length=64)
+    request_text: str = Field(min_length=1, max_length=2000)
+    top_k: int | None = Field(default=None, ge=1, le=20)
+    document_id: str | None = Field(default=None, min_length=1, max_length=36)
+    model: str | None = Field(default=None, min_length=1, max_length=128)
+
+
 def _safe_json_loads(raw: str) -> dict[str, Any]:
     try:
         decoded = json.loads(raw)

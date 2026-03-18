@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     app_name: str = "CaiBao"
-    app_version: str = "0.2.0"
+    app_version: str = "0.3.0"
     app_env: str = "dev"
     api_prefix: str = "/api/v1"
     database_url: str = "sqlite:///./CaiBao.db"

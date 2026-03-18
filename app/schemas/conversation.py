@@ -9,6 +9,12 @@ class ConversationCreate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=255)
 
 
+class ConversationRename(BaseModel):
+    team_id: str = Field(min_length=1, max_length=64)
+    user_id: str = Field(min_length=1, max_length=64)
+    title: str = Field(min_length=1, max_length=255)
+
+
 class ConversationResponse(BaseModel):
     conversation_id: str
     team_id: str

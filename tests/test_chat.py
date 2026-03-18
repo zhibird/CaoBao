@@ -1,6 +1,45 @@
 from uuid import uuid4
 
 
+def _create_team_user_and_conversation(client, suffix: str) -> tuple[str, str, str]:
+    team_id = f"team_hist_{suffix}"
+    user_id = f"u_hist_{suffix}"
+
+    create_team = client.post(
+        "/api/v1/teams",
+        json={
+            "team_id": team_id,
+            "name": "History Team",
+            "description": "for chat history edits",
+        },
+    )
+    assert create_team.status_code == 201
+
+    create_user = client.post(
+        "/api/v1/users",
+        json={
+            "user_id": user_id,
+            "team_id": team_id,
+            "display_name": "History User",
+            "role": "member",
+        },
+    )
+    assert create_user.status_code == 201
+
+    create_conversation = client.post(
+        "/api/v1/conversations",
+        json={
+            "team_id": team_id,
+            "user_id": user_id,
+            "title": "History Session",
+        },
+    )
+    assert create_conversation.status_code == 201
+    conversation_id = create_conversation.json()["conversation_id"]
+
+    return team_id, user_id, conversation_id
+
+
 def test_chat_echo_requires_configured_user_team(client) -> None:
     suffix = uuid4().hex[:8]
     team_id = f"team_{suffix}"
@@ -372,3 +411,112 @@ def test_chat_action_rejects_invalid_incident_payload(client) -> None:
     )
 
     assert response.status_code == 400
+
+
+def test_chat_history_delete_message(client) -> None:
+    suffix = uuid4().hex[:8]
+    team_id, user_id, conversation_id = _create_team_user_and_conversation(client, suffix)
+
+    ask_response = client.post(
+        "/api/v1/chat/ask",
+        json={
+            "user_id": user_id,
+            "team_id": team_id,
+            "conversation_id": conversation_id,
+            "question": "first message",
+        },
+    )
+    assert ask_response.status_code == 200
+
+    history_before = client.get(
+        "/api/v1/chat/history",
+        params={
+            "team_id": team_id,
+            "user_id": user_id,
+            "conversation_id": conversation_id,
+            "limit": 20,
+        },
+    )
+    assert history_before.status_code == 200
+    assert len(history_before.json()["items"]) == 1
+    message_id = history_before.json()["items"][0]["message_id"]
+
+    delete_response = client.delete(
+        f"/api/v1/chat/history/{message_id}",
+        params={
+            "team_id": team_id,
+            "user_id": user_id,
+            "conversation_id": conversation_id,
+        },
+    )
+    assert delete_response.status_code == 204
+
+    history_after = client.get(
+        "/api/v1/chat/history",
+        params={
+            "team_id": team_id,
+            "user_id": user_id,
+            "conversation_id": conversation_id,
+            "limit": 20,
+        },
+    )
+    assert history_after.status_code == 200
+    assert history_after.json()["items"] == []
+
+
+def test_chat_history_edit_user_message(client) -> None:
+    suffix = uuid4().hex[:8]
+    team_id, user_id, conversation_id = _create_team_user_and_conversation(client, suffix)
+
+    ask_response = client.post(
+        "/api/v1/chat/ask",
+        json={
+            "user_id": user_id,
+            "team_id": team_id,
+            "conversation_id": conversation_id,
+            "question": "old text",
+        },
+    )
+    assert ask_response.status_code == 200
+
+    history_before = client.get(
+        "/api/v1/chat/history",
+        params={
+            "team_id": team_id,
+            "user_id": user_id,
+            "conversation_id": conversation_id,
+            "limit": 20,
+        },
+    )
+    assert history_before.status_code == 200
+    assert len(history_before.json()["items"]) == 1
+    item_before = history_before.json()["items"][0]
+    message_id = item_before["message_id"]
+
+    edit_response = client.put(
+        f"/api/v1/chat/history/{message_id}",
+        json={
+            "team_id": team_id,
+            "user_id": user_id,
+            "request_text": "new text",
+        },
+    )
+    assert edit_response.status_code == 200
+    edited = edit_response.json()
+    assert edited["request_text"] == "new text"
+    assert edited["response_text"].startswith("[Mock Chat]")
+
+    history_after = client.get(
+        "/api/v1/chat/history",
+        params={
+            "team_id": team_id,
+            "user_id": user_id,
+            "conversation_id": conversation_id,
+            "limit": 20,
+        },
+    )
+    assert history_after.status_code == 200
+    assert len(history_after.json()["items"]) == 1
+    item_after = history_after.json()["items"][0]
+    assert item_after["message_id"] == message_id
+    assert item_after["request_text"] == "new text"
