@@ -1,5 +1,6 @@
 from app.schemas.chat import ChatAskRequest, ChatAskResponse
 from app.schemas.retrieval import RetrievalHit
+from app.services.llm_model_service import LLMModelService
 from app.services.llm_service import LLMService
 from app.services.retrieval_service import RetrievalService
 from app.services.user_service import UserService
@@ -11,16 +12,29 @@ class RagChatService:
         user_service: UserService,
         retrieval_service: RetrievalService,
         llm_service: LLMService,
+        llm_model_service: LLMModelService,
     ) -> None:
         self.user_service = user_service
         self.retrieval_service = retrieval_service
         self.llm_service = llm_service
+        self.llm_model_service = llm_model_service
 
     def ask(self, payload: ChatAskRequest) -> ChatAskResponse:
         self.user_service.ensure_user_in_team(
             user_id=payload.user_id,
             team_id=payload.team_id,
         )
+
+        requested_model = payload.model.strip() if payload.model else None
+        if requested_model and requested_model.lower() == "default":
+            requested_model = None
+
+        runtime_model = self.llm_model_service.resolve_runtime_config(
+            team_id=payload.team_id,
+            user_id=payload.user_id,
+            model_name=requested_model,
+        )
+        selected_model = runtime_model.model_name if runtime_model is not None else requested_model
 
         should_use_rag = self.retrieval_service.has_indexed_chunks(
             team_id=payload.team_id,
@@ -31,7 +45,9 @@ class RagChatService:
         if not should_use_rag:
             answer = self.llm_service.answer_chat(
                 message=payload.question,
-                model=payload.model,
+                model=selected_model,
+                base_url=runtime_model.base_url if runtime_model is not None else None,
+                api_key=runtime_model.api_key if runtime_model is not None else None,
             )
             return ChatAskResponse.from_result(
                 user_id=payload.user_id,
@@ -40,7 +56,7 @@ class RagChatService:
                 question=payload.question,
                 answer=answer,
                 hits=[],
-                model=payload.model,
+                model=selected_model,
             )
 
         raw_hits = self.retrieval_service.search_chunks(
@@ -54,7 +70,9 @@ class RagChatService:
         answer = self.llm_service.answer_question(
             question=payload.question,
             hits=raw_hits,
-            model=payload.model,
+            model=selected_model,
+            base_url=runtime_model.base_url if runtime_model is not None else None,
+            api_key=runtime_model.api_key if runtime_model is not None else None,
         )
 
         hits = [RetrievalHit.model_validate(item) for item in raw_hits]
@@ -65,5 +83,5 @@ class RagChatService:
             question=payload.question,
             answer=answer,
             hits=hits,
-            model=payload.model,
+            model=selected_model,
         )

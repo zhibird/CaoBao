@@ -19,20 +19,39 @@ class LLMService:
         question: str,
         hits: list[dict[str, object]],
         model: str | None = None,
+        base_url: str | None = None,
+        api_key: str | None = None,
     ) -> str:
-        provider = self.settings.llm_provider.lower().strip()
-        if provider == "mock":
+        runtime = self._resolve_runtime(base_url=base_url, api_key=api_key)
+        if runtime is None:
             return self._mock_answer(question=question, hits=hits)
 
-        return self._openai_compatible_answer(question=question, hits=hits, model=model)
+        return self._openai_compatible_answer(
+            question=question,
+            hits=hits,
+            model=model,
+            base_url=runtime[0],
+            api_key=runtime[1],
+        )
 
-    def answer_chat(self, message: str, model: str | None = None) -> str:
+    def answer_chat(
+        self,
+        message: str,
+        model: str | None = None,
+        base_url: str | None = None,
+        api_key: str | None = None,
+    ) -> str:
         """General chat answer without retrieval context."""
-        provider = self.settings.llm_provider.lower().strip()
-        if provider == "mock":
+        runtime = self._resolve_runtime(base_url=base_url, api_key=api_key)
+        if runtime is None:
             return self._mock_chat_answer(message=message)
 
-        return self._openai_compatible_chat_answer(message=message, model=model)
+        return self._openai_compatible_chat_answer(
+            message=message,
+            model=model,
+            base_url=runtime[0],
+            api_key=runtime[1],
+        )
 
     def _mock_answer(self, question: str, hits: list[dict[str, object]]) -> str:
         if not hits:
@@ -56,10 +75,9 @@ class LLMService:
         question: str,
         hits: list[dict[str, object]],
         model: str | None = None,
+        base_url: str = "",
+        api_key: str = "",
     ) -> str:
-        if not self.settings.llm_api_key:
-            raise DomainValidationError("LLM_API_KEY is required when llm_provider is not 'mock'.")
-
         context = self._build_context(hits)
 
         system_prompt = (
@@ -77,7 +95,11 @@ class LLMService:
         )
 
         try:
-            response = self._post_chat_completion(payload)
+            response = self._post_chat_completion(
+                payload=payload,
+                base_url=base_url,
+                api_key=api_key,
+            )
             response.raise_for_status()
         except httpx.HTTPError as exc:
             raise DomainValidationError(f"LLM request failed: {exc}") from exc
@@ -88,10 +110,9 @@ class LLMService:
         self,
         message: str,
         model: str | None = None,
+        base_url: str = "",
+        api_key: str = "",
     ) -> str:
-        if not self.settings.llm_api_key:
-            raise DomainValidationError("LLM_API_KEY is required when llm_provider is not 'mock'.")
-
         system_prompt = "You are CaiBao, a helpful enterprise assistant."
         payload = self._build_payload(
             model=model,
@@ -102,7 +123,11 @@ class LLMService:
         )
 
         try:
-            response = self._post_chat_completion(payload)
+            response = self._post_chat_completion(
+                payload=payload,
+                base_url=base_url,
+                api_key=api_key,
+            )
             response.raise_for_status()
         except httpx.HTTPError as exc:
             raise DomainValidationError(f"LLM request failed: {exc}") from exc
@@ -118,19 +143,41 @@ class LLMService:
             "max_tokens": self.settings.llm_max_tokens,
         }
 
-    def _post_chat_completion(self, payload: dict[str, object]) -> httpx.Response:
-        base_url = self.settings.llm_base_url.rstrip("/")
-        url = f"{base_url}/chat/completions"
+    def _post_chat_completion(
+        self,
+        payload: dict[str, object],
+        *,
+        base_url: str,
+        api_key: str,
+    ) -> httpx.Response:
+        normalized_base_url = base_url.rstrip("/")
         headers = {
-            "Authorization": f"Bearer {self.settings.llm_api_key}",
+            "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
         return httpx.post(
-            url,
+            f"{normalized_base_url}/chat/completions",
             headers=headers,
             json=payload,
             timeout=self.settings.llm_timeout_seconds,
         )
+
+    def _resolve_runtime(self, *, base_url: str | None, api_key: str | None) -> tuple[str, str] | None:
+        runtime_base_url = (base_url or "").strip()
+        runtime_api_key = (api_key or "").strip()
+        if runtime_base_url or runtime_api_key:
+            if not runtime_base_url or not runtime_api_key:
+                raise DomainValidationError("Both base_url and api_key are required for custom model.")
+            return runtime_base_url, runtime_api_key
+
+        provider = self.settings.llm_provider.lower().strip()
+        if provider == "mock":
+            return None
+
+        settings_key = (self.settings.llm_api_key or "").strip()
+        if not settings_key:
+            raise DomainValidationError("LLM_API_KEY is required when llm_provider is not 'mock'.")
+        return self.settings.llm_base_url, settings_key
 
     def _parse_llm_answer(self, body: dict[str, object]) -> str:
         try:

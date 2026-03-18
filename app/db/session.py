@@ -43,6 +43,7 @@ def init_db() -> None:
         document,
         document_chunk,
         incident,
+        llm_model_config,
         team,
         user,
     )

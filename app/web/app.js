@@ -1,15 +1,14 @@
 const API_PREFIX = "/api/v1";
+const DEFAULT_MODEL_ID = "default";
+const ADD_MODEL_OPTION = "__add_model__";
 const STORAGE_KEYS = {
   teamId: "caibao.teamId",
   teamName: "caibao.teamName",
   userId: "caibao.userId",
   displayName: "caibao.displayName",
   conversationId: "caibao.conversationId",
-  selectedModel: "caibao.selectedModel",
-  customModels: "caibao.customModels",
+  selectedModelPrefix: "caibao.selectedModel",
 };
-
-const PRESET_MODELS = ["gpt-4.1-mini", "gpt-4o-mini", "gpt-5-mini"];
 
 const state = {
   teamId: "",
@@ -17,8 +16,8 @@ const state = {
   userId: "",
   displayName: "",
   conversationId: "",
-  selectedModel: PRESET_MODELS[0],
-  customModels: [],
+  selectedModel: DEFAULT_MODEL_ID,
+  modelConfigs: [],
   conversations: [],
   history: [],
   documents: [],
@@ -108,7 +107,9 @@ function bindEvents() {
   els.fileInput.addEventListener("change", handleFileInputChange);
   els.importBtn.addEventListener("click", handleImportDocument);
 
-  els.modelSelect.addEventListener("change", handleModelChange);
+  els.modelSelect.addEventListener("change", () => {
+    handleModelChange().catch((error) => showToast(error.message, true));
+  });
   els.docSelect.addEventListener("change", () => {
     if (els.docSelect.value) {
       showToast(`已切换到文档：${els.docSelect.options[els.docSelect.selectedIndex].text}`);
@@ -131,15 +132,7 @@ function hydrateState() {
   state.userId = localStorage.getItem(STORAGE_KEYS.userId) || "";
   state.displayName = localStorage.getItem(STORAGE_KEYS.displayName) || "";
   state.conversationId = localStorage.getItem(STORAGE_KEYS.conversationId) || "";
-  state.selectedModel = localStorage.getItem(STORAGE_KEYS.selectedModel) || PRESET_MODELS[0];
-
-  try {
-    const raw = localStorage.getItem(STORAGE_KEYS.customModels);
-    const parsed = raw ? JSON.parse(raw) : [];
-    state.customModels = Array.isArray(parsed) ? parsed.filter((item) => typeof item === "string") : [];
-  } catch {
-    state.customModels = [];
-  }
+  state.selectedModel = loadSelectedModelFromStorage();
 }
 
 function persistIdentity() {
@@ -151,6 +144,21 @@ function persistIdentity() {
 
 function persistConversation() {
   localStorage.setItem(STORAGE_KEYS.conversationId, state.conversationId || "");
+}
+
+function selectedModelStorageKey() {
+  if (state.teamId && state.userId) {
+    return `${STORAGE_KEYS.selectedModelPrefix}:${state.teamId}:${state.userId}`;
+  }
+  return STORAGE_KEYS.selectedModelPrefix;
+}
+
+function loadSelectedModelFromStorage() {
+  return localStorage.getItem(selectedModelStorageKey()) || DEFAULT_MODEL_ID;
+}
+
+function persistSelectedModel() {
+  localStorage.setItem(selectedModelStorageKey(), state.selectedModel || DEFAULT_MODEL_ID);
 }
 
 function updateIdentityCard() {
@@ -167,7 +175,8 @@ function updateIdentityCard() {
 }
 
 function initModelOptions() {
-  const allModels = dedupeStrings([...PRESET_MODELS, ...state.customModels, state.selectedModel]);
+  const configuredModels = state.modelConfigs.map((item) => item.model_name);
+  const allModels = dedupeStrings([DEFAULT_MODEL_ID, ...configuredModels]);
   els.modelSelect.innerHTML = "";
 
   for (const model of allModels) {
@@ -177,47 +186,79 @@ function initModelOptions() {
     els.modelSelect.appendChild(option);
   }
 
-  const customOption = document.createElement("option");
-  customOption.value = "__custom__";
-  customOption.textContent = "自定义模型...";
-  els.modelSelect.appendChild(customOption);
+  const addOption = document.createElement("option");
+  addOption.value = ADD_MODEL_OPTION;
+  addOption.textContent = "新增模型...";
+  els.modelSelect.appendChild(addOption);
 
-  els.modelSelect.value = allModels.includes(state.selectedModel) ? state.selectedModel : PRESET_MODELS[0];
-  state.selectedModel = els.modelSelect.value;
-  localStorage.setItem(STORAGE_KEYS.selectedModel, state.selectedModel);
+  state.selectedModel = allModels.includes(state.selectedModel) ? state.selectedModel : DEFAULT_MODEL_ID;
+  els.modelSelect.value = state.selectedModel;
+  persistSelectedModel();
 }
 
-function handleModelChange() {
-  if (els.modelSelect.value !== "__custom__") {
-    state.selectedModel = els.modelSelect.value;
-    localStorage.setItem(STORAGE_KEYS.selectedModel, state.selectedModel);
-    showToast(`模型已切换为 ${state.selectedModel}`);
+async function handleModelChange() {
+  const selected = els.modelSelect.value;
+  if (selected !== ADD_MODEL_OPTION) {
+    state.selectedModel = selected;
+    persistSelectedModel();
+    if (selected === DEFAULT_MODEL_ID) {
+      showToast("当前使用 default（仅 Echo 基础对话）");
+    } else {
+      showToast(`模型已切换为 ${state.selectedModel}`);
+    }
     return;
   }
 
-  const custom = window.prompt("请输入模型名（例如 gpt-4.1-mini）");
-  if (!custom) {
+  if (!ensureIdentity()) {
+    openAuthModal();
+    showToast("请先登录团队与用户", true);
     els.modelSelect.value = state.selectedModel;
     return;
   }
 
-  const normalized = custom.trim();
-  if (!normalized) {
+  const modelName = window.prompt("输入模型名称（例如 gpt-4.1-mini）");
+  if (!modelName) {
     els.modelSelect.value = state.selectedModel;
     return;
   }
 
-  if (!state.customModels.includes(normalized)) {
-    state.customModels.push(normalized);
-    state.customModels = dedupeStrings(state.customModels);
-    localStorage.setItem(STORAGE_KEYS.customModels, JSON.stringify(state.customModels));
+  const normalizedModelName = modelName.trim();
+  if (!normalizedModelName || normalizedModelName.toLowerCase() === DEFAULT_MODEL_ID) {
+    els.modelSelect.value = state.selectedModel;
+    showToast("模型名称无效", true);
+    return;
   }
 
-  state.selectedModel = normalized;
-  localStorage.setItem(STORAGE_KEYS.selectedModel, state.selectedModel);
-  initModelOptions();
-  els.modelSelect.value = normalized;
-  showToast(`已添加并切换到模型 ${normalized}`);
+  const baseUrl = window.prompt(
+    "输入 API Base URL（例如 https://api.openai.com/v1）",
+    "https://api.openai.com/v1",
+  );
+  if (!baseUrl || !baseUrl.trim()) {
+    els.modelSelect.value = state.selectedModel;
+    return;
+  }
+
+  const apiKey = window.prompt("输入 API Key");
+  if (!apiKey || !apiKey.trim()) {
+    els.modelSelect.value = state.selectedModel;
+    return;
+  }
+
+  await apiRequest("/llm/models", {
+    method: "POST",
+    body: {
+      team_id: state.teamId,
+      user_id: state.userId,
+      model_name: normalizedModelName,
+      base_url: baseUrl.trim(),
+      api_key: apiKey.trim(),
+    },
+  });
+
+  state.selectedModel = normalizedModelName;
+  persistSelectedModel();
+  await loadModelConfigs();
+  showToast(`已添加并切换到模型 ${state.selectedModel}`);
 }
 
 async function handleSaveAuth() {
@@ -298,11 +339,30 @@ async function createOrReuseUser(userId, teamId, displayName) {
   }
 }
 
+async function loadModelConfigs() {
+  if (!state.teamId || !state.userId) {
+    state.modelConfigs = [];
+    state.selectedModel = DEFAULT_MODEL_ID;
+    initModelOptions();
+    return;
+  }
+
+  const query = new URLSearchParams({
+    team_id: state.teamId,
+    user_id: state.userId,
+  });
+  const response = await apiRequest(`/llm/models?${query.toString()}`);
+  state.modelConfigs = Array.isArray(response.items) ? response.items : [];
+  state.selectedModel = loadSelectedModelFromStorage();
+  initModelOptions();
+}
+
 async function loadAllData() {
   if (!state.teamId || !state.userId) {
     return;
   }
 
+  await loadModelConfigs();
   await loadConversations();
   await ensureActiveConversation();
   await Promise.all([loadHistory(), loadDocuments()]);
@@ -655,30 +715,47 @@ async function handleSend() {
   autoGrowTextarea();
 
   try {
-    const payload = {
-      user_id: state.userId,
-      team_id: state.teamId,
-      conversation_id: state.conversationId,
-      question,
-      top_k: 5,
-      model: state.selectedModel,
-    };
+    if (state.selectedModel === DEFAULT_MODEL_ID) {
+      const echoResponse = await apiRequest("/chat/echo", {
+        method: "POST",
+        body: {
+          user_id: state.userId,
+          team_id: state.teamId,
+          conversation_id: state.conversationId,
+          message: question,
+        },
+      });
 
-    if (els.docSelect.value) {
-      payload.document_id = els.docSelect.value;
+      appendMessage("assistant", echoResponse.answer || "", {
+        model: DEFAULT_MODEL_ID,
+      });
+      await loadHistory();
+    } else {
+      const payload = {
+        user_id: state.userId,
+        team_id: state.teamId,
+        conversation_id: state.conversationId,
+        question,
+        top_k: 5,
+        model: state.selectedModel,
+      };
+
+      if (els.docSelect.value) {
+        payload.document_id = els.docSelect.value;
+      }
+
+      const response = await apiRequest("/chat/ask", {
+        method: "POST",
+        body: payload,
+      });
+
+      appendMessage("assistant", response.answer || "", {
+        hits: Array.isArray(response.hits) ? response.hits : [],
+        model: response.model || state.selectedModel,
+      });
+
+      await loadHistory();
     }
-
-    const response = await apiRequest("/chat/ask", {
-      method: "POST",
-      body: payload,
-    });
-
-    appendMessage("assistant", response.answer || "", {
-      hits: Array.isArray(response.hits) ? response.hits : [],
-      model: response.model || state.selectedModel,
-    });
-
-    await loadHistory();
   } catch (error) {
     const message = String(error.message || "发送失败");
 

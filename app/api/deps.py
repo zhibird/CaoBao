@@ -9,6 +9,7 @@ from app.services.chunk_service import ChunkService
 from app.services.conversation_service import ConversationService
 from app.services.document_service import DocumentService
 from app.services.embedding_service import EmbeddingService
+from app.services.llm_model_service import LLMModelService
 from app.services.llm_service import LLMService
 from app.services.rag_chat_service import RagChatService
 from app.services.retrieval_service import RetrievalService
@@ -59,6 +60,13 @@ def get_llm_service() -> LLMService:
     return LLMService()
 
 
+def get_llm_model_service(
+    db: Session = Depends(get_db_session),
+    user_service: UserService = Depends(get_user_service),
+) -> LLMModelService:
+    return LLMModelService(db=db, user_service=user_service)
+
+
 def get_tool_service(db: Session = Depends(get_db_session)) -> ToolService:
     return ToolService(db)
 
@@ -71,11 +79,13 @@ def get_rag_chat_service(
     user_service: UserService = Depends(get_user_service),
     retrieval_service: RetrievalService = Depends(get_retrieval_service),
     llm_service: LLMService = Depends(get_llm_service),
+    llm_model_service: LLMModelService = Depends(get_llm_model_service),
 ) -> RagChatService:
     return RagChatService(
         user_service=user_service,
         retrieval_service=retrieval_service,
         llm_service=llm_service,
+        llm_model_service=llm_model_service,
     )
 
 

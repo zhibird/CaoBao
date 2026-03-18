@@ -413,6 +413,44 @@ def test_chat_action_rejects_invalid_incident_payload(client) -> None:
     assert response.status_code == 400
 
 
+def test_chat_ask_rejects_unconfigured_custom_model(client) -> None:
+    suffix = uuid4().hex[:8]
+    team_id = f"team_ask_model_{suffix}"
+    user_id = f"u_ask_model_{suffix}"
+
+    create_team = client.post(
+        "/api/v1/teams",
+        json={
+            "team_id": team_id,
+            "name": "AskModel Team",
+            "description": "for ask model config",
+        },
+    )
+    assert create_team.status_code == 201
+
+    create_user = client.post(
+        "/api/v1/users",
+        json={
+            "user_id": user_id,
+            "team_id": team_id,
+            "display_name": "Operator",
+            "role": "member",
+        },
+    )
+    assert create_user.status_code == 201
+
+    ask_response = client.post(
+        "/api/v1/chat/ask",
+        json={
+            "user_id": user_id,
+            "team_id": team_id,
+            "question": "hello",
+            "model": "gpt-4.1-mini",
+        },
+    )
+    assert ask_response.status_code == 404
+
+
 def test_chat_history_delete_message(client) -> None:
     suffix = uuid4().hex[:8]
     team_id, user_id, conversation_id = _create_team_user_and_conversation(client, suffix)
