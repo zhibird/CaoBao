@@ -56,6 +56,15 @@ def _ensure_phase1_columns() -> None:
     """Best-effort lightweight migration for existing DB files."""
     inspector = inspect(engine)
 
+    if "conversations" in inspector.get_table_names():
+        conversation_cols = {item["name"] for item in inspector.get_columns("conversations")}
+        if "is_pinned" not in conversation_cols:
+            with engine.begin() as conn:
+                conn.exec_driver_sql("ALTER TABLE conversations ADD COLUMN is_pinned BOOLEAN DEFAULT 0")
+        if "pinned_at" not in conversation_cols:
+            with engine.begin() as conn:
+                conn.exec_driver_sql("ALTER TABLE conversations ADD COLUMN pinned_at DATETIME")
+
     if "documents" in inspector.get_table_names():
         document_cols = {item["name"] for item in inspector.get_columns("documents")}
         if "conversation_id" not in document_cols:

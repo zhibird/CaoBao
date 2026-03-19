@@ -27,6 +27,8 @@ class ConversationService:
             user_id=user_id,
             title=title.strip() if title else "新会话",
             status="active",
+            is_pinned=False,
+            pinned_at=None,
             created_at=datetime.now(timezone.utc),
         )
         self.db.add(conversation)
@@ -53,7 +55,12 @@ class ConversationService:
                 Conversation.user_id == user_id,
                 Conversation.status == "active",
             )
-            .order_by(Conversation.created_at.desc(), Conversation.conversation_id.desc())
+            .order_by(
+                Conversation.is_pinned.desc(),
+                Conversation.pinned_at.desc(),
+                Conversation.created_at.desc(),
+                Conversation.conversation_id.desc(),
+            )
             .limit(limit)
         )
         return list(self.db.scalars(stmt).all())
@@ -84,6 +91,25 @@ class ConversationService:
             user_id=user_id,
         )
         conversation.title = normalized_title
+        self.db.commit()
+        self.db.refresh(conversation)
+        return conversation
+
+    def pin(
+        self,
+        *,
+        conversation_id: str,
+        team_id: str,
+        user_id: str,
+        pinned: bool,
+    ) -> Conversation:
+        conversation = self.ensure_access(
+            conversation_id=conversation_id,
+            team_id=team_id,
+            user_id=user_id,
+        )
+        conversation.is_pinned = pinned
+        conversation.pinned_at = datetime.now(timezone.utc) if pinned else None
         self.db.commit()
         self.db.refresh(conversation)
         return conversation

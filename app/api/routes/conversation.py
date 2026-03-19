@@ -2,7 +2,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.api.deps import get_conversation_service
 from app.core.exceptions import DomainValidationError, EntityNotFoundError
-from app.schemas.conversation import ConversationCreate, ConversationRename, ConversationResponse
+from app.schemas.conversation import (
+    ConversationCreate,
+    ConversationPinUpdate,
+    ConversationRename,
+    ConversationResponse,
+)
 from app.services.conversation_service import ConversationService
 
 router = APIRouter(prefix="/conversations")
@@ -79,6 +84,27 @@ def rename_conversation(
             team_id=payload.team_id,
             user_id=payload.user_id,
             title=payload.title,
+        )
+    except EntityNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except DomainValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    return ConversationResponse.model_validate(item)
+
+
+@router.patch("/{conversation_id}/pin", response_model=ConversationResponse)
+def update_pin_conversation(
+    conversation_id: str,
+    payload: ConversationPinUpdate,
+    conversation_service: ConversationService = Depends(get_conversation_service),
+) -> ConversationResponse:
+    try:
+        item = conversation_service.pin(
+            conversation_id=conversation_id,
+            team_id=payload.team_id,
+            user_id=payload.user_id,
+            pinned=payload.pinned,
         )
     except EntityNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc

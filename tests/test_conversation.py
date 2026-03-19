@@ -122,6 +122,39 @@ def test_rename_conversation(client) -> None:
     assert listed[conversation_id]["title"] == "After Rename"
 
 
+def test_pin_conversation_and_list_priority(client) -> None:
+    suffix = uuid4().hex[:8]
+    team_id, user_id = _create_team_and_user(client, suffix)
+
+    first_id = _create_conversation(client, team_id, user_id, "First")
+    second_id = _create_conversation(client, team_id, user_id, "Second")
+
+    pin_response = client.patch(
+        f"/api/v1/conversations/{first_id}/pin",
+        json={
+            "team_id": team_id,
+            "user_id": user_id,
+            "pinned": True,
+        },
+    )
+    assert pin_response.status_code == 200
+    assert pin_response.json()["is_pinned"] is True
+
+    listed = client.get(
+        "/api/v1/conversations",
+        params={
+            "team_id": team_id,
+            "user_id": user_id,
+            "limit": 20,
+        },
+    )
+    assert listed.status_code == 200
+    items = listed.json()
+    assert items[0]["conversation_id"] == first_id
+    assert items[0]["is_pinned"] is True
+    assert any(item["conversation_id"] == second_id for item in items)
+
+
 def test_conversation_scoped_documents_and_history(client) -> None:
     suffix = uuid4().hex[:8]
     team_id, user_id = _create_team_and_user(client, suffix)

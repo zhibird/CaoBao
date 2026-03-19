@@ -408,35 +408,59 @@ function renderConversationList() {
 
     const title = truncate(item.title || "新会话", 24);
     const createdAt = formatTime(item.created_at);
+    const pinActionText = item.is_pinned ? "取消顶置" : "顶置聊天";
 
     li.innerHTML = `
       <div class="history-row">
-        <div class="history-title">${escapeHtml(title)}</div>
+        <div class="history-title-wrap">
+          <div class="history-title">${escapeHtml(title)}</div>
+          ${item.is_pinned ? '<span class="history-pin-tag">置顶</span>' : ""}
+        </div>
         <div class="history-actions">
-          <button class="history-rename" type="button" data-id="${escapeHtml(item.conversation_id)}">改名</button>
-          <button class="history-delete" type="button" data-id="${escapeHtml(item.conversation_id)}">删</button>
+          <details class="history-menu">
+            <summary class="history-more" title="会话操作">...</summary>
+            <div class="history-menu-panel">
+              <button class="history-action-btn" type="button" data-action="rename" data-id="${escapeHtml(item.conversation_id)}">重命名</button>
+              <button class="history-action-btn" type="button" data-action="pin" data-id="${escapeHtml(item.conversation_id)}">${pinActionText}</button>
+              <button class="history-action-btn danger" type="button" data-action="delete" data-id="${escapeHtml(item.conversation_id)}">删除</button>
+            </div>
+          </details>
         </div>
       </div>
       <div class="history-meta">${escapeHtml(createdAt)}</div>
     `;
 
-    li.addEventListener("click", () => {
+    li.addEventListener("click", (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (target && target.closest(".history-menu")) {
+        return;
+      }
       switchConversation(item.conversation_id).catch((error) => showToast(error.message, true));
     });
-    const deleteBtn = li.querySelector(".history-delete");
-    if (deleteBtn) {
-      deleteBtn.addEventListener("click", (event) => {
+
+    const actionButtons = li.querySelectorAll(".history-action-btn");
+    for (const button of actionButtons) {
+      button.addEventListener("click", (event) => {
         event.stopPropagation();
-        deleteConversation(item.conversation_id).catch((error) => showToast(error.message, true));
+        const menu = event.currentTarget?.closest(".history-menu");
+        if (menu) {
+          menu.removeAttribute("open");
+        }
+        const action = event.currentTarget?.dataset?.action;
+        if (action === "rename") {
+          renameConversation(item).catch((error) => showToast(error.message, true));
+          return;
+        }
+        if (action === "pin") {
+          pinConversation(item.conversation_id, !item.is_pinned).catch((error) => showToast(error.message, true));
+          return;
+        }
+        if (action === "delete") {
+          deleteConversation(item.conversation_id).catch((error) => showToast(error.message, true));
+        }
       });
     }
-    const renameBtn = li.querySelector(".history-rename");
-    if (renameBtn) {
-      renameBtn.addEventListener("click", (event) => {
-        event.stopPropagation();
-        renameConversation(item).catch((error) => showToast(error.message, true));
-      });
-    }
+
     els.historyList.appendChild(li);
   }
 }
@@ -487,6 +511,19 @@ async function renameConversation(conversation) {
 
   await loadConversations();
   showToast("会话已重命名");
+}
+
+async function pinConversation(conversationId, pinned) {
+  await apiRequest(`/conversations/${encodeURIComponent(conversationId)}/pin`, {
+    method: "PATCH",
+    body: {
+      team_id: state.teamId,
+      user_id: state.userId,
+      pinned,
+    },
+  });
+  await loadConversations();
+  showToast(pinned ? "已顶置会话" : "已取消顶置");
 }
 
 async function createAndSwitchConversation() {
@@ -609,6 +646,66 @@ async function editHistoryMessage(messageId, currentText, channel) {
   showToast("消息已更新并重新生成回复");
 }
 
+async function copyMessageText(content) {
+  const normalized = String(content || "").trim();
+  if (!normalized) {
+    return;
+  }
+
+  try {
+    await navigator.clipboard.writeText(normalized);
+    showToast("已复制回复");
+  } catch {
+    showToast("复制失败，请检查浏览器权限", true);
+  }
+}
+
+async function regenerateAssistantMessage(messageId, requestText, channel) {
+  if (!messageId || !requestText) {
+    return;
+  }
+
+  if (channel === "action") {
+    showToast("工具调用消息不支持重生成", true);
+    return;
+  }
+
+  const availableModels = dedupeStrings([DEFAULT_MODEL_ID, ...state.modelConfigs.map((item) => item.model_name)]);
+  const selected = window.prompt(
+    `选择重生成模型：${availableModels.join(", ")}`,
+    state.selectedModel || DEFAULT_MODEL_ID,
+  );
+  if (selected === null) {
+    return;
+  }
+
+  const normalizedModel = selected.trim() || state.selectedModel || DEFAULT_MODEL_ID;
+  if (!availableModels.includes(normalizedModel)) {
+    showToast("模型不存在，请先在模型列表中添加", true);
+    return;
+  }
+
+  const payload = {
+    team_id: state.teamId,
+    user_id: state.userId,
+    request_text: requestText,
+  };
+  if (normalizedModel !== DEFAULT_MODEL_ID) {
+    payload.model = normalizedModel;
+  }
+
+  await apiRequest(`/chat/history/${encodeURIComponent(messageId)}`, {
+    method: "PUT",
+    body: payload,
+  });
+
+  state.selectedModel = normalizedModel;
+  persistSelectedModel();
+  initModelOptions();
+  await loadHistory();
+  showToast(`已使用 ${normalizedModel} 重新生成`);
+}
+
 function renderCurrentConversationMessages() {
   clearConversation();
   if (!state.history.length) {
@@ -630,6 +727,9 @@ function renderCurrentConversationMessages() {
       createdAt: item.created_at,
       hits,
       model,
+      messageId: item.message_id,
+      requestText: item.request_text || "",
+      channel: item.channel,
     });
   }
 }
@@ -912,6 +1012,9 @@ function appendMessage(role, content, options = {}) {
     els.heroTitle.style.display = "none";
   }
 
+  const row = document.createElement("div");
+  row.className = `message-row ${role}`;
+
   const message = document.createElement("article");
   message.className = `message ${role}`;
 
@@ -941,39 +1044,6 @@ function appendMessage(role, content, options = {}) {
   message.appendChild(head);
   message.appendChild(body);
 
-  if (role === "user" && options.messageId && (options.editable || options.deletable)) {
-    const tools = document.createElement("div");
-    tools.className = "message-tools";
-
-    if (options.editable) {
-      const editBtn = document.createElement("button");
-      editBtn.className = "message-tool-btn";
-      editBtn.type = "button";
-      editBtn.textContent = "编辑";
-      editBtn.addEventListener("click", () => {
-        editHistoryMessage(options.messageId, content, options.channel).catch((error) => {
-          showToast(error.message, true);
-        });
-      });
-      tools.appendChild(editBtn);
-    }
-
-    if (options.deletable) {
-      const deleteBtn = document.createElement("button");
-      deleteBtn.className = "message-tool-btn";
-      deleteBtn.type = "button";
-      deleteBtn.textContent = "删除";
-      deleteBtn.addEventListener("click", () => {
-        deleteHistoryMessage(options.messageId).catch((error) => {
-          showToast(error.message, true);
-        });
-      });
-      tools.appendChild(deleteBtn);
-    }
-
-    message.appendChild(tools);
-  }
-
   if (role === "assistant" && Array.isArray(options.hits) && options.hits.length) {
     const hitBox = document.createElement("div");
     hitBox.className = "hit-box";
@@ -1000,7 +1070,73 @@ function appendMessage(role, content, options = {}) {
     message.appendChild(hitBox);
   }
 
-  els.messageList.appendChild(message);
+  row.appendChild(message);
+
+  const actionRail = document.createElement("div");
+  actionRail.className = "message-action-rail";
+
+  if (role === "user" && options.messageId) {
+    if (options.editable) {
+      const editBtn = document.createElement("button");
+      editBtn.className = "message-icon-btn";
+      editBtn.type = "button";
+      editBtn.title = "编辑";
+      editBtn.textContent = "✎";
+      editBtn.addEventListener("click", () => {
+        editHistoryMessage(options.messageId, content, options.channel).catch((error) => {
+          showToast(error.message, true);
+        });
+      });
+      actionRail.appendChild(editBtn);
+    }
+    if (options.deletable) {
+      const deleteBtn = document.createElement("button");
+      deleteBtn.className = "message-icon-btn";
+      deleteBtn.type = "button";
+      deleteBtn.title = "删除";
+      deleteBtn.textContent = "⌫";
+      deleteBtn.addEventListener("click", () => {
+        deleteHistoryMessage(options.messageId).catch((error) => {
+          showToast(error.message, true);
+        });
+      });
+      actionRail.appendChild(deleteBtn);
+    }
+  }
+
+  if (role === "assistant") {
+    const copyBtn = document.createElement("button");
+    copyBtn.className = "message-icon-btn";
+    copyBtn.type = "button";
+    copyBtn.title = "复制";
+    copyBtn.textContent = "⧉";
+    copyBtn.addEventListener("click", () => {
+      copyMessageText(content).catch((error) => showToast(error.message, true));
+    });
+    actionRail.appendChild(copyBtn);
+
+    if (options.messageId && options.requestText) {
+      const regenBtn = document.createElement("button");
+      regenBtn.className = "message-icon-btn";
+      regenBtn.type = "button";
+      regenBtn.title = "切换模型重生成";
+      regenBtn.textContent = "↻";
+      regenBtn.addEventListener("click", () => {
+        regenerateAssistantMessage(
+          options.messageId,
+          options.requestText,
+          options.channel,
+        ).catch((error) => showToast(error.message, true));
+      });
+      actionRail.appendChild(regenBtn);
+    }
+  }
+
+  if (actionRail.childElementCount > 0) {
+    row.appendChild(actionRail);
+  }
+
+  els.messageList.appendChild(row);
   scrollToBottom();
 }
 
