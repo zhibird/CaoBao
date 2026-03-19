@@ -33,6 +33,14 @@ function ExecCapture([string]$Cmd) {
   return ($out | Out-String).Trim()
 }
 
+function ExecCaptureMaybe([string]$Cmd) {
+  $out = & cmd.exe /c $Cmd 2>$null
+  if ($LASTEXITCODE -ne 0) {
+    return $null
+  }
+  return ($out | Out-String).Trim()
+}
+
 function GetLatestChangelogVersion() {
   $items = Get-ChildItem -Path "changelogs" -File -Filter "*.md" -ErrorAction SilentlyContinue |
     Where-Object { $_.BaseName -match '^\d+\.\d+\.\d+$' } |
@@ -79,11 +87,10 @@ if (-not $gitTop) {
 
 $null = ExecCapture "git --version"
 
-$hasGh = $true
-try {
-  $null = ExecCapture "gh --version"
-} catch {
-  $hasGh = $false
+$hasGh = $false
+$ghVersion = ExecCaptureMaybe "gh --version"
+if (-not [string]::IsNullOrWhiteSpace($ghVersion)) {
+  $hasGh = $true
 }
 
 if (-not $SkipRelease -and -not $DryRun) {
@@ -127,6 +134,16 @@ if (-not [string]::IsNullOrWhiteSpace($hasChanges)) {
 }
 
 Exec ('git tag -a {0} -m "{0}"' -f $tag)
+
+Exec "git fetch $Remote $Branch"
+$counts = ExecCapture "git rev-list --left-right --count $Remote/$Branch...$Branch"
+$parts = $counts -split '\s+'
+if ($parts.Length -ge 2) {
+  $behind = [int]$parts[0]
+  if ($behind -gt 0) {
+    throw "Local branch '$Branch' is behind '$Remote/$Branch' by $behind commit(s). Run 'git pull $Remote $Branch' (or rebase) then rerun the script."
+  }
+}
 
 Exec "git push $Remote $Branch"
 Exec "git push $Remote $tag"
