@@ -1,6 +1,7 @@
 from fastapi import Depends
 from sqlalchemy.orm import Session
 
+from app.core.config import reload_settings
 from app.db.session import get_db_session
 from app.services.action_chat_service import ActionChatService
 from app.services.chat_history_service import ChatHistoryService
@@ -47,7 +48,7 @@ def get_chat_history_service(db: Session = Depends(get_db_session)) -> ChatHisto
 
 
 def get_embedding_service() -> EmbeddingService:
-    return EmbeddingService()
+    return EmbeddingService(settings=reload_settings())
 
 
 def get_embedding_model_service(
@@ -70,7 +71,7 @@ def get_retrieval_service(
 
 
 def get_llm_service() -> LLMService:
-    return LLMService()
+    return LLMService(settings=reload_settings())
 
 
 def get_llm_model_service(

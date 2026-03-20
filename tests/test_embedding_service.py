@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import httpx
+
 from app.core.config import Settings
 from app.core.exceptions import DomainValidationError
 from app.services.embedding_service import EmbeddingService
@@ -80,3 +82,66 @@ def test_embedding_service_real_provider_requires_api_key() -> None:
         assert "EMBEDDING_API_KEY" in str(exc)
     else:
         raise AssertionError("Expected DomainValidationError for missing EMBEDDING_API_KEY.")
+
+
+def test_embedding_service_default_uses_env_runtime_when_credentials_exist(monkeypatch) -> None:
+    captured_payload: dict[str, object] = {}
+
+    def _fake_post(url, headers, json, timeout):  # noqa: ANN001
+        captured_payload["url"] = url
+        captured_payload["headers"] = headers
+        captured_payload["json"] = json
+        captured_payload["timeout"] = timeout
+        return _FakeResponse(
+            {
+                "data": [
+                    {"index": 0, "embedding": [0.9, 0.1]},
+                ]
+            }
+        )
+
+    monkeypatch.setattr("app.services.embedding_service.httpx.post", _fake_post)
+
+    settings = Settings(
+        embedding_provider="mock",
+        embedding_base_url="https://api.openai.com/v1",
+        embedding_api_key="sk-test",
+        embedding_model="text-embedding-3-small",
+    )
+    service = EmbeddingService(settings=settings)
+
+    vectors = service.embed_texts(["compat path"])
+    assert vectors == [[0.9, 0.1]]
+    assert captured_payload["url"] == "https://api.openai.com/v1/embeddings"
+    assert captured_payload["json"] == {
+        "model": "text-embedding-3-small",
+        "input": ["compat path"],
+    }
+    assert service.model_name == "text-embedding-3-small"
+
+
+def test_embedding_service_timeout_splits_batches(monkeypatch) -> None:
+    calls: list[int] = []
+
+    def _fake_post(url, headers, json, timeout):  # noqa: ANN001
+        size = len(json["input"])
+        calls.append(size)
+        if size > 1:
+            raise httpx.ReadTimeout("timed out", request=httpx.Request("POST", url))
+        return _FakeResponse({"data": [{"index": 0, "embedding": [0.4, 0.6]}]})
+
+    monkeypatch.setattr("app.services.embedding_service.httpx.post", _fake_post)
+
+    settings = Settings(
+        embedding_provider="openai",
+        embedding_base_url="https://api.openai.com/v1",
+        embedding_api_key="sk-test",
+        embedding_model="text-embedding-3-small",
+        embedding_batch_size=4,
+    )
+    service = EmbeddingService(settings=settings)
+
+    vectors = service.embed_texts(["a", "b", "c", "d"])
+    assert vectors == [[0.4, 0.6], [0.4, 0.6], [0.4, 0.6], [0.4, 0.6]]
+    assert calls[0] == 4
+    assert any(size == 1 for size in calls)

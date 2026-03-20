@@ -179,13 +179,19 @@ class LLMService:
             return runtime_base_url, runtime_api_key
 
         provider = self.settings.llm_provider.lower().strip()
+        settings_base_url = self.settings.llm_base_url.strip()
+        settings_key = (self.settings.llm_api_key or "").strip()
+
         if provider == "mock":
+            # Compat: if user filled .env base_url + api_key but forgot to switch provider,
+            # treat default runtime as real provider instead of forcing mock.
+            if settings_base_url and settings_key:
+                return settings_base_url, settings_key
             return None
 
-        settings_key = (self.settings.llm_api_key or "").strip()
         if not settings_key:
             raise DomainValidationError("LLM_API_KEY is required when llm_provider is not 'mock'.")
-        return self.settings.llm_base_url, settings_key
+        return settings_base_url, settings_key
 
     def _parse_llm_answer(self, body: dict[str, object]) -> str:
         try:

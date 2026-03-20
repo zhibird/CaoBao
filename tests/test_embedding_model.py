@@ -104,3 +104,25 @@ def test_embedding_model_config_can_be_deleted(client) -> None:
     )
     assert list_after.status_code == 200
     assert list_after.json()["items"] == []
+
+
+def test_embedding_model_rejects_reserved_mock_name(client) -> None:
+    suffix = uuid4().hex[:8]
+    team_id = f"team_embedding_reserved_{suffix}"
+    user_id = f"u_embedding_reserved_{suffix}"
+
+    _create_team(client, team_id)
+    _create_user(client, team_id, user_id)
+
+    upsert = client.post(
+        "/api/v1/embedding/models",
+        json={
+            "team_id": team_id,
+            "user_id": user_id,
+            "model_name": "mock",
+            "provider": "openai",
+            "base_url": "https://api.openai.com/v1",
+            "api_key": "sk-embedding-account-a",
+        },
+    )
+    assert upsert.status_code == 400

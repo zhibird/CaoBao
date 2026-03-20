@@ -3,6 +3,7 @@ const DEFAULT_MODEL_ID = "default";
 const NONE_MODEL_ID = "none";
 const ADD_MODEL_OPTION = "__add_model__";
 const DEFAULT_EMBEDDING_ID = "default";
+const MOCK_EMBEDDING_ID = "mock";
 const ADD_EMBEDDING_OPTION = "__add_embedding_model__";
 const STORAGE_KEYS = {
   teamId: "caibao.teamId",
@@ -238,7 +239,7 @@ function initModelOptions() {
 
 function initEmbeddingOptions() {
   const configuredModels = state.embeddingConfigs.map((item) => item.model_name);
-  const allModels = dedupeStrings([DEFAULT_EMBEDDING_ID, ...configuredModels]);
+  const allModels = dedupeStrings([DEFAULT_EMBEDDING_ID, MOCK_EMBEDDING_ID, ...configuredModels]);
   els.embeddingSelect.innerHTML = "";
 
   for (const model of allModels) {
@@ -272,7 +273,10 @@ function formatModelOptionLabel(model) {
 
 function formatEmbeddingOptionLabel(model) {
   if (model === DEFAULT_EMBEDDING_ID) {
-    return "default (mock hashing)";
+    return "default (.env)";
+  }
+  if (model === MOCK_EMBEDDING_ID) {
+    return "mock (hashing)";
   }
   return model;
 }
@@ -354,10 +358,14 @@ async function handleEmbeddingChange() {
     state.selectedEmbedding = selected;
     persistSelectedEmbedding();
     if (selected === DEFAULT_EMBEDDING_ID) {
-      showToast("当前使用 default 向量模型（mock hashing）");
-    } else {
-      showToast(`向量模型已切换为 ${state.selectedEmbedding}`);
+      showToast("当前使用 default（读取 .env 向量模型配置）");
+      return;
     }
+    if (selected === MOCK_EMBEDDING_ID) {
+      showToast("当前使用 mock（hashing 向量）");
+      return;
+    }
+    showToast(`向量模型已切换为 ${state.selectedEmbedding}`);
     return;
   }
 
@@ -1135,34 +1143,52 @@ async function handleImportDocument() {
     });
 
     const documentId = doc.document_id;
+    let chunkError = null;
+    let indexError = null;
 
     if (els.autoChunk.checked) {
-      await apiRequest(`/documents/${encodeURIComponent(documentId)}/chunk`, {
-        method: "POST",
-        body: {
-          team_id: state.teamId,
-          conversation_id: state.conversationId,
-          max_chars: Number(els.maxChars.value || 600),
-          overlap: Number(els.overlap.value || 80),
-        },
-      });
+      try {
+        await apiRequest(`/documents/${encodeURIComponent(documentId)}/chunk`, {
+          method: "POST",
+          body: {
+            team_id: state.teamId,
+            conversation_id: state.conversationId,
+            max_chars: Number(els.maxChars.value || 600),
+            overlap: Number(els.overlap.value || 80),
+          },
+        });
+      } catch (error) {
+        chunkError = error;
+      }
     }
 
-    if (els.autoIndex.checked) {
-      await apiRequest("/retrieval/index", {
-        method: "POST",
-        body: {
-          team_id: state.teamId,
-          user_id: state.userId,
-          conversation_id: state.conversationId,
-          document_id: documentId,
-          embedding_model: state.selectedEmbedding || DEFAULT_EMBEDDING_ID,
-        },
-      });
+    if (els.autoIndex.checked && chunkError === null) {
+      try {
+        await apiRequest("/retrieval/index", {
+          method: "POST",
+          body: {
+            team_id: state.teamId,
+            user_id: state.userId,
+            conversation_id: state.conversationId,
+            document_id: documentId,
+            embedding_model: state.selectedEmbedding || DEFAULT_EMBEDDING_ID,
+          },
+        });
+      } catch (error) {
+        indexError = error;
+      }
     }
 
     await loadDocuments();
     els.docSelect.value = documentId;
+    if (chunkError !== null) {
+      showToast(`文档已导入，但分块失败：${chunkError.message}`, true);
+      return;
+    }
+    if (indexError !== null) {
+      showToast(`文档已导入并分块，但索引失败：${indexError.message}`, true);
+      return;
+    }
     showToast(`导入完成：${sourceName}`);
   } catch (error) {
     showToast(error.message, true);

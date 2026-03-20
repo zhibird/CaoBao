@@ -9,8 +9,8 @@ from app.main import create_app
 # Keep tests deterministic and independent from local/production .env values.
 os.environ["LLM_PROVIDER"] = "mock"
 os.environ["EMBEDDING_PROVIDER"] = "mock"
-os.environ.pop("LLM_API_KEY", None)
-os.environ.pop("EMBEDDING_API_KEY", None)
+os.environ["LLM_API_KEY"] = ""
+os.environ["EMBEDDING_API_KEY"] = ""
 reload_settings()
 
 

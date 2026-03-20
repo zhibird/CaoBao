@@ -189,10 +189,10 @@ class RetrievalService:
         embedding_model: str | None,
     ) -> EmbeddingRuntimeConfig | None:
         normalized = (embedding_model or "").strip()
-        if not normalized:
+        if not normalized or normalized.lower() == "default":
             return None
 
-        if normalized.lower() in {"default", "mock"}:
+        if normalized.lower() in {"mock", "none"}:
             return EmbeddingRuntimeConfig.mock_default()
 
         if not user_id:

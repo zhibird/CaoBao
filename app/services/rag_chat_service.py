@@ -40,12 +40,16 @@ class RagChatService:
         )
         if runtime_model is not None:
             selected_model = runtime_model.model_name
+            runtime_selected_model = runtime_model.model_name
         elif force_mock:
             selected_model = "none"
+            runtime_selected_model = None
         elif requested_model:
             selected_model = requested_model
+            runtime_selected_model = requested_model
         else:
             selected_model = "default"
+            runtime_selected_model = None
 
         should_use_rag = self.retrieval_service.has_indexed_chunks(
             team_id=payload.team_id,
@@ -56,7 +60,7 @@ class RagChatService:
         if not should_use_rag:
             answer = self.llm_service.answer_chat(
                 message=payload.question,
-                model=selected_model,
+                model=runtime_selected_model,
                 base_url=runtime_model.base_url if runtime_model is not None else None,
                 api_key=runtime_model.api_key if runtime_model is not None else None,
                 force_mock=force_mock,
@@ -86,7 +90,7 @@ class RagChatService:
         answer = self.llm_service.answer_question(
             question=payload.question,
             hits=raw_hits,
-            model=selected_model,
+            model=runtime_selected_model,
             base_url=runtime_model.base_url if runtime_model is not None else None,
             api_key=runtime_model.api_key if runtime_model is not None else None,
             force_mock=force_mock,

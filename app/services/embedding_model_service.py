@@ -50,8 +50,10 @@ class EmbeddingModelService:
 
         if not normalized_name:
             raise DomainValidationError("model_name cannot be empty.")
-        if normalized_name.lower() in {"default", "none"}:
-            raise DomainValidationError("'default' and 'none' are reserved and cannot be used as custom embedding models.")
+        if normalized_name.lower() in {"default", "none", "mock"}:
+            raise DomainValidationError(
+                "'default', 'none', and 'mock' are reserved and cannot be used as custom embedding models."
+            )
         if not normalized_provider:
             raise DomainValidationError("provider cannot be empty.")
 
@@ -114,9 +116,9 @@ class EmbeddingModelService:
         if not normalized_name:
             return None
         if normalized_name.lower() == "default":
-            return EmbeddingRuntimeConfig.mock_default()
-        if normalized_name.lower() == "none":
             return None
+        if normalized_name.lower() in {"none", "mock"}:
+            return EmbeddingRuntimeConfig.mock_default()
 
         item = self._get_by_name(team_id=team_id, user_id=user_id, model_name=normalized_name)
         if item is None:

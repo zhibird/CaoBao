@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from collections import deque
 import hashlib
 import math
 import re
+import time
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
@@ -73,29 +75,21 @@ class EmbeddingService:
             raise DomainValidationError(
                 "EMBEDDING_API_KEY is required when embedding_provider is not 'mock'."
             )
-
-        payload = {
-            "model": runtime_model_name,
-            "input": normalized_texts,
-        }
         url = f"{base_url}/embeddings"
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
 
-        try:
-            response = httpx.post(
-                url,
-                headers=headers,
-                json=payload,
-                timeout=self.settings.embedding_timeout_seconds,
-            )
-            response.raise_for_status()
-        except httpx.HTTPError as exc:
-            raise DomainValidationError(f"Embedding request failed: {exc}") from exc
+        request_batch_size = self._resolve_request_batch_size(base_url=base_url)
+        vectors = self._embed_with_adaptive_retry(
+            texts=normalized_texts,
+            model_name=runtime_model_name,
+            url=url,
+            headers=headers,
+            request_batch_size=request_batch_size,
+        )
 
-        vectors = self._parse_embeddings_response(response.json(), expected_size=len(normalized_texts))
         if vectors:
             self.dim = len(vectors[0])
         self.model_name = runtime_model_name
@@ -179,6 +173,17 @@ class EmbeddingService:
         if runtime is None:
             provider = self.settings.embedding_provider.strip().lower()
             if provider == "mock":
+                settings_base_url = self.settings.embedding_base_url.strip()
+                settings_key = (self.settings.embedding_api_key or "").strip()
+                # Compat: if user filled .env base_url + api_key but left provider as mock,
+                # use real OpenAI-compatible embedding runtime for default mode.
+                if settings_base_url and settings_key:
+                    return (
+                        "openai",
+                        self.settings.embedding_model,
+                        settings_base_url,
+                        settings_key,
+                    )
                 return "mock", "hashing_v1", None, None
             return (
                 provider,
@@ -196,6 +201,84 @@ class EmbeddingService:
         if not model_name:
             raise DomainValidationError("embedding runtime model_name cannot be empty.")
         return provider, model_name, runtime.base_url, runtime.api_key
+
+    def _resolve_request_batch_size(self, *, base_url: str) -> int:
+        configured = max(1, self.batch_size)
+        normalized_base_url = base_url.lower()
+        # DashScope-compatible embeddings currently limit input batch size to 10.
+        if "dashscope.aliyuncs.com" in normalized_base_url:
+            return min(configured, 10)
+        return configured
+
+    def _embed_with_adaptive_retry(
+        self,
+        *,
+        texts: list[str],
+        model_name: str,
+        url: str,
+        headers: dict[str, str],
+        request_batch_size: int,
+    ) -> list[list[float]]:
+        slots: list[list[float] | None] = [None] * len(texts)
+        work: deque[tuple[int, int, int]] = deque()
+        for start in range(0, len(texts), request_batch_size):
+            end = min(start + request_batch_size, len(texts))
+            work.append((start, end, 0))
+
+        while work:
+            start, end, single_retry = work.popleft()
+            batch_texts = texts[start:end]
+            payload = {
+                "model": model_name,
+                "input": batch_texts,
+            }
+
+            try:
+                response = httpx.post(
+                    url,
+                    headers=headers,
+                    json=payload,
+                    timeout=self.settings.embedding_timeout_seconds,
+                )
+                response.raise_for_status()
+            except httpx.TimeoutException as exc:
+                batch_len = end - start
+                if batch_len > 1:
+                    mid = start + (batch_len // 2)
+                    # Keep original order: left batch first, then right batch.
+                    work.appendleft((mid, end, 0))
+                    work.appendleft((start, mid, 0))
+                    continue
+
+                max_single_retries = 2
+                if single_retry < max_single_retries:
+                    time.sleep(min(0.6 * (2**single_retry), 2.0))
+                    work.appendleft((start, end, single_retry + 1))
+                    continue
+
+                raise DomainValidationError(
+                    "Embedding request timed out after retries for a single input. "
+                    "Increase EMBEDDING_TIMEOUT_SECONDS or switch to mock embedding."
+                ) from exc
+            except httpx.HTTPError as exc:
+                details = ""
+                if isinstance(exc, httpx.HTTPStatusError):
+                    body = exc.response.text.strip()
+                    if body:
+                        details = f" body={body[:500]}"
+                raise DomainValidationError(f"Embedding request failed: {exc}.{details}") from exc
+
+            batch_vectors = self._parse_embeddings_response(
+                response.json(),
+                expected_size=len(batch_texts),
+            )
+            for offset, vector in enumerate(batch_vectors):
+                slots[start + offset] = vector
+
+        if any(vector is None for vector in slots):
+            raise DomainValidationError("Embedding response assembly failed due to missing vectors.")
+
+        return [vector for vector in slots if vector is not None]
 
     @staticmethod
     def _normalize_base_url(raw: str) -> str:
