@@ -1,58 +1,76 @@
-# v0.7.0 - 2026-03-20
+# v0.7.1 - 2026-03-20
 
-## 版本概览
+## 版本概览（what's fix?）
 
-本版本完成「小豆包 MVP」第一阶段落地，聚焦“打开即聊、逻辑简洁、会话优先”。
+本版本聚焦修复两类核心问题：  
+1. `default` 模式未正确读取根目录 `.env`（聊天模型与向量模型都受影响）。  
+2. 文档已导入/分块但索引失败，导致会话无法稳定走 RAG 上下文链路。  
 
-1. 暂时从面向团队修改为面向用户。（产品层完成 `account` 包装,后端继续兼容 `team/user`）。
-2. 默认交互改为“直接对话”，无需先上传文档。（发送消息默认走 /chat/ask，并且默认不带 document_id；只有用户主动选择了某个文档（或导入后自动选中）才会把 document_id 加到请求里做更强约束的检索范围。）
-3. 问答返回补齐 `mode + sources`，支持前端清晰展示回答模式与来源。
-4. 增加 3 个高频场景卡：总结资料、写方案、知识问答。
+同时补齐了索引链路的稳定性能力（错误透传、分批控制、超时自适应重试）。
 
-## 新增内容
+## 主要修复
 
-1. 首页新增场景卡区块，点击后可一键填充提示词模板。
-2. 聊天响应新增 `mode`（`chat`/`rag`）与 `sources`（结构化来源列表）。
-3. 检索命中新增 `source_name` 字段，便于前端展示来源文件。
+1. `default` 行为修正为“优先使用 `.env`”
+   - 聊天模型：
+     - `default` => 使用 `.env` 的 LLM 配置
+     - `none` => 强制 mock
+   - 向量模型：
+     - `default` => 使用 `.env` 的 embedding 配置
+     - `mock`/`none` => 使用 hashing mock
 
-## 主要变更
+2. RAG 链路修正
+   - 修复 `default` 被当作字面模型名向上游透传的问题（避免错误请求）。
+   - 修复检索端 embedding 运行时选择逻辑：
+     - `default` 不再误走 mock；
+     - 仅 `mock/none` 走 mock 向量。
 
-1. 前端登录语义从 team/user 切换为 account（UI 展示层），并映射到后端兼容参数。
-2. 默认发送统一走 `/chat/ask`，不再要求先走文档链路；仅在用户选择 `none` 时强制 mock。
-3. 文档范围默认文案明确为 `session_only`（当前会话文档范围）。
-4. 助手消息头支持展示 `time · mode · model`，来源命中展示 `source_name`。
+3. Embedding 索引稳定性增强
+   - 透传上游 4xx/5xx 响应体（便于定位真实原因）。
+   - 增加 provider 兼容：
+     - DashScope 自动限制批量不超过 10。
+   - 增加超时自愈：
+     - 批量请求超时后自动降批重试（直到单条）；
+     - 单条请求支持重试，超过上限再返回明确错误。
 
-## 兼容性说明
+4. 前端导入体验修复
+   - 导入、分块、索引改为分阶段结果提示：
+     - “导入成功但分块失败”
+     - “导入+分块成功但索引失败”
+   - 向量模型下拉新增显式 `mock` 选项，`default` 标签改为 `.env` 语义。
+   - 静态资源版本号更新，避免浏览器缓存导致旧前端逻辑继续生效。
 
-1. 后端会话、新建/删除/重命名/置顶接口保持兼容，未引入破坏性变更。
-2. 本阶段未引入插件市场、多渠道接入、多 Agent 编排能力。
+5. 配置热更新
+   - 依赖注入层在创建 LLM/Embedding 服务时重新加载配置，减少“改了 `.env` 但进程仍使用旧配置”的问题。
 
 ## 验证结果
 
-1. 前端脚本语法检查通过：`node --check app/web/app.js`。
-2. 后端测试通过：`python -m pytest -q`，`36 passed`。
+1. 全量测试通过：`40 passed`。  
+2. 语法检查通过：`node --check app/web/app.js`。  
+3. 本地索引链路烟测通过：`/api/v1/retrieval/index` 返回 200，`indexed_chunks` 正常。
 
 ## 已实现
 
-1. 产品层 account 包装（前端映射 team/user，保持后端兼容）  
-   `app/web/index.html`  
-   `app/web/app.js`
-
-2. 默认“打开即聊”与 session_only 交互语义  
-   `app/web/index.html`  
-   `app/web/app.js`
-
-3. chat/rag 模式判定与结构化来源返回（mode + sources）  
-   `app/schemas/chat.py`  
+1. 修复 `default/.env` 与 mock 分流逻辑（LLM + RAG）  
+   `app/services/llm_service.py`  
    `app/services/rag_chat_service.py`  
-   `app/schemas/retrieval.py`  
    `app/services/retrieval_service.py`
 
-4. 高频场景卡（总结资料 / 写方案 / 知识问答）与样式  
-   `app/web/index.html`  
-   `app/web/app.js`  
-   `app/web/styles.css`
+2. 修复 embedding 运行时与配置保留字处理  
+   `app/services/embedding_model_service.py`  
+   `app/services/embedding_service.py`
 
-5. 回归测试补充（mode/sources/source_name）  
-   `tests/test_chat.py`  
-   `tests/test_retrieval.py`
+3. 增强 embedding 索引鲁棒性（错误透传、DashScope 批量限制、超时降批重试）  
+   `app/services/embedding_service.py`
+
+4. 前端向量模型选择与导入流程提示优化  
+   `app/web/app.js`  
+   `app/web/index.html`
+
+5. 配置热加载接入依赖注入  
+   `app/api/deps.py`
+
+6. 测试与回归补齐  
+   `tests/test_llm_service.py`  
+   `tests/test_embedding_service.py`  
+   `tests/test_embedding_model.py`  
+   `tests/conftest.py`
