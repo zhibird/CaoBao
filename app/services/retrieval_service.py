@@ -119,14 +119,13 @@ class RetrievalService:
         query_vec = self.embedding_service.embed_text(query, runtime=runtime_embedding)
 
         stmt = (
-            select(ChunkEmbedding, DocumentChunk)
+            select(ChunkEmbedding, DocumentChunk, Document)
             .join(DocumentChunk, ChunkEmbedding.chunk_id == DocumentChunk.chunk_id)
+            .join(Document, Document.document_id == ChunkEmbedding.document_id)
             .where(ChunkEmbedding.team_id == team_id)
         )
         if conversation_id is not None:
-            stmt = stmt.join(Document, Document.document_id == ChunkEmbedding.document_id).where(
-                Document.conversation_id == conversation_id
-            )
+            stmt = stmt.where(Document.conversation_id == conversation_id)
         if document_id is not None:
             stmt = stmt.where(ChunkEmbedding.document_id == document_id)
 
@@ -136,7 +135,7 @@ class RetrievalService:
 
         scored_hits: list[dict[str, object]] = []
         query_dim = len(query_vec)
-        for embedding, chunk in rows:
+        for embedding, chunk, document in rows:
             vector = json.loads(embedding.vector_json)
             if not isinstance(vector, list):
                 raise DomainValidationError(
@@ -151,6 +150,7 @@ class RetrievalService:
                 {
                     "chunk_id": chunk.chunk_id,
                     "document_id": chunk.document_id,
+                    "source_name": document.source_name,
                     "team_id": chunk.team_id,
                     "chunk_index": chunk.chunk_index,
                     "content": chunk.content,

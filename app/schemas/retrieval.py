@@ -32,6 +32,7 @@ class RetrievalSearchRequest(BaseModel):
 class RetrievalHit(BaseModel):
     chunk_id: str
     document_id: str
+    source_name: str | None = None
     team_id: str
     chunk_index: int
     content: str

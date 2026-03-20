@@ -175,6 +175,8 @@ def test_chat_ask_returns_answer_and_hits(client) -> None:
     assert body["answer"]
     assert body["answer"].startswith("[Mock Answer]")
     assert len(body["hits"]) >= 1
+    assert body["mode"] == "rag"
+    assert len(body["sources"]) >= 1
 
 
 def test_chat_ask_falls_back_to_chat_mode_without_index(client) -> None:
@@ -220,6 +222,8 @@ def test_chat_ask_falls_back_to_chat_mode_without_index(client) -> None:
     assert body["answer"]
     assert body["answer"].startswith("[Mock Chat]")
     assert body["hits"] == []
+    assert body["mode"] == "chat"
+    assert body["sources"] == []
 
 
 def test_chat_ask_supports_none_model_for_forced_mock(client) -> None:
@@ -263,6 +267,8 @@ def test_chat_ask_supports_none_model_for_forced_mock(client) -> None:
     body = ask_response.json()
     assert body["answer"].startswith("[Mock Chat]")
     assert body["hits"] == []
+    assert body["mode"] == "chat"
+    assert body["sources"] == []
 
 
 def test_chat_action_create_incident(client) -> None:

@@ -61,6 +61,7 @@ function bindElements() {
   els.docSelect = document.getElementById("docSelect");
   els.refreshAllBtn = document.getElementById("refreshAllBtn");
   els.heroTitle = document.getElementById("heroTitle");
+  els.scenarioCards = document.getElementById("scenarioCards");
   els.messageList = document.getElementById("messageList");
   els.newSessionBtn = document.getElementById("newSessionBtn");
   els.toggleImportBtn = document.getElementById("toggleImportBtn");
@@ -79,10 +80,8 @@ function bindElements() {
   els.importBtn = document.getElementById("importBtn");
 
   els.authModal = document.getElementById("authModal");
-  els.teamIdInput = document.getElementById("teamIdInput");
-  els.teamNameInput = document.getElementById("teamNameInput");
-  els.userIdInput = document.getElementById("userIdInput");
-  els.displayNameInput = document.getElementById("displayNameInput");
+  els.accountIdInput = document.getElementById("accountIdInput");
+  els.accountNameInput = document.getElementById("accountNameInput");
   els.cancelAuthBtn = document.getElementById("cancelAuthBtn");
   els.saveAuthBtn = document.getElementById("saveAuthBtn");
 
@@ -93,7 +92,7 @@ function bindEvents() {
   els.profileBtn.addEventListener("click", openAuthModal);
   els.cancelAuthBtn.addEventListener("click", () => {
     if (!state.teamId || !state.userId) {
-      showToast("请先登录后再开始聊天", true);
+      showToast("请先登录账号后再开始聊天", true);
       return;
     }
     closeAuthModal();
@@ -135,6 +134,14 @@ function bindEvents() {
     }
   });
   els.messageInput.addEventListener("input", autoGrowTextarea);
+
+  const sceneButtons = document.querySelectorAll(".scenario-card");
+  for (const button of sceneButtons) {
+    button.addEventListener("click", () => {
+      const scene = button.dataset.scene || "";
+      applyScenarioCard(scene);
+    });
+  }
 }
 
 function hydrateState() {
@@ -192,16 +199,19 @@ function persistSelectedEmbedding() {
 }
 
 function updateIdentityCard() {
-  const name = state.displayName || "未登录";
-  const team = state.teamId ? `${state.teamName || state.teamId} · ${state.userId}` : "点击登录或切换用户";
+  const name = state.displayName || state.teamName || "未登录";
+  const accountId = state.teamId || state.userId;
+  const team = accountId ? `account: ${accountId}` : "点击登录或切换账号";
   els.profileName.textContent = name;
   els.profileTeam.textContent = team;
   els.avatarText.textContent = name.slice(0, 1) || "未";
 
-  els.teamIdInput.value = state.teamId;
-  els.teamNameInput.value = state.teamName;
-  els.userIdInput.value = state.userId;
-  els.displayNameInput.value = state.displayName;
+  if (els.accountIdInput) {
+    els.accountIdInput.value = accountId || "";
+  }
+  if (els.accountNameInput) {
+    els.accountNameInput.value = name === "未登录" ? "" : name;
+  }
 }
 
 function initModelOptions() {
@@ -284,7 +294,7 @@ async function handleModelChange() {
 
   if (!ensureIdentity()) {
     openAuthModal();
-    showToast("请先登录团队与用户", true);
+    showToast("请先登录账号", true);
     els.modelSelect.value = state.selectedModel;
     return;
   }
@@ -353,7 +363,7 @@ async function handleEmbeddingChange() {
 
   if (!ensureIdentity()) {
     openAuthModal();
-    showToast("请先登录团队与用户", true);
+    showToast("请先登录账号", true);
     els.embeddingSelect.value = state.selectedEmbedding;
     return;
   }
@@ -425,13 +435,16 @@ async function handleEmbeddingChange() {
 }
 
 async function handleSaveAuth() {
-  const teamId = els.teamIdInput.value.trim();
-  const teamName = els.teamNameInput.value.trim() || teamId;
-  const userId = els.userIdInput.value.trim();
-  const displayName = els.displayNameInput.value.trim() || userId;
+  const rawAccountId = els.accountIdInput.value.trim();
+  const accountId = rawAccountId.replace(/\s+/g, "_").slice(0, 64);
+  const accountName = els.accountNameInput.value.trim() || accountId;
+  const teamId = accountId;
+  const userId = accountId;
+  const teamName = accountName || accountId;
+  const displayName = accountName || accountId;
 
-  if (!teamId || !userId) {
-    showToast("team_id 和 user_id 不能为空", true);
+  if (!accountId) {
+    showToast("account_id 不能为空", true);
     return;
   }
 
@@ -453,7 +466,7 @@ async function handleSaveAuth() {
     closeAuthModal();
     clearConversation();
     await loadAllData();
-    showToast(`已登录：${displayName}`);
+    showToast(`已登录账号：${displayName}`);
   } catch (error) {
     showToast(error.message, true);
   } finally {
@@ -498,7 +511,7 @@ async function createOrReuseUser(userId, teamId, displayName) {
 
   const existing = await apiRequest(`/users/${encodeURIComponent(userId)}`);
   if (existing.team_id !== teamId) {
-    throw new Error(`用户 ${userId} 已属于团队 ${existing.team_id}，请换一个 user_id。`);
+    throw new Error(`账号 ${userId} 已绑定其他团队 ${existing.team_id}，请更换 account_id。`);
   }
 }
 
@@ -710,7 +723,7 @@ async function pinConversation(conversationId, pinned) {
 async function createAndSwitchConversation() {
   if (!ensureIdentity()) {
     openAuthModal();
-    showToast("请先登录团队与用户", true);
+    showToast("请先登录账号", true);
     return;
   }
 
@@ -909,9 +922,11 @@ function renderCurrentConversationMessages() {
     });
     const hits = item.response_payload && Array.isArray(item.response_payload.hits) ? item.response_payload.hits : [];
     const model = item.response_payload && item.response_payload.model ? item.response_payload.model : "";
+    const mode = item.response_payload && item.response_payload.mode ? item.response_payload.mode : "";
     appendMessage("assistant", item.response_text || "", {
       createdAt: item.created_at,
       hits,
+      mode,
       model,
       messageId: item.message_id,
       requestText: item.request_text || "",
@@ -966,7 +981,7 @@ function renderDocSelect() {
 
   const allOption = document.createElement("option");
   allOption.value = "";
-  allOption.textContent = "全部文档";
+  allOption.textContent = "当前会话文档（session_only）";
   els.docSelect.appendChild(allOption);
 
   for (const doc of state.documents) {
@@ -989,7 +1004,7 @@ async function handleSend() {
 
   if (!ensureIdentity()) {
     openAuthModal();
-    showToast("请先登录团队与用户", true);
+    showToast("请先登录账号", true);
     return;
   }
 
@@ -1025,6 +1040,7 @@ async function handleSend() {
 
     appendMessage("assistant", response.answer || "", {
       hits: Array.isArray(response.hits) ? response.hits : [],
+      mode: response.mode || "",
       model: response.model || state.selectedModel,
     });
 
@@ -1090,7 +1106,7 @@ async function handleImportDocument() {
   }
   if (!ensureIdentity()) {
     openAuthModal();
-    showToast("请先登录团队与用户", true);
+    showToast("请先登录账号", true);
     return;
   }
 
@@ -1183,9 +1199,7 @@ function appendMessage(role, content, options = {}) {
     return;
   }
 
-  if (els.heroTitle.style.display !== "none") {
-    els.heroTitle.style.display = "none";
-  }
+  setHeroVisible(false);
 
   const row = document.createElement("div");
   row.className = `message-row ${role}`;
@@ -1203,8 +1217,15 @@ function appendMessage(role, content, options = {}) {
   const timeText = Number.isNaN(createdDate.valueOf()) ? formatClock(new Date()) : formatClock(createdDate);
 
   const right = document.createElement("span");
-  if (role === "assistant" && options.model) {
-    right.textContent = `${timeText} · ${options.model}`;
+  if (role === "assistant") {
+    const meta = [timeText];
+    if (options.mode) {
+      meta.push(options.mode);
+    }
+    if (options.model) {
+      meta.push(options.model);
+    }
+    right.textContent = meta.join(" · ");
   } else {
     right.textContent = timeText;
   }
@@ -1231,7 +1252,8 @@ function appendMessage(role, content, options = {}) {
       const meta = document.createElement("div");
       meta.className = "hit-meta";
       const score = Number(hit.score || 0).toFixed(4);
-      meta.textContent = `doc=${hit.document_id} · chunk=${hit.chunk_index} · score=${score}`;
+      const sourceName = hit.source_name ? `source=${hit.source_name} · ` : "";
+      meta.textContent = `${sourceName}doc=${hit.document_id} · chunk=${hit.chunk_index} · score=${score}`;
 
       const snippet = document.createElement("div");
       snippet.className = "hit-content";
@@ -1317,7 +1339,30 @@ function appendMessage(role, content, options = {}) {
 
 function clearConversation() {
   els.messageList.innerHTML = "";
-  els.heroTitle.style.display = "block";
+  setHeroVisible(true);
+}
+
+function setHeroVisible(visible) {
+  els.heroTitle.style.display = visible ? "block" : "none";
+  if (els.scenarioCards) {
+    els.scenarioCards.style.display = visible ? "grid" : "none";
+  }
+}
+
+function applyScenarioCard(scene) {
+  const templates = {
+    summary: "请帮我总结以下资料，输出：1）关键结论 2）风险点 3）下一步行动建议。",
+    plan: "请基于这个目标帮我写方案，包含：背景、目标、里程碑、资源投入、风险与验收标准。",
+    qa: "请做知识问答：先给结论，再列出依据来源和不确定项。",
+  };
+
+  const prompt = templates[scene];
+  if (!prompt) {
+    return;
+  }
+  els.messageInput.value = prompt;
+  autoGrowTextarea();
+  els.messageInput.focus();
 }
 
 function scrollToBottom() {

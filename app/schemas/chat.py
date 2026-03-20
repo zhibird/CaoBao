@@ -49,6 +49,14 @@ class ChatAskRequest(BaseModel):
     embedding_model: str | None = Field(default=None, min_length=1, max_length=128)
 
 
+class ChatSource(BaseModel):
+    document_id: str
+    source_name: str | None = None
+    chunk_id: str
+    chunk_index: int
+    score: float
+
+
 class ChatAskResponse(BaseModel):
     user_id: str
     team_id: str
@@ -56,6 +64,8 @@ class ChatAskResponse(BaseModel):
     question: str
     answer: str
     hits: list[RetrievalHit]
+    mode: str
+    sources: list[ChatSource]
     model: str | None = None
     created_at: str
 
@@ -68,6 +78,8 @@ class ChatAskResponse(BaseModel):
         question: str,
         answer: str,
         hits: list[RetrievalHit],
+        mode: str,
+        sources: list[ChatSource],
         model: str | None = None,
     ) -> "ChatAskResponse":
         return cls(
@@ -77,6 +89,8 @@ class ChatAskResponse(BaseModel):
             question=question,
             answer=answer,
             hits=hits,
+            mode=mode,
+            sources=sources,
             model=model,
             created_at=datetime.now(timezone.utc).isoformat(),
         )

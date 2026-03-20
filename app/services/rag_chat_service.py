@@ -1,4 +1,4 @@
-from app.schemas.chat import ChatAskRequest, ChatAskResponse
+from app.schemas.chat import ChatAskRequest, ChatAskResponse, ChatSource
 from app.schemas.retrieval import RetrievalHit
 from app.services.llm_model_service import LLMModelService
 from app.services.llm_service import LLMService
@@ -68,6 +68,8 @@ class RagChatService:
                 question=payload.question,
                 answer=answer,
                 hits=[],
+                mode="chat",
+                sources=[],
                 model=selected_model,
             )
 
@@ -91,6 +93,7 @@ class RagChatService:
         )
 
         hits = [RetrievalHit.model_validate(item) for item in raw_hits]
+        sources = self._build_sources(raw_hits)
         return ChatAskResponse.from_result(
             user_id=payload.user_id,
             team_id=payload.team_id,
@@ -98,5 +101,26 @@ class RagChatService:
             question=payload.question,
             answer=answer,
             hits=hits,
+            mode="rag",
+            sources=sources,
             model=selected_model,
         )
+
+    def _build_sources(self, raw_hits: list[dict[str, object]]) -> list[ChatSource]:
+        seen: set[str] = set()
+        sources: list[ChatSource] = []
+        for hit in raw_hits:
+            chunk_id = str(hit.get("chunk_id", "")).strip()
+            if not chunk_id or chunk_id in seen:
+                continue
+            seen.add(chunk_id)
+            sources.append(
+                ChatSource(
+                    document_id=str(hit.get("document_id", "")),
+                    source_name=(str(hit.get("source_name", "")).strip() or None),
+                    chunk_id=chunk_id,
+                    chunk_index=int(hit.get("chunk_index", 0)),
+                    score=float(hit.get("score", 0.0)),
+                )
+            )
+        return sources

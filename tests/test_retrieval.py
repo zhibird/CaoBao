@@ -71,6 +71,7 @@ def test_retrieval_index_and_search(client) -> None:
     body = search_response.json()
     assert len(body["hits"]) >= 1
     assert body["hits"][0]["team_id"] == team_id
+    assert body["hits"][0]["source_name"] == "kb.md"
 
 
 def test_retrieval_search_requires_indexing_first(client) -> None:
