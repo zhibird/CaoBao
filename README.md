@@ -1,28 +1,40 @@
-# v0.4.0 - 2026-03-18
+# v0.6.0 - 2026-03-19
+
+## what's next
+
+1. 进行mock和真实模型的RAG性能评估。
+2. 完善用户自定义模型功能。
 
 ## 版本概览
 
-本版本完成了“用户可在前端配置大模型并按账号隔离使用”的核心能力：
+本版本聚焦三件事：
 
-1. 新增账号级模型配置管理（`API Key + Base URL + Model`）。
-2. 前端模型选择支持 `default` 基础模式与自定义模型新增。
-3. 聊天链路接入账号模型配置，并保证不同账号互相隔离。
+1. RAG 检索链路正式支持真实 embedding（非 mock）并可安全重建索引。
+2. 落地可复现的真实场景评测最小集（A/B/C 共 50 题）。
+3. 前端模型策略升级：`default` 走 `.env`，`none` 强制 mock；新增向量模型可配置。
 
 ## 新增内容
 
-1. 新增 `llm_model_configs` 数据表，用于存储账号级模型配置。
-2. 新增模型配置接口：`GET/POST/DELETE /api/v1/llm/models`。
-3. 新增模型配置服务层，提供 upsert/list/delete/runtime resolve 能力。
-4. 新增模型隔离与模型未配置校验测试用例。
+1. 真实 embedding 配置项与运行时逻辑（provider/base_url/api_key/model/batch）。
+2. embedding 模型账号隔离配置接口（按 `team_id + user_id` 管理）。
+3. 前端新增“向量模型”下拉与自定义入口。
+4. 真实场景评测脚本与语料数据集（Recall@1/3/5、命中来源、失败 Top10、对比报告）。
 
 ## 主要变更
 
-1. `RagChatService` 在 `chat/ask` 时按 `team_id + user_id + model_name` 解析模型运行配置。
-2. `LLMService` 支持按请求覆盖 `base_url/api_key`，可直接调用用户配置的大模型。
-3. 前端模型选择改为账号隔离存储：`selectedModel:<team_id>:<user_id>`。
-4. 当前账号无模型配置时，前端默认显示 `default`，发送消息仅走 `chat/echo` 基础模式。
+1. `EmbeddingService` 升级为双模式：
+   `mock`（hashing）与 `real`（调用 `/embeddings`，支持批量、响应校验、错误处理）。
+2. 检索链路升级：
+   支持批量向量化写入、`rebuild` 重建索引、检索维度一致性校验（不一致返回 400）。
+3. 聊天模型默认行为调整：
+   前端 `default` 不再走 `echo`，改为走 `/chat/ask` 并读取 `.env`；
+   `none` 走 `/chat/ask` 且后端强制 mock。
+4. 检索请求支持会话用户选择 embedding 模型：
+   `retrieval/index`、`retrieval/search`、`chat/ask` 与历史重编辑链路均可带 `embedding_model`。
 
-## 兼容性说明
+## 验证结果
 
-1. 本次为新增能力，不影响既有团队/会话/文档/历史接口。
-2. 旧账号无需迁移即可运行；未配置模型时默认行为为 Echo 基础对话。
+1. Python 回归测试通过：`36 passed`。
+2. 前端脚本语法检查通过：`node --check app/web/app.js`。
+3. 真实场景评测链路（prepare/eval/compare）已可执行。
+
