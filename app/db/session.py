@@ -42,6 +42,7 @@ def init_db() -> None:
         conversation,
         document,
         document_chunk,
+        embedding_model_config,
         incident,
         llm_model_config,
         team,

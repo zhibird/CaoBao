@@ -167,6 +167,10 @@ def edit_chat_history_message(
             top_k = _resolve_top_k(payload.top_k, previous_payload)
             document_id = _resolve_optional_string(payload.document_id, previous_payload.get("document_id"))
             model = _resolve_optional_string(payload.model, previous_payload.get("model"))
+            embedding_model = _resolve_optional_string(
+                payload.embedding_model,
+                previous_payload.get("embedding_model"),
+            )
 
             ask_payload = ChatAskRequest(
                 user_id=payload.user_id,
@@ -176,6 +180,7 @@ def edit_chat_history_message(
                 top_k=top_k,
                 document_id=document_id,
                 model=model,
+                embedding_model=embedding_model,
             )
             ask_response = rag_chat_service.ask(ask_payload)
 

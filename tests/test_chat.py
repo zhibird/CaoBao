@@ -222,6 +222,49 @@ def test_chat_ask_falls_back_to_chat_mode_without_index(client) -> None:
     assert body["hits"] == []
 
 
+def test_chat_ask_supports_none_model_for_forced_mock(client) -> None:
+    suffix = uuid4().hex[:8]
+    team_id = f"team_ask_none_{suffix}"
+    user_id = f"u_ask_none_{suffix}"
+
+    create_team = client.post(
+        "/api/v1/teams",
+        json={
+            "team_id": team_id,
+            "name": "NoneModel Team",
+            "description": "ask with none model",
+        },
+    )
+    assert create_team.status_code == 201
+
+    create_user = client.post(
+        "/api/v1/users",
+        json={
+            "user_id": user_id,
+            "team_id": team_id,
+            "display_name": "Operator",
+            "role": "member",
+        },
+    )
+    assert create_user.status_code == 201
+
+    ask_response = client.post(
+        "/api/v1/chat/ask",
+        json={
+            "user_id": user_id,
+            "team_id": team_id,
+            "question": "hello",
+            "model": "none",
+            "top_k": 3,
+        },
+    )
+
+    assert ask_response.status_code == 200
+    body = ask_response.json()
+    assert body["answer"].startswith("[Mock Chat]")
+    assert body["hits"] == []
+
+
 def test_chat_action_create_incident(client) -> None:
     suffix = uuid4().hex[:8]
     team_id = f"team_action_{suffix}"

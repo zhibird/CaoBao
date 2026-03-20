@@ -26,15 +26,26 @@ class RagChatService:
         )
 
         requested_model = payload.model.strip() if payload.model else None
+        force_mock = False
         if requested_model and requested_model.lower() == "default":
             requested_model = None
+        if requested_model and requested_model.lower() == "none":
+            requested_model = None
+            force_mock = True
 
         runtime_model = self.llm_model_service.resolve_runtime_config(
             team_id=payload.team_id,
             user_id=payload.user_id,
             model_name=requested_model,
         )
-        selected_model = runtime_model.model_name if runtime_model is not None else requested_model
+        if runtime_model is not None:
+            selected_model = runtime_model.model_name
+        elif force_mock:
+            selected_model = "none"
+        elif requested_model:
+            selected_model = requested_model
+        else:
+            selected_model = "default"
 
         should_use_rag = self.retrieval_service.has_indexed_chunks(
             team_id=payload.team_id,
@@ -48,6 +59,7 @@ class RagChatService:
                 model=selected_model,
                 base_url=runtime_model.base_url if runtime_model is not None else None,
                 api_key=runtime_model.api_key if runtime_model is not None else None,
+                force_mock=force_mock,
             )
             return ChatAskResponse.from_result(
                 user_id=payload.user_id,
@@ -65,6 +77,8 @@ class RagChatService:
             top_k=payload.top_k,
             document_id=payload.document_id,
             conversation_id=payload.conversation_id,
+            user_id=payload.user_id,
+            embedding_model=payload.embedding_model,
         )
 
         answer = self.llm_service.answer_question(
@@ -73,6 +87,7 @@ class RagChatService:
             model=selected_model,
             base_url=runtime_model.base_url if runtime_model is not None else None,
             api_key=runtime_model.api_key if runtime_model is not None else None,
+            force_mock=force_mock,
         )
 
         hits = [RetrievalHit.model_validate(item) for item in raw_hits]

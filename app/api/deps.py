@@ -8,6 +8,7 @@ from app.services.chat_service import ChatService
 from app.services.chunk_service import ChunkService
 from app.services.conversation_service import ConversationService
 from app.services.document_service import DocumentService
+from app.services.embedding_model_service import EmbeddingModelService
 from app.services.embedding_service import EmbeddingService
 from app.services.llm_model_service import LLMModelService
 from app.services.llm_service import LLMService
@@ -49,11 +50,23 @@ def get_embedding_service() -> EmbeddingService:
     return EmbeddingService()
 
 
+def get_embedding_model_service(
+    db: Session = Depends(get_db_session),
+    user_service: UserService = Depends(get_user_service),
+) -> EmbeddingModelService:
+    return EmbeddingModelService(db=db, user_service=user_service)
+
+
 def get_retrieval_service(
     db: Session = Depends(get_db_session),
     embedding_service: EmbeddingService = Depends(get_embedding_service),
+    embedding_model_service: EmbeddingModelService = Depends(get_embedding_model_service),
 ) -> RetrievalService:
-    return RetrievalService(db=db, embedding_service=embedding_service)
+    return RetrievalService(
+        db=db,
+        embedding_service=embedding_service,
+        embedding_model_service=embedding_model_service,
+    )
 
 
 def get_llm_service() -> LLMService:

@@ -1,0 +1,323 @@
+[
+  {
+    "case_id": "A-01",
+    "scenario": "A",
+    "question": "P1 事故的首次响应 SLA 是多少分钟？",
+    "expected_source_names": ["a_alert_triage.md"]
+  },
+  {
+    "case_id": "A-02",
+    "scenario": "A",
+    "question": "P2 告警要求在几分钟内完成首次响应？",
+    "expected_source_names": ["a_alert_triage.md"]
+  },
+  {
+    "case_id": "A-03",
+    "scenario": "A",
+    "question": "P3 问题的处置计划 SLA 是多少？",
+    "expected_source_names": ["a_alert_triage.md"]
+  },
+  {
+    "case_id": "A-04",
+    "scenario": "A",
+    "question": "P1 事故状态同步频率是多久一次？",
+    "expected_source_names": ["a_alert_triage.md"]
+  },
+  {
+    "case_id": "A-05",
+    "scenario": "A",
+    "question": "incident 模板里必须填写哪个字段来标记下一次更新时间？",
+    "expected_source_names": ["a_alert_triage.md"]
+  },
+  {
+    "case_id": "A-06",
+    "scenario": "A",
+    "question": "数据库全量备份每天几点执行？",
+    "expected_source_names": ["a_db_backup_restore.md"]
+  },
+  {
+    "case_id": "A-07",
+    "scenario": "A",
+    "question": "数据库增量备份的间隔是多少分钟？",
+    "expected_source_names": ["a_db_backup_restore.md"]
+  },
+  {
+    "case_id": "A-08",
+    "scenario": "A",
+    "question": "全量备份和 binlog 的保留天数分别是多少？",
+    "expected_source_names": ["a_db_backup_restore.md"]
+  },
+  {
+    "case_id": "A-09",
+    "scenario": "A",
+    "question": "核心订单库的 RPO 指标是多少？",
+    "expected_source_names": ["a_db_backup_restore.md"]
+  },
+  {
+    "case_id": "A-10",
+    "scenario": "A",
+    "question": "核心订单库的 RTO 是多少分钟？",
+    "expected_source_names": ["a_db_backup_restore.md"]
+  },
+  {
+    "case_id": "A-11",
+    "scenario": "A",
+    "question": "恢复演练是按什么频率执行？",
+    "expected_source_names": ["a_db_backup_restore.md"]
+  },
+  {
+    "case_id": "A-12",
+    "scenario": "A",
+    "question": "K8s 的 HPA CPU 目标利用率是多少？",
+    "expected_source_names": ["a_k8s_capacity_ops.md"]
+  },
+  {
+    "case_id": "A-13",
+    "scenario": "A",
+    "question": "集群 autoscaler 的最大节点数上限是多少？",
+    "expected_source_names": ["a_k8s_capacity_ops.md"]
+  },
+  {
+    "case_id": "A-14",
+    "scenario": "A",
+    "question": "节点磁盘压力触发驱逐的阈值是百分之多少？",
+    "expected_source_names": ["a_k8s_capacity_ops.md"]
+  },
+  {
+    "case_id": "A-15",
+    "scenario": "A",
+    "question": "Pending Pods 连续多久、超过多少个会触发容量告警？",
+    "expected_source_names": ["a_k8s_capacity_ops.md"]
+  },
+  {
+    "case_id": "A-16",
+    "scenario": "A",
+    "question": "安全策略里可疑登录的触发条件是什么？",
+    "expected_source_names": ["a_security_incident_response.md"]
+  },
+  {
+    "case_id": "A-17",
+    "scenario": "A",
+    "question": "Token 泄露后的吊销 SLA 是多少分钟？",
+    "expected_source_names": ["a_security_incident_response.md"]
+  },
+  {
+    "case_id": "A-18",
+    "scenario": "A",
+    "question": "发生安全事件后，合规通知要在多久内完成？",
+    "expected_source_names": ["a_security_incident_response.md"]
+  },
+  {
+    "case_id": "A-19",
+    "scenario": "A",
+    "question": "取证证据需要保留多少天？",
+    "expected_source_names": ["a_security_incident_response.md"]
+  },
+  {
+    "case_id": "A-20",
+    "scenario": "A",
+    "question": "高风险账号强制重置密码的时限是什么？",
+    "expected_source_names": ["a_security_incident_response.md"]
+  },
+  {
+    "case_id": "B-01",
+    "scenario": "B",
+    "question": "常规生产发版前，自动化测试覆盖率门槛是多少，且变更通知需要提前多久发出？",
+    "expected_source_names": ["b_release_gates.md", "b_change_calendar.md"],
+    "require_all_sources": true
+  },
+  {
+    "case_id": "B-02",
+    "scenario": "B",
+    "question": "Canary 阶段错误率超过阈值持续 10 分钟时，应在多久内回滚，由谁共同决策？",
+    "expected_source_names": ["b_release_gates.md", "b_incident_rollback_flow.md"],
+    "require_all_sources": true
+  },
+  {
+    "case_id": "B-03",
+    "scenario": "B",
+    "question": "如果在冻结窗口内要做紧急变更，需要满足什么审批条件，同时发布前还必须满足哪个高优先级缺陷门槛？",
+    "expected_source_names": ["b_change_calendar.md", "b_release_gates.md"],
+    "require_all_sources": true
+  },
+  {
+    "case_id": "B-04",
+    "scenario": "B",
+    "question": "回滚完成后状态页更新频率是多少，postmortem 草稿时限又是多少？",
+    "expected_source_names": ["b_incident_rollback_flow.md", "b_postmortem_and_kb.md"],
+    "require_all_sources": true
+  },
+  {
+    "case_id": "B-05",
+    "scenario": "B",
+    "question": "生产最终发布要哪些角色共同签字，常规变更可以在哪两个固定时间窗执行？",
+    "expected_source_names": ["b_release_gates.md", "b_change_calendar.md"],
+    "require_all_sources": true
+  },
+  {
+    "case_id": "B-06",
+    "scenario": "B",
+    "question": "紧急变更执行时对 SRE 的在线要求是什么，回滚后关键 SLO 需要在多久内恢复？",
+    "expected_source_names": ["b_change_calendar.md", "b_incident_rollback_flow.md"],
+    "require_all_sources": true
+  },
+  {
+    "case_id": "B-07",
+    "scenario": "B",
+    "question": "回滚工单里必须记录哪些核心字段，并且根因修复流程要在多久内沉淀成 KB？",
+    "expected_source_names": ["b_incident_rollback_flow.md", "b_postmortem_and_kb.md"],
+    "require_all_sources": true
+  },
+  {
+    "case_id": "B-08",
+    "scenario": "B",
+    "question": "Canary 最少观察多长时间，以及触发回滚的错误率阈值是什么？",
+    "expected_source_names": ["b_release_gates.md", "b_incident_rollback_flow.md"],
+    "require_all_sources": true
+  },
+  {
+    "case_id": "B-09",
+    "scenario": "B",
+    "question": "月末最后两天属于什么变更状态，如果必须发布，除了紧急审批外还要满足什么缺陷门禁？",
+    "expected_source_names": ["b_change_calendar.md", "b_release_gates.md"],
+    "require_all_sources": true
+  },
+  {
+    "case_id": "B-10",
+    "scenario": "B",
+    "question": "回滚后多久要发内部总结，同时 postmortem 最终版要求在几个工作日内完成？",
+    "expected_source_names": ["b_incident_rollback_flow.md", "b_postmortem_and_kb.md"],
+    "require_all_sources": true
+  },
+  {
+    "case_id": "B-11",
+    "scenario": "B",
+    "question": "要发起常规发版，除了满足性能 p95 门槛，还需要提前多久通知业务方？",
+    "expected_source_names": ["b_release_gates.md", "b_change_calendar.md"],
+    "require_all_sources": true
+  },
+  {
+    "case_id": "B-12",
+    "scenario": "B",
+    "question": "如果 canary 延迟升高超过基线 40%，回滚的执行时限和回滚触发归属流程分别是什么？",
+    "expected_source_names": ["b_release_gates.md", "b_incident_rollback_flow.md"],
+    "require_all_sources": true
+  },
+  {
+    "case_id": "B-13",
+    "scenario": "B",
+    "question": "批量数据迁移允许在哪个时间段执行，同时发布前必须满足的安全扫描要求是什么？",
+    "expected_source_names": ["b_change_calendar.md", "b_release_gates.md"],
+    "require_all_sources": true
+  },
+  {
+    "case_id": "B-14",
+    "scenario": "B",
+    "question": "postmortem 里 corrective action 需要包含哪些治理字段，回滚记录又必须包含哪些执行字段？",
+    "expected_source_names": ["b_postmortem_and_kb.md", "b_incident_rollback_flow.md"],
+    "require_all_sources": true
+  },
+  {
+    "case_id": "B-15",
+    "scenario": "B",
+    "question": "发生 P1 业务影响时，冻结窗口内紧急变更要满足什么条件，且发布审批由哪些角色负责？",
+    "expected_source_names": ["b_change_calendar.md", "b_release_gates.md"],
+    "require_all_sources": true
+  },
+  {
+    "case_id": "B-16",
+    "scenario": "B",
+    "question": "回滚后状态页更新节奏是怎样的，复盘报告中必须覆盖哪些章节？",
+    "expected_source_names": ["b_incident_rollback_flow.md", "b_postmortem_and_kb.md"],
+    "require_all_sources": true
+  },
+  {
+    "case_id": "B-17",
+    "scenario": "B",
+    "question": "常规发布必须满足哪些质量门禁，并且应安排在哪些固定工作日时段？",
+    "expected_source_names": ["b_release_gates.md", "b_change_calendar.md"],
+    "require_all_sources": true
+  },
+  {
+    "case_id": "B-18",
+    "scenario": "B",
+    "question": "当回滚触发后，多久内要完成切流和验证，随后多久内要形成 postmortem 草稿？",
+    "expected_source_names": ["b_incident_rollback_flow.md", "b_postmortem_and_kb.md"],
+    "require_all_sources": true
+  },
+  {
+    "case_id": "B-19",
+    "scenario": "B",
+    "question": "冻结窗口期间若进行紧急发布，除了 director 审批，还必须通过哪项性能指标门槛？",
+    "expected_source_names": ["b_change_calendar.md", "b_release_gates.md"],
+    "require_all_sources": true
+  },
+  {
+    "case_id": "B-20",
+    "scenario": "B",
+    "question": "回滚记录里的触发指标和 owner 要求来自哪份流程，后续 KB 转化时限来自哪份流程？",
+    "expected_source_names": ["b_incident_rollback_flow.md", "b_postmortem_and_kb.md"],
+    "require_all_sources": true
+  },
+  {
+    "case_id": "C-01",
+    "scenario": "C",
+    "question": "Public API v1 的 EOL 截止日期是哪一天？",
+    "expected_source_names": ["c_api_version_matrix.md"]
+  },
+  {
+    "case_id": "C-02",
+    "scenario": "C",
+    "question": "v3 是从哪天开始 beta 的？它当前是否有正式 SLA？",
+    "expected_source_names": ["c_api_version_matrix.md"]
+  },
+  {
+    "case_id": "C-03",
+    "scenario": "C",
+    "question": "API 废弃公告最少要提前多少天发布？",
+    "expected_source_names": ["c_api_version_matrix.md"]
+  },
+  {
+    "case_id": "C-04",
+    "scenario": "C",
+    "question": "emb-2026-02 的上线日期是什么时候？",
+    "expected_source_names": ["c_model_release_calendar.md"]
+  },
+  {
+    "case_id": "C-05",
+    "scenario": "C",
+    "question": "模型回滚在 2026-02-21 的具体完成时间是几点？",
+    "expected_source_names": ["c_model_release_calendar.md"]
+  },
+  {
+    "case_id": "C-06",
+    "scenario": "C",
+    "question": "chat-lite-2025-12 作为默认模型持续到哪一天？",
+    "expected_source_names": ["c_model_release_calendar.md"]
+  },
+  {
+    "case_id": "C-07",
+    "scenario": "C",
+    "question": "EU telemetry opt-in 何时开始强制执行？",
+    "expected_source_names": ["c_policy_effective_dates.md"]
+  },
+  {
+    "case_id": "C-08",
+    "scenario": "C",
+    "question": "新的 billing rounding 规则从哪天生效？",
+    "expected_source_names": ["c_policy_effective_dates.md"]
+  },
+  {
+    "case_id": "C-09",
+    "scenario": "C",
+    "question": "API key 最小长度 32 字符这一安全规则在什么日期生效？",
+    "expected_source_names": ["c_policy_effective_dates.md"]
+  },
+  {
+    "case_id": "C-10",
+    "scenario": "C",
+    "question": "v3 beta 启动日期与 emb-2026-02 上线日期相比，哪个更晚？",
+    "expected_source_names": ["c_api_version_matrix.md", "c_model_release_calendar.md"],
+    "require_all_sources": true
+  }
+]

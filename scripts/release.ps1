@@ -66,7 +66,13 @@ if ([string]::IsNullOrWhiteSpace($Version)) {
 }
 
 if ([string]::IsNullOrWhiteSpace($CommitMessage) -or $CommitMessage -eq "release: v") {
-  $CommitMessage = "release: v$Version"
+  $defaultMsg = "release: v$Version"
+  $inputMsg = Read-Host "Commit message. Press Enter to use default '$defaultMsg'"
+  if ([string]::IsNullOrWhiteSpace($inputMsg)) {
+    $CommitMessage = $defaultMsg
+  } else {
+    $CommitMessage = $inputMsg.Trim()
+  }
 }
 
 if ($Version -notmatch '^\d+\.\d+\.\d+$') {

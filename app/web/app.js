@@ -1,6 +1,9 @@
 const API_PREFIX = "/api/v1";
 const DEFAULT_MODEL_ID = "default";
+const NONE_MODEL_ID = "none";
 const ADD_MODEL_OPTION = "__add_model__";
+const DEFAULT_EMBEDDING_ID = "default";
+const ADD_EMBEDDING_OPTION = "__add_embedding_model__";
 const STORAGE_KEYS = {
   teamId: "caibao.teamId",
   teamName: "caibao.teamName",
@@ -8,6 +11,7 @@ const STORAGE_KEYS = {
   displayName: "caibao.displayName",
   conversationId: "caibao.conversationId",
   selectedModelPrefix: "caibao.selectedModel",
+  selectedEmbeddingPrefix: "caibao.selectedEmbedding",
 };
 
 const state = {
@@ -17,7 +21,9 @@ const state = {
   displayName: "",
   conversationId: "",
   selectedModel: DEFAULT_MODEL_ID,
+  selectedEmbedding: DEFAULT_EMBEDDING_ID,
   modelConfigs: [],
+  embeddingConfigs: [],
   conversations: [],
   history: [],
   documents: [],
@@ -32,6 +38,7 @@ document.addEventListener("DOMContentLoaded", () => {
   bindElements();
   hydrateState();
   initModelOptions();
+  initEmbeddingOptions();
   bindEvents();
   updateIdentityCard();
 
@@ -50,6 +57,7 @@ function bindElements() {
   els.profileTeam = document.getElementById("profileTeam");
   els.avatarText = document.getElementById("avatarText");
   els.modelSelect = document.getElementById("modelSelect");
+  els.embeddingSelect = document.getElementById("embeddingSelect");
   els.docSelect = document.getElementById("docSelect");
   els.refreshAllBtn = document.getElementById("refreshAllBtn");
   els.heroTitle = document.getElementById("heroTitle");
@@ -110,6 +118,9 @@ function bindEvents() {
   els.modelSelect.addEventListener("change", () => {
     handleModelChange().catch((error) => showToast(error.message, true));
   });
+  els.embeddingSelect.addEventListener("change", () => {
+    handleEmbeddingChange().catch((error) => showToast(error.message, true));
+  });
   els.docSelect.addEventListener("change", () => {
     if (els.docSelect.value) {
       showToast(`已切换到文档：${els.docSelect.options[els.docSelect.selectedIndex].text}`);
@@ -133,6 +144,7 @@ function hydrateState() {
   state.displayName = localStorage.getItem(STORAGE_KEYS.displayName) || "";
   state.conversationId = localStorage.getItem(STORAGE_KEYS.conversationId) || "";
   state.selectedModel = loadSelectedModelFromStorage();
+  state.selectedEmbedding = loadSelectedEmbeddingFromStorage();
 }
 
 function persistIdentity() {
@@ -161,6 +173,24 @@ function persistSelectedModel() {
   localStorage.setItem(selectedModelStorageKey(), state.selectedModel || DEFAULT_MODEL_ID);
 }
 
+function selectedEmbeddingStorageKey() {
+  if (state.teamId && state.userId) {
+    return `${STORAGE_KEYS.selectedEmbeddingPrefix}:${state.teamId}:${state.userId}`;
+  }
+  return STORAGE_KEYS.selectedEmbeddingPrefix;
+}
+
+function loadSelectedEmbeddingFromStorage() {
+  return localStorage.getItem(selectedEmbeddingStorageKey()) || DEFAULT_EMBEDDING_ID;
+}
+
+function persistSelectedEmbedding() {
+  localStorage.setItem(
+    selectedEmbeddingStorageKey(),
+    state.selectedEmbedding || DEFAULT_EMBEDDING_ID,
+  );
+}
+
 function updateIdentityCard() {
   const name = state.displayName || "未登录";
   const team = state.teamId ? `${state.teamName || state.teamId} · ${state.userId}` : "点击登录或切换用户";
@@ -176,13 +206,13 @@ function updateIdentityCard() {
 
 function initModelOptions() {
   const configuredModels = state.modelConfigs.map((item) => item.model_name);
-  const allModels = dedupeStrings([DEFAULT_MODEL_ID, ...configuredModels]);
+  const allModels = dedupeStrings([DEFAULT_MODEL_ID, NONE_MODEL_ID, ...configuredModels]);
   els.modelSelect.innerHTML = "";
 
   for (const model of allModels) {
     const option = document.createElement("option");
     option.value = model;
-    option.textContent = model;
+    option.textContent = formatModelOptionLabel(model);
     els.modelSelect.appendChild(option);
   }
 
@@ -196,13 +226,56 @@ function initModelOptions() {
   persistSelectedModel();
 }
 
+function initEmbeddingOptions() {
+  const configuredModels = state.embeddingConfigs.map((item) => item.model_name);
+  const allModels = dedupeStrings([DEFAULT_EMBEDDING_ID, ...configuredModels]);
+  els.embeddingSelect.innerHTML = "";
+
+  for (const model of allModels) {
+    const option = document.createElement("option");
+    option.value = model;
+    option.textContent = formatEmbeddingOptionLabel(model);
+    els.embeddingSelect.appendChild(option);
+  }
+
+  const addOption = document.createElement("option");
+  addOption.value = ADD_EMBEDDING_OPTION;
+  addOption.textContent = "新增向量模型...";
+  els.embeddingSelect.appendChild(addOption);
+
+  state.selectedEmbedding = allModels.includes(state.selectedEmbedding)
+    ? state.selectedEmbedding
+    : DEFAULT_EMBEDDING_ID;
+  els.embeddingSelect.value = state.selectedEmbedding;
+  persistSelectedEmbedding();
+}
+
+function formatModelOptionLabel(model) {
+  if (model === DEFAULT_MODEL_ID) {
+    return "default (.env)";
+  }
+  if (model === NONE_MODEL_ID) {
+    return "none (mock)";
+  }
+  return model;
+}
+
+function formatEmbeddingOptionLabel(model) {
+  if (model === DEFAULT_EMBEDDING_ID) {
+    return "default (mock hashing)";
+  }
+  return model;
+}
+
 async function handleModelChange() {
   const selected = els.modelSelect.value;
   if (selected !== ADD_MODEL_OPTION) {
     state.selectedModel = selected;
     persistSelectedModel();
     if (selected === DEFAULT_MODEL_ID) {
-      showToast("当前使用 default（仅 Echo 基础对话）");
+      showToast("当前使用 default（读取 .env 大模型配置）");
+    } else if (selected === NONE_MODEL_ID) {
+      showToast("当前使用 none（强制 mock 回复）");
     } else {
       showToast(`模型已切换为 ${state.selectedModel}`);
     }
@@ -223,7 +296,11 @@ async function handleModelChange() {
   }
 
   const normalizedModelName = modelName.trim();
-  if (!normalizedModelName || normalizedModelName.toLowerCase() === DEFAULT_MODEL_ID) {
+  if (
+    !normalizedModelName ||
+    normalizedModelName.toLowerCase() === DEFAULT_MODEL_ID ||
+    normalizedModelName.toLowerCase() === NONE_MODEL_ID
+  ) {
     els.modelSelect.value = state.selectedModel;
     showToast("模型名称无效", true);
     return;
@@ -259,6 +336,92 @@ async function handleModelChange() {
   persistSelectedModel();
   await loadModelConfigs();
   showToast(`已添加并切换到模型 ${state.selectedModel}`);
+}
+
+async function handleEmbeddingChange() {
+  const selected = els.embeddingSelect.value;
+  if (selected !== ADD_EMBEDDING_OPTION) {
+    state.selectedEmbedding = selected;
+    persistSelectedEmbedding();
+    if (selected === DEFAULT_EMBEDDING_ID) {
+      showToast("当前使用 default 向量模型（mock hashing）");
+    } else {
+      showToast(`向量模型已切换为 ${state.selectedEmbedding}`);
+    }
+    return;
+  }
+
+  if (!ensureIdentity()) {
+    openAuthModal();
+    showToast("请先登录团队与用户", true);
+    els.embeddingSelect.value = state.selectedEmbedding;
+    return;
+  }
+
+  const modelName = window.prompt("输入向量模型名称（例如 text-embedding-3-small）");
+  if (!modelName) {
+    els.embeddingSelect.value = state.selectedEmbedding;
+    return;
+  }
+
+  const normalizedModelName = modelName.trim();
+  if (
+    !normalizedModelName ||
+    normalizedModelName.toLowerCase() === DEFAULT_EMBEDDING_ID ||
+    normalizedModelName.toLowerCase() === NONE_MODEL_ID
+  ) {
+    els.embeddingSelect.value = state.selectedEmbedding;
+    showToast("向量模型名称无效", true);
+    return;
+  }
+
+  const providerInput = window.prompt(
+    "输入 embedding provider（openai / volcengine / mock）",
+    "openai",
+  );
+  if (!providerInput || !providerInput.trim()) {
+    els.embeddingSelect.value = state.selectedEmbedding;
+    return;
+  }
+  const provider = providerInput.trim().toLowerCase();
+
+  let baseUrl = null;
+  let apiKey = null;
+  if (provider !== "mock") {
+    const baseUrlInput = window.prompt(
+      "输入 Embedding API Base URL（例如 https://api.openai.com/v1）",
+      "https://api.openai.com/v1",
+    );
+    if (!baseUrlInput || !baseUrlInput.trim()) {
+      els.embeddingSelect.value = state.selectedEmbedding;
+      return;
+    }
+
+    const apiKeyInput = window.prompt("输入 Embedding API Key");
+    if (!apiKeyInput || !apiKeyInput.trim()) {
+      els.embeddingSelect.value = state.selectedEmbedding;
+      return;
+    }
+    baseUrl = baseUrlInput.trim();
+    apiKey = apiKeyInput.trim();
+  }
+
+  await apiRequest("/embedding/models", {
+    method: "POST",
+    body: {
+      team_id: state.teamId,
+      user_id: state.userId,
+      model_name: normalizedModelName,
+      provider,
+      base_url: baseUrl,
+      api_key: apiKey,
+    },
+  });
+
+  state.selectedEmbedding = normalizedModelName;
+  persistSelectedEmbedding();
+  await loadEmbeddingConfigs();
+  showToast(`已添加并切换到向量模型 ${state.selectedEmbedding}`);
 }
 
 async function handleSaveAuth() {
@@ -357,12 +520,30 @@ async function loadModelConfigs() {
   initModelOptions();
 }
 
+async function loadEmbeddingConfigs() {
+  if (!state.teamId || !state.userId) {
+    state.embeddingConfigs = [];
+    state.selectedEmbedding = DEFAULT_EMBEDDING_ID;
+    initEmbeddingOptions();
+    return;
+  }
+
+  const query = new URLSearchParams({
+    team_id: state.teamId,
+    user_id: state.userId,
+  });
+  const response = await apiRequest(`/embedding/models?${query.toString()}`);
+  state.embeddingConfigs = Array.isArray(response.items) ? response.items : [];
+  state.selectedEmbedding = loadSelectedEmbeddingFromStorage();
+  initEmbeddingOptions();
+}
+
 async function loadAllData() {
   if (!state.teamId || !state.userId) {
     return;
   }
 
-  await loadModelConfigs();
+  await Promise.all([loadModelConfigs(), loadEmbeddingConfigs()]);
   await loadConversations();
   await ensureActiveConversation();
   await Promise.all([loadHistory(), loadDocuments()]);
@@ -670,7 +851,11 @@ async function regenerateAssistantMessage(messageId, requestText, channel) {
     return;
   }
 
-  const availableModels = dedupeStrings([DEFAULT_MODEL_ID, ...state.modelConfigs.map((item) => item.model_name)]);
+  const availableModels = dedupeStrings([
+    DEFAULT_MODEL_ID,
+    NONE_MODEL_ID,
+    ...state.modelConfigs.map((item) => item.model_name),
+  ]);
   const selected = window.prompt(
     `选择重生成模型：${availableModels.join(", ")}`,
     state.selectedModel || DEFAULT_MODEL_ID,
@@ -689,6 +874,7 @@ async function regenerateAssistantMessage(messageId, requestText, channel) {
     team_id: state.teamId,
     user_id: state.userId,
     request_text: requestText,
+    embedding_model: state.selectedEmbedding || DEFAULT_EMBEDDING_ID,
   };
   if (normalizedModel !== DEFAULT_MODEL_ID) {
     payload.model = normalizedModel;
@@ -815,47 +1001,34 @@ async function handleSend() {
   autoGrowTextarea();
 
   try {
-    if (state.selectedModel === DEFAULT_MODEL_ID) {
-      const echoResponse = await apiRequest("/chat/echo", {
-        method: "POST",
-        body: {
-          user_id: state.userId,
-          team_id: state.teamId,
-          conversation_id: state.conversationId,
-          message: question,
-        },
-      });
+    const payload = {
+      user_id: state.userId,
+      team_id: state.teamId,
+      conversation_id: state.conversationId,
+      question,
+      top_k: 5,
+      embedding_model: state.selectedEmbedding || DEFAULT_EMBEDDING_ID,
+    };
 
-      appendMessage("assistant", echoResponse.answer || "", {
-        model: DEFAULT_MODEL_ID,
-      });
-      await loadHistory();
-    } else {
-      const payload = {
-        user_id: state.userId,
-        team_id: state.teamId,
-        conversation_id: state.conversationId,
-        question,
-        top_k: 5,
-        model: state.selectedModel,
-      };
-
-      if (els.docSelect.value) {
-        payload.document_id = els.docSelect.value;
-      }
-
-      const response = await apiRequest("/chat/ask", {
-        method: "POST",
-        body: payload,
-      });
-
-      appendMessage("assistant", response.answer || "", {
-        hits: Array.isArray(response.hits) ? response.hits : [],
-        model: response.model || state.selectedModel,
-      });
-
-      await loadHistory();
+    if (state.selectedModel !== DEFAULT_MODEL_ID) {
+      payload.model = state.selectedModel;
     }
+
+    if (els.docSelect.value) {
+      payload.document_id = els.docSelect.value;
+    }
+
+    const response = await apiRequest("/chat/ask", {
+      method: "POST",
+      body: payload,
+    });
+
+    appendMessage("assistant", response.answer || "", {
+      hits: Array.isArray(response.hits) ? response.hits : [],
+      model: response.model || state.selectedModel,
+    });
+
+    await loadHistory();
   } catch (error) {
     const message = String(error.message || "发送失败");
 
@@ -964,8 +1137,10 @@ async function handleImportDocument() {
         method: "POST",
         body: {
           team_id: state.teamId,
+          user_id: state.userId,
           conversation_id: state.conversationId,
           document_id: documentId,
+          embedding_model: state.selectedEmbedding || DEFAULT_EMBEDDING_ID,
         },
       });
     }

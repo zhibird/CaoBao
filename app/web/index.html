@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CaiBao Chat</title>
-  <link rel="stylesheet" href="/web/styles.css?v=0.5.1" />
+  <link rel="stylesheet" href="/web/styles.css?v=0.6.1" />
 </head>
 <body>
   <div class="bg-orb orb-a" aria-hidden="true"></div>
@@ -38,6 +38,11 @@
         <div class="picker-group">
           <label for="modelSelect">模型</label>
           <select id="modelSelect" aria-label="选择模型"></select>
+        </div>
+
+        <div class="picker-group">
+          <label for="embeddingSelect">向量模型</label>
+          <select id="embeddingSelect" aria-label="选择向量模型"></select>
         </div>
 
         <div class="picker-group">
@@ -141,6 +146,6 @@
 
   <div id="toast" class="toast hidden"></div>
 
-  <script src="/web/app.js?v=0.5.1" defer></script>
+  <script src="/web/app.js?v=0.6.1" defer></script>
 </body>
 </html>

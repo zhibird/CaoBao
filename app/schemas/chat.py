@@ -46,6 +46,7 @@ class ChatAskRequest(BaseModel):
     top_k: int = Field(default=5, ge=1, le=20)
     document_id: str | None = Field(default=None, min_length=1, max_length=36)
     model: str | None = Field(default=None, min_length=1, max_length=128)
+    embedding_model: str | None = Field(default=None, min_length=1, max_length=128)
 
 
 class ChatAskResponse(BaseModel):
@@ -178,6 +179,7 @@ class ChatHistoryEditRequest(BaseModel):
     top_k: int | None = Field(default=None, ge=1, le=20)
     document_id: str | None = Field(default=None, min_length=1, max_length=36)
     model: str | None = Field(default=None, min_length=1, max_length=128)
+    embedding_model: str | None = Field(default=None, min_length=1, max_length=128)
 
 
 def _safe_json_loads(raw: str) -> dict[str, Any]:

@@ -21,7 +21,11 @@ class LLMService:
         model: str | None = None,
         base_url: str | None = None,
         api_key: str | None = None,
+        force_mock: bool = False,
     ) -> str:
+        if force_mock:
+            return self._mock_answer(question=question, hits=hits)
+
         runtime = self._resolve_runtime(base_url=base_url, api_key=api_key)
         if runtime is None:
             return self._mock_answer(question=question, hits=hits)
@@ -40,8 +44,12 @@ class LLMService:
         model: str | None = None,
         base_url: str | None = None,
         api_key: str | None = None,
+        force_mock: bool = False,
     ) -> str:
         """General chat answer without retrieval context."""
+        if force_mock:
+            return self._mock_chat_answer(message=message)
+
         runtime = self._resolve_runtime(base_url=base_url, api_key=api_key)
         if runtime is None:
             return self._mock_chat_answer(message=message)

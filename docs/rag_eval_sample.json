@@ -1,0 +1,20 @@
+[
+  {
+    "query": "告警出现后第一步应该做什么？",
+    "expected_document_ids": [
+      "replace_with_real_document_id_1"
+    ]
+  },
+  {
+    "query": "事故通道的更新频率建议是多少？",
+    "expected_document_ids": [
+      "replace_with_real_document_id_1"
+    ]
+  },
+  {
+    "query": "上线回滚流程的负责人是谁？",
+    "expected_document_ids": [
+      "replace_with_real_document_id_2"
+    ]
+  }
+]

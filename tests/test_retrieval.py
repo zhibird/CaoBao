@@ -1,5 +1,9 @@
 from uuid import uuid4
 
+from sqlalchemy import text
+
+from app.db.session import engine
+
 
 def test_retrieval_index_and_search(client) -> None:
     suffix = uuid4().hex[:8]
@@ -93,3 +97,134 @@ def test_retrieval_search_requires_indexing_first(client) -> None:
     )
 
     assert search_response.status_code == 404
+
+
+def test_retrieval_index_supports_rebuild(client) -> None:
+    suffix = uuid4().hex[:8]
+    team_id = f"team_rebuild_{suffix}"
+
+    create_team = client.post(
+        "/api/v1/teams",
+        json={
+            "team_id": team_id,
+            "name": "Rebuild Team",
+            "description": "rebuild test",
+        },
+    )
+    assert create_team.status_code == 201
+
+    import_response = client.post(
+        "/api/v1/documents/import",
+        json={
+            "team_id": team_id,
+            "source_name": "rebuild.md",
+            "content_type": "md",
+            "content": "hello rebuild world",
+        },
+    )
+    assert import_response.status_code == 201
+    document_id = import_response.json()["document_id"]
+
+    chunk_response = client.post(
+        f"/api/v1/documents/{document_id}/chunk",
+        json={
+            "team_id": team_id,
+            "max_chars": 100,
+            "overlap": 5,
+        },
+    )
+    assert chunk_response.status_code == 200
+
+    first_index = client.post(
+        "/api/v1/retrieval/index",
+        json={
+            "team_id": team_id,
+            "document_id": document_id,
+        },
+    )
+    assert first_index.status_code == 200
+
+    rebuilt_index = client.post(
+        "/api/v1/retrieval/index",
+        json={
+            "team_id": team_id,
+            "document_id": document_id,
+            "rebuild": True,
+        },
+    )
+    assert rebuilt_index.status_code == 200
+    assert rebuilt_index.json()["indexed_chunks"] >= 1
+
+
+def test_retrieval_search_rejects_dimension_mismatch(client) -> None:
+    suffix = uuid4().hex[:8]
+    team_id = f"team_dim_{suffix}"
+
+    create_team = client.post(
+        "/api/v1/teams",
+        json={
+            "team_id": team_id,
+            "name": "Dim Team",
+            "description": "dimension mismatch",
+        },
+    )
+    assert create_team.status_code == 201
+
+    import_response = client.post(
+        "/api/v1/documents/import",
+        json={
+            "team_id": team_id,
+            "source_name": "dim.md",
+            "content_type": "md",
+            "content": "dimension mismatch check content",
+        },
+    )
+    assert import_response.status_code == 201
+    document_id = import_response.json()["document_id"]
+
+    chunk_response = client.post(
+        f"/api/v1/documents/{document_id}/chunk",
+        json={
+            "team_id": team_id,
+            "max_chars": 100,
+            "overlap": 5,
+        },
+    )
+    assert chunk_response.status_code == 200
+
+    index_response = client.post(
+        "/api/v1/retrieval/index",
+        json={
+            "team_id": team_id,
+            "document_id": document_id,
+        },
+    )
+    assert index_response.status_code == 200
+
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                UPDATE chunk_embeddings
+                SET vector_json = :vector_json, vector_dim = :vector_dim
+                WHERE team_id = :team_id
+                """
+            ),
+            {
+                "vector_json": "[0.1,0.2]",
+                "vector_dim": 2,
+                "team_id": team_id,
+            },
+        )
+
+    search_response = client.post(
+        "/api/v1/retrieval/search",
+        json={
+            "team_id": team_id,
+            "query": "dimension",
+            "top_k": 3,
+            "document_id": document_id,
+        },
+    )
+    assert search_response.status_code == 400
+    assert "dimension mismatch" in search_response.json()["detail"].lower()
