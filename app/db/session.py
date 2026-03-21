@@ -71,6 +71,11 @@ def _ensure_phase1_columns() -> None:
         if "conversation_id" not in document_cols:
             with engine.begin() as conn:
                 conn.exec_driver_sql("ALTER TABLE documents ADD COLUMN conversation_id VARCHAR(36)")
+        if "status" not in document_cols:
+            with engine.begin() as conn:
+                conn.exec_driver_sql("ALTER TABLE documents ADD COLUMN status VARCHAR(16) DEFAULT 'pending'")
+        with engine.begin() as conn:
+            conn.exec_driver_sql("UPDATE documents SET status = 'pending' WHERE status IS NULL OR TRIM(status) = ''")
 
     if "chat_history" in inspector.get_table_names():
         history_cols = {item["name"] for item in inspector.get_columns("chat_history")}

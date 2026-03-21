@@ -226,6 +226,97 @@ def test_chat_ask_falls_back_to_chat_mode_without_index(client) -> None:
     assert body["sources"] == []
 
 
+def test_chat_ask_supports_selected_document_ids_and_source_snippet(client) -> None:
+    suffix = uuid4().hex[:8]
+    team_id = f"team_ask_selected_{suffix}"
+    user_id = f"u_ask_selected_{suffix}"
+
+    create_team = client.post(
+        "/api/v1/teams",
+        json={
+            "team_id": team_id,
+            "name": "Selected Docs Team",
+            "description": "for selected document ids",
+        },
+    )
+    assert create_team.status_code == 201
+
+    create_user = client.post(
+        "/api/v1/users",
+        json={
+            "user_id": user_id,
+            "team_id": team_id,
+            "display_name": "Operator",
+            "role": "member",
+        },
+    )
+    assert create_user.status_code == 201
+
+    alpha_doc = client.post(
+        "/api/v1/documents/import",
+        json={
+            "team_id": team_id,
+            "source_name": "alpha.md",
+            "content_type": "md",
+            "content": "# Alpha\n\nAlpha runbook says check alerts first.",
+        },
+    )
+    beta_doc = client.post(
+        "/api/v1/documents/import",
+        json={
+            "team_id": team_id,
+            "source_name": "beta.md",
+            "content_type": "md",
+            "content": "# Beta\n\nBeta runbook says deploy on Friday.",
+        },
+    )
+    assert alpha_doc.status_code == 201
+    assert beta_doc.status_code == 201
+
+    alpha_id = alpha_doc.json()["document_id"]
+    beta_id = beta_doc.json()["document_id"]
+
+    for document_id in [alpha_id, beta_id]:
+        chunk_response = client.post(
+            f"/api/v1/documents/{document_id}/chunk",
+            json={
+                "team_id": team_id,
+                "max_chars": 100,
+                "overlap": 10,
+            },
+        )
+        assert chunk_response.status_code == 200
+
+    index_response = client.post(
+        "/api/v1/retrieval/index",
+        json={
+            "team_id": team_id,
+            "document_ids": [alpha_id, beta_id],
+        },
+    )
+    assert index_response.status_code == 200
+
+    ask_response = client.post(
+        "/api/v1/chat/ask",
+        json={
+            "user_id": user_id,
+            "team_id": team_id,
+            "question": "哪个文档提到 alerts first?",
+            "selected_document_ids": [alpha_id],
+            "top_k": 3,
+        },
+    )
+
+    assert ask_response.status_code == 200
+    body = ask_response.json()
+    assert body["mode"] == "rag"
+    assert body["sources"]
+    assert body["sources"][0]["document_id"] == alpha_id
+    assert body["sources"][0]["source_name"] == "alpha.md"
+    assert body["sources"][0]["snippet"]
+    assert all(hit["document_id"] == alpha_id for hit in body["hits"])
+
+
 def test_chat_ask_supports_none_model_for_forced_mock(client) -> None:
     suffix = uuid4().hex[:8]
     team_id = f"team_ask_none_{suffix}"

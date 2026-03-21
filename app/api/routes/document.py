@@ -59,6 +59,23 @@ def get_document(
     return DocumentResponse.model_validate(document)
 
 
+@router.delete("/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_document(
+    document_id: str,
+    team_id: str = Query(min_length=1, max_length=64),
+    conversation_id: str | None = Query(default=None, min_length=1, max_length=36),
+    document_service: DocumentService = Depends(get_document_service),
+) -> None:
+    try:
+        document_service.delete_document(
+            document_id=document_id,
+            team_id=team_id,
+            conversation_id=conversation_id,
+        )
+    except EntityNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
 @router.post("/{document_id}/chunk", response_model=DocumentChunkingResult)
 def chunk_document(
     document_id: str,

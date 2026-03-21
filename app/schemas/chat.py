@@ -45,6 +45,7 @@ class ChatAskRequest(BaseModel):
     question: str = Field(min_length=1, max_length=2000)
     top_k: int = Field(default=5, ge=1, le=20)
     document_id: str | None = Field(default=None, min_length=1, max_length=36)
+    selected_document_ids: list[str] | None = None
     model: str | None = Field(default=None, min_length=1, max_length=128)
     embedding_model: str | None = Field(default=None, min_length=1, max_length=128)
 
@@ -54,6 +55,7 @@ class ChatSource(BaseModel):
     source_name: str | None = None
     chunk_id: str
     chunk_index: int
+    snippet: str | None = None
     score: float
 
 
@@ -192,6 +194,7 @@ class ChatHistoryEditRequest(BaseModel):
     request_text: str = Field(min_length=1, max_length=2000)
     top_k: int | None = Field(default=None, ge=1, le=20)
     document_id: str | None = Field(default=None, min_length=1, max_length=36)
+    selected_document_ids: list[str] | None = None
     model: str | None = Field(default=None, min_length=1, max_length=128)
     embedding_model: str | None = Field(default=None, min_length=1, max_length=128)
 

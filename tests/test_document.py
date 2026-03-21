@@ -135,3 +135,68 @@ def test_document_import_requires_existing_team(client) -> None:
     )
 
     assert response.status_code == 404
+
+
+def test_document_status_and_delete_flow(client) -> None:
+    suffix = uuid4().hex[:8]
+    team_id = f"team_doc_status_{suffix}"
+
+    create_team = client.post(
+        "/api/v1/teams",
+        json={
+            "team_id": team_id,
+            "name": "Doc Status Team",
+            "description": "for document status",
+        },
+    )
+    assert create_team.status_code == 201
+
+    import_response = client.post(
+        "/api/v1/documents/import",
+        json={
+            "team_id": team_id,
+            "source_name": "status.md",
+            "content_type": "md",
+            "content": "# Status\n\nChunk and index me.",
+        },
+    )
+    assert import_response.status_code == 201
+    document_id = import_response.json()["document_id"]
+    assert import_response.json()["status"] == "pending"
+
+    chunk_response = client.post(
+        f"/api/v1/documents/{document_id}/chunk",
+        json={
+            "team_id": team_id,
+            "max_chars": 100,
+            "overlap": 10,
+        },
+    )
+    assert chunk_response.status_code == 200
+
+    after_chunk = client.get(f"/api/v1/documents/{document_id}", params={"team_id": team_id})
+    assert after_chunk.status_code == 200
+    assert after_chunk.json()["status"] == "pending"
+
+    index_response = client.post(
+        "/api/v1/retrieval/index",
+        json={
+            "team_id": team_id,
+            "document_ids": [document_id],
+        },
+    )
+    assert index_response.status_code == 200
+
+    after_index = client.get(f"/api/v1/documents/{document_id}", params={"team_id": team_id})
+    assert after_index.status_code == 200
+    assert after_index.json()["status"] == "ready"
+
+    delete_response = client.delete(
+        f"/api/v1/documents/{document_id}",
+        params={"team_id": team_id},
+    )
+    assert delete_response.status_code == 204
+
+    list_response = client.get("/api/v1/documents", params={"team_id": team_id})
+    assert list_response.status_code == 200
+    assert list_response.json() == []

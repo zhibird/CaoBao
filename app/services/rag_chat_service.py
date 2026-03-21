@@ -24,6 +24,7 @@ class RagChatService:
             user_id=payload.user_id,
             team_id=payload.team_id,
         )
+        selected_document_ids = self._resolve_selected_document_ids(payload)
 
         requested_model = payload.model.strip() if payload.model else None
         force_mock = False
@@ -54,6 +55,7 @@ class RagChatService:
         should_use_rag = self.retrieval_service.has_indexed_chunks(
             team_id=payload.team_id,
             document_id=payload.document_id,
+            document_ids=selected_document_ids,
             conversation_id=payload.conversation_id,
         )
 
@@ -82,6 +84,7 @@ class RagChatService:
             query=payload.question,
             top_k=payload.top_k,
             document_id=payload.document_id,
+            document_ids=selected_document_ids,
             conversation_id=payload.conversation_id,
             user_id=payload.user_id,
             embedding_model=payload.embedding_model,
@@ -124,7 +127,30 @@ class RagChatService:
                     source_name=(str(hit.get("source_name", "")).strip() or None),
                     chunk_id=chunk_id,
                     chunk_index=int(hit.get("chunk_index", 0)),
+                    snippet=self._build_snippet(hit.get("content")),
                     score=float(hit.get("score", 0.0)),
                 )
             )
         return sources
+
+    def _resolve_selected_document_ids(self, payload: ChatAskRequest) -> list[str] | None:
+        values: list[str] = []
+        if payload.document_id:
+            values.append(payload.document_id)
+        if payload.selected_document_ids:
+            values.extend(payload.selected_document_ids)
+
+        deduped: list[str] = []
+        for item in values:
+            normalized = str(item).strip()
+            if normalized and normalized not in deduped:
+                deduped.append(normalized)
+        return deduped or None
+
+    def _build_snippet(self, raw_content: object) -> str | None:
+        if not isinstance(raw_content, str):
+            return None
+        text = " ".join(raw_content.split())
+        if not text:
+            return None
+        return text[:220]

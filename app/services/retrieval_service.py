@@ -28,76 +28,105 @@ class RetrievalService:
         self,
         team_id: str,
         document_id: str | None = None,
+        document_ids: list[str] | None = None,
         conversation_id: str | None = None,
         user_id: str | None = None,
         embedding_model: str | None = None,
         rebuild: bool = False,
     ) -> int:
         self._ensure_team_exists(team_id=team_id)
+        scoped_document_ids = self._resolve_document_ids(
+            document_id=document_id,
+            document_ids=document_ids,
+        )
+        target_documents = self._load_target_documents(
+            team_id=team_id,
+            conversation_id=conversation_id,
+            document_ids=scoped_document_ids,
+        )
+        if not target_documents:
+            raise EntityNotFoundError("No documents found for indexing scope.")
+
+        for document in target_documents:
+            document.status = "indexing"
+            self.db.add(document)
+        self.db.commit()
+
         runtime_embedding = self._resolve_embedding_runtime(
             team_id=team_id,
             user_id=user_id,
             embedding_model=embedding_model,
         )
 
-        if rebuild:
-            self._delete_scope_embeddings(
-                team_id=team_id,
-                document_id=document_id,
-                conversation_id=conversation_id,
-            )
-
-        stmt = select(DocumentChunk).where(DocumentChunk.team_id == team_id)
-        if conversation_id is not None:
-            stmt = stmt.join(Document, Document.document_id == DocumentChunk.document_id).where(
-                Document.conversation_id == conversation_id
-            )
-        if document_id is not None:
-            stmt = stmt.where(DocumentChunk.document_id == document_id)
-
-        chunks = list(self.db.scalars(stmt).all())
-        if not chunks:
-            raise EntityNotFoundError("No chunks found. Run document chunking first.")
-
-        batch_size = max(1, self.embedding_service.batch_size)
-        for start in range(0, len(chunks), batch_size):
-            chunk_batch = chunks[start : start + batch_size]
-            texts = [chunk.content for chunk in chunk_batch]
-            vectors = self.embedding_service.embed_texts(texts, runtime=runtime_embedding)
-            if len(vectors) != len(chunk_batch):
-                raise DomainValidationError(
-                    f"Embedding count mismatch for index batch: expected {len(chunk_batch)}, got {len(vectors)}."
+        try:
+            if rebuild:
+                self._delete_scope_embeddings(
+                    team_id=team_id,
+                    document_id=document_id,
+                    document_ids=scoped_document_ids,
+                    conversation_id=conversation_id,
                 )
 
-            for chunk, vector in zip(chunk_batch, vectors):
-                payload = json.dumps(vector, separators=(",", ":"))
-                vector_dim = len(vector)
-                if vector_dim <= 0:
-                    raise DomainValidationError("Embedding vector cannot be empty.")
-
-                existing = self.db.scalar(
-                    select(ChunkEmbedding).where(ChunkEmbedding.chunk_id == chunk.chunk_id)
+            stmt = select(DocumentChunk).where(DocumentChunk.team_id == team_id)
+            if conversation_id is not None:
+                stmt = stmt.join(Document, Document.document_id == DocumentChunk.document_id).where(
+                    Document.conversation_id == conversation_id
                 )
-                if existing is None:
-                    existing = ChunkEmbedding(
-                        embedding_id=str(uuid4()),
-                        chunk_id=chunk.chunk_id,
-                        document_id=chunk.document_id,
-                        team_id=chunk.team_id,
-                        embedding_model=self.embedding_service.model_name,
-                        vector_json=payload,
-                        vector_dim=vector_dim,
+            if scoped_document_ids is not None:
+                stmt = stmt.where(DocumentChunk.document_id.in_(scoped_document_ids))
+
+            chunks = list(self.db.scalars(stmt).all())
+            if not chunks:
+                raise EntityNotFoundError("No chunks found. Run document chunking first.")
+
+            batch_size = max(1, self.embedding_service.batch_size)
+            for start in range(0, len(chunks), batch_size):
+                chunk_batch = chunks[start : start + batch_size]
+                texts = [chunk.content for chunk in chunk_batch]
+                vectors = self.embedding_service.embed_texts(texts, runtime=runtime_embedding)
+                if len(vectors) != len(chunk_batch):
+                    raise DomainValidationError(
+                        f"Embedding count mismatch for index batch: expected {len(chunk_batch)}, got {len(vectors)}."
                     )
-                    self.db.add(existing)
-                else:
-                    existing.document_id = chunk.document_id
-                    existing.team_id = chunk.team_id
-                    existing.embedding_model = self.embedding_service.model_name
-                    existing.vector_json = payload
-                    existing.vector_dim = vector_dim
 
-        self.db.commit()
-        return len(chunks)
+                for chunk, vector in zip(chunk_batch, vectors):
+                    payload = json.dumps(vector, separators=(",", ":"))
+                    vector_dim = len(vector)
+                    if vector_dim <= 0:
+                        raise DomainValidationError("Embedding vector cannot be empty.")
+
+                    existing = self.db.scalar(
+                        select(ChunkEmbedding).where(ChunkEmbedding.chunk_id == chunk.chunk_id)
+                    )
+                    if existing is None:
+                        existing = ChunkEmbedding(
+                            embedding_id=str(uuid4()),
+                            chunk_id=chunk.chunk_id,
+                            document_id=chunk.document_id,
+                            team_id=chunk.team_id,
+                            embedding_model=self.embedding_service.model_name,
+                            vector_json=payload,
+                            vector_dim=vector_dim,
+                        )
+                        self.db.add(existing)
+                    else:
+                        existing.document_id = chunk.document_id
+                        existing.team_id = chunk.team_id
+                        existing.embedding_model = self.embedding_service.model_name
+                        existing.vector_json = payload
+                        existing.vector_dim = vector_dim
+
+            for document in target_documents:
+                document.status = "ready"
+                self.db.add(document)
+            self.db.commit()
+            return len(chunks)
+        except Exception:
+            for document in target_documents:
+                document.status = "failed"
+                self.db.add(document)
+            self.db.commit()
+            raise
 
     def search_chunks(
         self,
@@ -105,11 +134,16 @@ class RetrievalService:
         query: str,
         top_k: int,
         document_id: str | None = None,
+        document_ids: list[str] | None = None,
         conversation_id: str | None = None,
         user_id: str | None = None,
         embedding_model: str | None = None,
     ) -> list[dict[str, object]]:
         self._ensure_team_exists(team_id=team_id)
+        scoped_document_ids = self._resolve_document_ids(
+            document_id=document_id,
+            document_ids=document_ids,
+        )
         runtime_embedding = self._resolve_embedding_runtime(
             team_id=team_id,
             user_id=user_id,
@@ -126,8 +160,8 @@ class RetrievalService:
         )
         if conversation_id is not None:
             stmt = stmt.where(Document.conversation_id == conversation_id)
-        if document_id is not None:
-            stmt = stmt.where(ChunkEmbedding.document_id == document_id)
+        if scoped_document_ids is not None:
+            stmt = stmt.where(ChunkEmbedding.document_id.in_(scoped_document_ids))
 
         rows = self.db.execute(stmt).all()
         if not rows:
@@ -165,18 +199,22 @@ class RetrievalService:
         self,
         team_id: str,
         document_id: str | None = None,
+        document_ids: list[str] | None = None,
         conversation_id: str | None = None,
     ) -> bool:
-        """Check whether indexed chunks exist for the team/document scope."""
         self._ensure_team_exists(team_id=team_id)
+        scoped_document_ids = self._resolve_document_ids(
+            document_id=document_id,
+            document_ids=document_ids,
+        )
 
         stmt = select(ChunkEmbedding.embedding_id).where(ChunkEmbedding.team_id == team_id)
         if conversation_id is not None:
             stmt = stmt.join(Document, Document.document_id == ChunkEmbedding.document_id).where(
                 Document.conversation_id == conversation_id
             )
-        if document_id is not None:
-            stmt = stmt.where(ChunkEmbedding.document_id == document_id)
+        if scoped_document_ids is not None:
+            stmt = stmt.where(ChunkEmbedding.document_id.in_(scoped_document_ids))
 
         first_embedding_id = self.db.scalar(stmt.limit(1))
         return first_embedding_id is not None
@@ -214,34 +252,72 @@ class RetrievalService:
         *,
         team_id: str,
         document_id: str | None,
+        document_ids: list[str] | None,
         conversation_id: str | None,
     ) -> None:
-        if document_id is not None:
+        scoped_document_ids = self._resolve_document_ids(
+            document_id=document_id,
+            document_ids=document_ids,
+        )
+
+        if scoped_document_ids is not None:
             self.db.execute(
                 delete(ChunkEmbedding).where(
                     ChunkEmbedding.team_id == team_id,
-                    ChunkEmbedding.document_id == document_id,
+                    ChunkEmbedding.document_id.in_(scoped_document_ids),
                 )
             )
             return
 
         if conversation_id is not None:
-            scoped_document_ids_stmt = select(Document.document_id).where(
-                Document.team_id == team_id,
-                Document.conversation_id == conversation_id,
+            conversation_document_ids = list(
+                self.db.scalars(
+                    select(Document.document_id).where(
+                        Document.team_id == team_id,
+                        Document.conversation_id == conversation_id,
+                    )
+                ).all()
             )
-            scoped_document_ids = list(self.db.scalars(scoped_document_ids_stmt).all())
-            if scoped_document_ids:
+            if conversation_document_ids:
                 self.db.execute(
                     delete(ChunkEmbedding).where(
                         ChunkEmbedding.team_id == team_id,
-                        ChunkEmbedding.document_id.in_(scoped_document_ids),
+                        ChunkEmbedding.document_id.in_(conversation_document_ids),
                     )
                 )
             return
 
-        self.db.execute(
-            delete(ChunkEmbedding).where(
-                ChunkEmbedding.team_id == team_id,
-            )
-        )
+        self.db.execute(delete(ChunkEmbedding).where(ChunkEmbedding.team_id == team_id))
+
+    def _resolve_document_ids(
+        self,
+        *,
+        document_id: str | None,
+        document_ids: list[str] | None,
+    ) -> list[str] | None:
+        values: list[str] = []
+        if document_id:
+            values.append(document_id)
+        if document_ids:
+            values.extend(document_ids)
+
+        deduped: list[str] = []
+        for item in values:
+            normalized = str(item).strip()
+            if normalized and normalized not in deduped:
+                deduped.append(normalized)
+        return deduped or None
+
+    def _load_target_documents(
+        self,
+        *,
+        team_id: str,
+        conversation_id: str | None,
+        document_ids: list[str] | None,
+    ) -> list[Document]:
+        stmt = select(Document).where(Document.team_id == team_id)
+        if conversation_id is not None:
+            stmt = stmt.where(Document.conversation_id == conversation_id)
+        if document_ids is not None:
+            stmt = stmt.where(Document.document_id.in_(document_ids))
+        return list(self.db.scalars(stmt).all())

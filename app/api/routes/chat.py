@@ -166,6 +166,10 @@ def edit_chat_history_message(
             previous_payload = _safe_json_to_dict(message.request_payload_json)
             top_k = _resolve_top_k(payload.top_k, previous_payload)
             document_id = _resolve_optional_string(payload.document_id, previous_payload.get("document_id"))
+            selected_document_ids = _resolve_selected_document_ids(
+                payload.selected_document_ids,
+                previous_payload,
+            )
             model = _resolve_optional_string(payload.model, previous_payload.get("model"))
             embedding_model = _resolve_optional_string(
                 payload.embedding_model,
@@ -179,6 +183,7 @@ def edit_chat_history_message(
                 question=payload.request_text,
                 top_k=top_k,
                 document_id=document_id,
+                selected_document_ids=selected_document_ids,
                 model=model,
                 embedding_model=embedding_model,
             )
@@ -259,3 +264,27 @@ def _resolve_top_k(current: int | None, previous_payload: dict[str, Any]) -> int
     if isinstance(previous, int) and 1 <= previous <= 20:
         return previous
     return 5
+
+
+def _resolve_selected_document_ids(
+    current: list[str] | None,
+    previous_payload: dict[str, Any],
+) -> list[str] | None:
+    values: list[str] = []
+    if current is not None:
+        values.extend(current)
+    else:
+        previous = previous_payload.get("selected_document_ids")
+        if isinstance(previous, list):
+            values.extend(str(item) for item in previous)
+        else:
+            previous_document_id = previous_payload.get("document_id")
+            if isinstance(previous_document_id, str) and previous_document_id.strip():
+                values.append(previous_document_id)
+
+    deduped: list[str] = []
+    for item in values:
+        normalized = str(item).strip()
+        if normalized and normalized not in deduped:
+            deduped.append(normalized)
+    return deduped or None

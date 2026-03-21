@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CaiBao Chat</title>
-  <link rel="stylesheet" href="/web/styles.css?v=0.7.1" />
+  <link rel="stylesheet" href="/web/styles.css?v=0.7.2" />
 </head>
 <body>
   <div class="bg-orb orb-a" aria-hidden="true"></div>
@@ -20,15 +20,17 @@
         <p class="section-title">会话列表</p>
         <ul id="historyList" class="history-list"></ul>
 
-        <p class="section-title">项目文档</p>
-        <ul id="documentList" class="document-list"></ul>
+        <details class="sidebar-section" open>
+          <summary class="section-summary">本会话文件</summary>
+          <ul id="documentList" class="document-list"></ul>
+        </details>
       </div>
 
       <button id="profileBtn" class="profile-card" type="button">
         <div class="avatar" id="avatarText">未</div>
         <div class="profile-meta">
           <strong id="profileName">未登录</strong>
-          <span id="profileTeam">点击登录或切换账号</span>
+          <span id="profileTeam">点击登录或切换账户</span>
         </div>
       </button>
     </aside>
@@ -45,18 +47,11 @@
           <select id="embeddingSelect" aria-label="选择向量模型"></select>
         </div>
 
-        <div class="picker-group">
-          <label for="docSelect">文档范围（session_only）</label>
-          <select id="docSelect" aria-label="选择文档范围">
-            <option value="">当前会话文档（session_only）</option>
-          </select>
-        </div>
-
         <button id="refreshAllBtn" class="ghost-btn" type="button">刷新数据</button>
       </header>
 
       <section class="conversation">
-        <h1 id="heroTitle">有什么我能帮您的吗？</h1>
+        <h1 id="heroTitle">有什么我能帮你的？</h1>
         <div id="scenarioCards" class="scenario-cards">
           <button class="scenario-card" type="button" data-scene="summary">
             <strong>总结资料</strong>
@@ -64,64 +59,43 @@
           </button>
           <button class="scenario-card" type="button" data-scene="plan">
             <strong>写方案</strong>
-            <span>生成目标、里程碑、验收标准</span>
+            <span>生成目标、里程碑、资源和验收标准</span>
           </button>
           <button class="scenario-card" type="button" data-scene="qa">
             <strong>知识问答</strong>
-            <span>基于当前会话文档进行问答</span>
+            <span>基于本会话文件进行问答</span>
           </button>
         </div>
         <div id="messageList" class="message-list"></div>
       </section>
 
       <section class="composer-zone">
-        <div id="importPanel" class="import-panel hidden">
-          <div class="panel-row">
-            <div class="field">
-              <label for="fileInput">文件导入</label>
-              <input id="fileInput" type="file" accept=".txt,.md,text/plain,text/markdown" />
-            </div>
-            <div class="field">
-              <label for="sourceName">source_name</label>
-              <input id="sourceName" type="text" placeholder="例如：ops-guide.md" />
-            </div>
-            <div class="field compact">
-              <label for="contentType">content_type</label>
-              <select id="contentType">
-                <option value="md">md</option>
-                <option value="txt">txt</option>
-              </select>
-            </div>
-          </div>
+        <div id="attachmentStrip" class="attachment-strip"></div>
 
+        <div id="attachMenu" class="attach-menu hidden" role="menu" aria-label="添加附件">
+          <button id="uploadFileBtn" class="attach-menu-item" type="button">上传文件</button>
+          <button id="pasteTextBtn" class="attach-menu-item" type="button">粘贴文本</button>
+        </div>
+
+        <div id="importComposer" class="import-composer hidden">
+          <div class="field import-title-field">
+            <label for="sourceName">文件名</label>
+            <input id="sourceName" type="text" placeholder="例如：需求说明.md" />
+          </div>
           <div class="field">
             <label for="fileContent">内容</label>
-            <textarea id="fileContent" rows="6" placeholder="支持粘贴文本，或选择 .txt/.md 文件自动填充"></textarea>
+            <textarea id="fileContent" rows="6" placeholder="粘贴文本内容，导入后会自动切块并建立索引"></textarea>
           </div>
-
-          <div class="panel-row">
-            <label class="inline-check">
-              <input id="autoChunk" type="checkbox" checked />
-              导入后自动切分
-            </label>
-            <label class="inline-check">
-              <input id="autoIndex" type="checkbox" checked />
-              自动建立索引
-            </label>
-            <div class="field compact">
-              <label for="maxChars">max_chars</label>
-              <input id="maxChars" type="number" min="100" max="4000" value="600" />
-            </div>
-            <div class="field compact">
-              <label for="overlap">overlap</label>
-              <input id="overlap" type="number" min="0" max="1000" value="80" />
-            </div>
-            <button id="importBtn" class="primary-btn" type="button">导入并处理</button>
+          <div class="import-actions">
+            <button id="cancelImportBtn" class="ghost-btn compact-btn" type="button">取消</button>
+            <button id="importBtn" class="primary-btn compact-primary-btn" type="button">导入</button>
           </div>
         </div>
 
+        <input id="fileInput" class="hidden-file-input" type="file" accept=".txt,.md,text/plain,text/markdown" />
+
         <div class="composer">
-          <button id="toggleImportBtn" class="icon-btn" type="button" title="导入文件">+</button>
+          <button id="toggleImportBtn" class="icon-btn" type="button" title="添加附件">+</button>
           <textarea id="messageInput" rows="1" placeholder="输入你的问题，Enter 发送，Shift+Enter 换行"></textarea>
           <button id="sendBtn" class="send-btn" type="button">发送</button>
         </div>
@@ -129,10 +103,28 @@
     </main>
   </div>
 
+  <div id="previewDrawer" class="drawer hidden" aria-hidden="true">
+    <div id="previewBackdrop" class="drawer-backdrop"></div>
+    <aside class="drawer-panel" role="dialog" aria-modal="true" aria-labelledby="previewTitle">
+      <div class="drawer-head">
+        <div>
+          <div class="drawer-eyebrow">引用文件</div>
+          <h2 id="previewTitle">文件预览</h2>
+        </div>
+        <button id="closePreviewBtn" class="drawer-close" type="button" aria-label="关闭预览">×</button>
+      </div>
+      <div class="drawer-body">
+        <div id="previewMeta" class="preview-meta"></div>
+        <div id="previewSnippet" class="preview-snippet hidden"></div>
+        <pre id="previewContent" class="preview-content"></pre>
+      </div>
+    </aside>
+  </div>
+
   <div id="authModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="authTitle">
     <div class="modal-card">
-      <h2 id="authTitle">登录 / 切换账号</h2>
-      <p class="modal-tip">产品层使用 account；后端会自动兼容映射为 team/user。</p>
+      <h2 id="authTitle">登录 / 切换账户</h2>
+      <p class="modal-tip">产品层使用 account；后端会自动兼容映射到 team/user。</p>
 
       <div class="field">
         <label for="accountIdInput">account_id</label>
@@ -144,14 +136,14 @@
       </div>
 
       <div class="modal-actions">
-        <button id="cancelAuthBtn" class="ghost-btn" type="button">取消</button>
-        <button id="saveAuthBtn" class="primary-btn" type="button">保存并登录</button>
+        <button id="cancelAuthBtn" class="ghost-btn compact-btn" type="button">取消</button>
+        <button id="saveAuthBtn" class="primary-btn compact-primary-btn" type="button">保存并登录</button>
       </div>
     </div>
   </div>
 
   <div id="toast" class="toast hidden"></div>
 
-  <script src="/web/app.js?v=0.7.1" defer></script>
+  <script src="/web/app.js?v=0.7.2" defer></script>
 </body>
 </html>

@@ -6,6 +6,7 @@ class RetrievalIndexRequest(BaseModel):
     user_id: str | None = Field(default=None, min_length=1, max_length=64)
     conversation_id: str | None = Field(default=None, min_length=1, max_length=36)
     document_id: str | None = Field(default=None, min_length=1, max_length=36)
+    document_ids: list[str] | None = None
     embedding_model: str | None = Field(default=None, min_length=1, max_length=128)
     rebuild: bool = False
 
@@ -26,6 +27,7 @@ class RetrievalSearchRequest(BaseModel):
     query: str = Field(min_length=1, max_length=2000)
     top_k: int = Field(default=5, ge=1, le=20)
     document_id: str | None = Field(default=None, min_length=1, max_length=36)
+    document_ids: list[str] | None = None
     embedding_model: str | None = Field(default=None, min_length=1, max_length=128)
 
 

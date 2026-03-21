@@ -29,42 +29,54 @@ class ChunkService:
             team_id=team_id,
             conversation_id=conversation_id,
         )
-        pieces = self._split_text(
-            text=document.content,
-            max_chars=max_chars,
-            overlap=overlap,
-        )
-
-        # Re-chunking should invalidate existing embeddings for this document.
-        self.db.execute(
-            delete(ChunkEmbedding).where(
-                ChunkEmbedding.document_id == document_id,
-                ChunkEmbedding.team_id == team_id,
-            )
-        )
-
-        self.db.execute(
-            delete(DocumentChunk).where(
-                DocumentChunk.document_id == document_id,
-                DocumentChunk.team_id == team_id,
-            )
-        )
-
-        chunks: list[DocumentChunk] = []
-        for index, (content, start_char, end_char) in enumerate(pieces):
-            chunk = DocumentChunk(
-                chunk_id=str(uuid4()),
-                document_id=document_id,
-                team_id=team_id,
-                chunk_index=index,
-                content=content,
-                start_char=start_char,
-                end_char=end_char,
-            )
-            chunks.append(chunk)
-
-        self.db.add_all(chunks)
+        document.status = "chunking"
+        self.db.add(document)
         self.db.commit()
+
+        try:
+            pieces = self._split_text(
+                text=document.content,
+                max_chars=max_chars,
+                overlap=overlap,
+            )
+
+            # Re-chunking should invalidate existing embeddings for this document.
+            self.db.execute(
+                delete(ChunkEmbedding).where(
+                    ChunkEmbedding.document_id == document_id,
+                    ChunkEmbedding.team_id == team_id,
+                )
+            )
+
+            self.db.execute(
+                delete(DocumentChunk).where(
+                    DocumentChunk.document_id == document_id,
+                    DocumentChunk.team_id == team_id,
+                )
+            )
+
+            chunks: list[DocumentChunk] = []
+            for index, (content, start_char, end_char) in enumerate(pieces):
+                chunk = DocumentChunk(
+                    chunk_id=str(uuid4()),
+                    document_id=document_id,
+                    team_id=team_id,
+                    chunk_index=index,
+                    content=content,
+                    start_char=start_char,
+                    end_char=end_char,
+                )
+                chunks.append(chunk)
+
+            self.db.add_all(chunks)
+            document.status = "pending"
+            self.db.add(document)
+            self.db.commit()
+        except Exception:
+            document.status = "failed"
+            self.db.add(document)
+            self.db.commit()
+            raise
 
         return self.list_chunks(
             document_id=document_id,

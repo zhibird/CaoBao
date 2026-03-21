@@ -18,6 +18,7 @@ class DocumentResponse(BaseModel):
     conversation_id: str | None
     source_name: str
     content_type: str
+    status: str
     content: str
     created_at: datetime
 

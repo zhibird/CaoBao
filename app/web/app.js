@@ -1,10 +1,13 @@
-const API_PREFIX = "/api/v1";
+﻿const API_PREFIX = "/api/v1";
 const DEFAULT_MODEL_ID = "default";
 const NONE_MODEL_ID = "none";
 const ADD_MODEL_OPTION = "__add_model__";
 const DEFAULT_EMBEDDING_ID = "default";
 const MOCK_EMBEDDING_ID = "mock";
 const ADD_EMBEDDING_OPTION = "__add_embedding_model__";
+const DEFAULT_IMPORT_MAX_CHARS = 600;
+const DEFAULT_IMPORT_OVERLAP = 80;
+
 const STORAGE_KEYS = {
   teamId: "caibao.teamId",
   teamName: "caibao.teamName",
@@ -28,6 +31,7 @@ const state = {
   conversations: [],
   history: [],
   documents: [],
+  selectedDocumentIds: [],
   sending: false,
   importing: false,
 };
@@ -38,10 +42,11 @@ let toastTimer = null;
 document.addEventListener("DOMContentLoaded", () => {
   bindElements();
   hydrateState();
-  initModelOptions();
-  initEmbeddingOptions();
   bindEvents();
   updateIdentityCard();
+  initModelOptions();
+  initEmbeddingOptions();
+  renderAttachmentStrip();
 
   if (state.teamId && state.userId) {
     loadAllData().catch((error) => showToast(error.message, true));
@@ -59,33 +64,36 @@ function bindElements() {
   els.avatarText = document.getElementById("avatarText");
   els.modelSelect = document.getElementById("modelSelect");
   els.embeddingSelect = document.getElementById("embeddingSelect");
-  els.docSelect = document.getElementById("docSelect");
   els.refreshAllBtn = document.getElementById("refreshAllBtn");
   els.heroTitle = document.getElementById("heroTitle");
   els.scenarioCards = document.getElementById("scenarioCards");
   els.messageList = document.getElementById("messageList");
   els.newSessionBtn = document.getElementById("newSessionBtn");
   els.toggleImportBtn = document.getElementById("toggleImportBtn");
-  els.importPanel = document.getElementById("importPanel");
+  els.attachMenu = document.getElementById("attachMenu");
+  els.uploadFileBtn = document.getElementById("uploadFileBtn");
+  els.pasteTextBtn = document.getElementById("pasteTextBtn");
+  els.importComposer = document.getElementById("importComposer");
+  els.attachmentStrip = document.getElementById("attachmentStrip");
   els.messageInput = document.getElementById("messageInput");
   els.sendBtn = document.getElementById("sendBtn");
-
   els.fileInput = document.getElementById("fileInput");
   els.sourceName = document.getElementById("sourceName");
-  els.contentType = document.getElementById("contentType");
   els.fileContent = document.getElementById("fileContent");
-  els.autoChunk = document.getElementById("autoChunk");
-  els.autoIndex = document.getElementById("autoIndex");
-  els.maxChars = document.getElementById("maxChars");
-  els.overlap = document.getElementById("overlap");
   els.importBtn = document.getElementById("importBtn");
-
+  els.cancelImportBtn = document.getElementById("cancelImportBtn");
+  els.previewDrawer = document.getElementById("previewDrawer");
+  els.previewBackdrop = document.getElementById("previewBackdrop");
+  els.closePreviewBtn = document.getElementById("closePreviewBtn");
+  els.previewTitle = document.getElementById("previewTitle");
+  els.previewMeta = document.getElementById("previewMeta");
+  els.previewSnippet = document.getElementById("previewSnippet");
+  els.previewContent = document.getElementById("previewContent");
   els.authModal = document.getElementById("authModal");
   els.accountIdInput = document.getElementById("accountIdInput");
   els.accountNameInput = document.getElementById("accountNameInput");
   els.cancelAuthBtn = document.getElementById("cancelAuthBtn");
   els.saveAuthBtn = document.getElementById("saveAuthBtn");
-
   els.toast = document.getElementById("toast");
 }
 
@@ -93,7 +101,7 @@ function bindEvents() {
   els.profileBtn.addEventListener("click", openAuthModal);
   els.cancelAuthBtn.addEventListener("click", () => {
     if (!state.teamId || !state.userId) {
-      showToast("请先登录账号后再开始聊天", true);
+      showToast("请先登录账户后再开始聊天", true);
       return;
     }
     closeAuthModal();
@@ -108,24 +116,28 @@ function bindEvents() {
     createAndSwitchConversation().catch((error) => showToast(error.message, true));
   });
 
-  els.toggleImportBtn.addEventListener("click", () => {
-    els.importPanel.classList.toggle("hidden");
-  });
-
-  els.fileInput.addEventListener("change", handleFileInputChange);
-  els.importBtn.addEventListener("click", handleImportDocument);
-
   els.modelSelect.addEventListener("change", () => {
     handleModelChange().catch((error) => showToast(error.message, true));
   });
   els.embeddingSelect.addEventListener("change", () => {
     handleEmbeddingChange().catch((error) => showToast(error.message, true));
   });
-  els.docSelect.addEventListener("change", () => {
-    if (els.docSelect.value) {
-      showToast(`已切换到文档：${els.docSelect.options[els.docSelect.selectedIndex].text}`);
-    }
+
+  els.toggleImportBtn.addEventListener("click", (event) => {
+    event.stopPropagation();
+    els.attachMenu.classList.toggle("hidden");
   });
+  els.uploadFileBtn.addEventListener("click", () => {
+    closeAttachMenu();
+    els.fileInput.click();
+  });
+  els.pasteTextBtn.addEventListener("click", () => {
+    closeAttachMenu();
+    showImportComposer();
+  });
+  els.cancelImportBtn.addEventListener("click", hideImportComposer);
+  els.fileInput.addEventListener("change", handleFileInputChange);
+  els.importBtn.addEventListener("click", handleImportFromComposer);
 
   els.sendBtn.addEventListener("click", handleSend);
   els.messageInput.addEventListener("keydown", (event) => {
@@ -136,12 +148,35 @@ function bindEvents() {
   });
   els.messageInput.addEventListener("input", autoGrowTextarea);
 
+  els.previewBackdrop.addEventListener("click", closePreviewDrawer);
+  els.closePreviewBtn.addEventListener("click", closePreviewDrawer);
+
+  document.addEventListener("click", handleGlobalDocumentClick);
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      closeAttachMenu();
+      closePreviewDrawer();
+    }
+  });
+
   const sceneButtons = document.querySelectorAll(".scenario-card");
   for (const button of sceneButtons) {
     button.addEventListener("click", () => {
-      const scene = button.dataset.scene || "";
-      applyScenarioCard(scene);
+      applyScenarioCard(button.dataset.scene || "");
     });
+  }
+}
+
+function handleGlobalDocumentClick(event) {
+  const target = event.target;
+  if (!(target instanceof Node)) {
+    return;
+  }
+  if (!els.attachMenu.classList.contains("hidden")) {
+    const clickInside = els.attachMenu.contains(target) || els.toggleImportBtn.contains(target);
+    if (!clickInside) {
+      closeAttachMenu();
+    }
   }
 }
 
@@ -193,26 +228,17 @@ function loadSelectedEmbeddingFromStorage() {
 }
 
 function persistSelectedEmbedding() {
-  localStorage.setItem(
-    selectedEmbeddingStorageKey(),
-    state.selectedEmbedding || DEFAULT_EMBEDDING_ID,
-  );
+  localStorage.setItem(selectedEmbeddingStorageKey(), state.selectedEmbedding || DEFAULT_EMBEDDING_ID);
 }
 
 function updateIdentityCard() {
   const name = state.displayName || state.teamName || "未登录";
   const accountId = state.teamId || state.userId;
-  const team = accountId ? `account: ${accountId}` : "点击登录或切换账号";
   els.profileName.textContent = name;
-  els.profileTeam.textContent = team;
+  els.profileTeam.textContent = accountId ? `account: ${accountId}` : "点击登录或切换账户";
   els.avatarText.textContent = name.slice(0, 1) || "未";
-
-  if (els.accountIdInput) {
-    els.accountIdInput.value = accountId || "";
-  }
-  if (els.accountNameInput) {
-    els.accountNameInput.value = name === "未登录" ? "" : name;
-  }
+  els.accountIdInput.value = accountId || "";
+  els.accountNameInput.value = accountId ? name : "";
 }
 
 function initModelOptions() {
@@ -254,9 +280,7 @@ function initEmbeddingOptions() {
   addOption.textContent = "新增向量模型...";
   els.embeddingSelect.appendChild(addOption);
 
-  state.selectedEmbedding = allModels.includes(state.selectedEmbedding)
-    ? state.selectedEmbedding
-    : DEFAULT_EMBEDDING_ID;
+  state.selectedEmbedding = allModels.includes(state.selectedEmbedding) ? state.selectedEmbedding : DEFAULT_EMBEDDING_ID;
   els.embeddingSelect.value = state.selectedEmbedding;
   persistSelectedEmbedding();
 }
@@ -280,7 +304,6 @@ function formatEmbeddingOptionLabel(model) {
   }
   return model;
 }
-
 async function handleModelChange() {
   const selected = els.modelSelect.value;
   if (selected !== ADD_MODEL_OPTION) {
@@ -291,39 +314,32 @@ async function handleModelChange() {
     } else if (selected === NONE_MODEL_ID) {
       showToast("当前使用 none（强制 mock 回复）");
     } else {
-      showToast(`模型已切换为 ${state.selectedModel}`);
+      showToast(`模型已切换为 ${selected}`);
     }
     return;
   }
 
   if (!ensureIdentity()) {
     openAuthModal();
-    showToast("请先登录账号", true);
+    showToast("请先登录账户", true);
     els.modelSelect.value = state.selectedModel;
     return;
   }
 
-  const modelName = window.prompt("输入模型名称（例如 gpt-4.1-mini）");
+  const modelName = window.prompt("输入模型名称，例如 gpt-4.1-mini");
   if (!modelName) {
     els.modelSelect.value = state.selectedModel;
     return;
   }
 
   const normalizedModelName = modelName.trim();
-  if (
-    !normalizedModelName ||
-    normalizedModelName.toLowerCase() === DEFAULT_MODEL_ID ||
-    normalizedModelName.toLowerCase() === NONE_MODEL_ID
-  ) {
+  if (!normalizedModelName || normalizedModelName.toLowerCase() === DEFAULT_MODEL_ID || normalizedModelName.toLowerCase() === NONE_MODEL_ID) {
     els.modelSelect.value = state.selectedModel;
     showToast("模型名称无效", true);
     return;
   }
 
-  const baseUrl = window.prompt(
-    "输入 API Base URL（例如 https://api.openai.com/v1）",
-    "https://api.openai.com/v1",
-  );
+  const baseUrl = window.prompt("输入 API Base URL", "https://api.openai.com/v1");
   if (!baseUrl || !baseUrl.trim()) {
     els.modelSelect.value = state.selectedModel;
     return;
@@ -349,7 +365,7 @@ async function handleModelChange() {
   state.selectedModel = normalizedModelName;
   persistSelectedModel();
   await loadModelConfigs();
-  showToast(`已添加并切换到模型 ${state.selectedModel}`);
+  showToast(`已添加并切换到模型 ${normalizedModelName}`);
 }
 
 async function handleEmbeddingChange() {
@@ -359,44 +375,35 @@ async function handleEmbeddingChange() {
     persistSelectedEmbedding();
     if (selected === DEFAULT_EMBEDDING_ID) {
       showToast("当前使用 default（读取 .env 向量模型配置）");
-      return;
-    }
-    if (selected === MOCK_EMBEDDING_ID) {
+    } else if (selected === MOCK_EMBEDDING_ID) {
       showToast("当前使用 mock（hashing 向量）");
-      return;
+    } else {
+      showToast(`向量模型已切换为 ${selected}`);
     }
-    showToast(`向量模型已切换为 ${state.selectedEmbedding}`);
     return;
   }
 
   if (!ensureIdentity()) {
     openAuthModal();
-    showToast("请先登录账号", true);
+    showToast("请先登录账户", true);
     els.embeddingSelect.value = state.selectedEmbedding;
     return;
   }
 
-  const modelName = window.prompt("输入向量模型名称（例如 text-embedding-3-small）");
+  const modelName = window.prompt("输入向量模型名称，例如 text-embedding-3-small");
   if (!modelName) {
     els.embeddingSelect.value = state.selectedEmbedding;
     return;
   }
 
   const normalizedModelName = modelName.trim();
-  if (
-    !normalizedModelName ||
-    normalizedModelName.toLowerCase() === DEFAULT_EMBEDDING_ID ||
-    normalizedModelName.toLowerCase() === NONE_MODEL_ID
-  ) {
+  if (!normalizedModelName || normalizedModelName.toLowerCase() === DEFAULT_EMBEDDING_ID) {
     els.embeddingSelect.value = state.selectedEmbedding;
     showToast("向量模型名称无效", true);
     return;
   }
 
-  const providerInput = window.prompt(
-    "输入 embedding provider（openai / volcengine / mock）",
-    "openai",
-  );
+  const providerInput = window.prompt("输入 provider（openai / volcengine / mock）", "openai");
   if (!providerInput || !providerInput.trim()) {
     els.embeddingSelect.value = state.selectedEmbedding;
     return;
@@ -406,22 +413,16 @@ async function handleEmbeddingChange() {
   let baseUrl = null;
   let apiKey = null;
   if (provider !== "mock") {
-    const baseUrlInput = window.prompt(
-      "输入 Embedding API Base URL（例如 https://api.openai.com/v1）",
-      "https://api.openai.com/v1",
-    );
-    if (!baseUrlInput || !baseUrlInput.trim()) {
+    baseUrl = window.prompt("输入 Embedding API Base URL", "https://api.openai.com/v1");
+    if (!baseUrl || !baseUrl.trim()) {
       els.embeddingSelect.value = state.selectedEmbedding;
       return;
     }
-
-    const apiKeyInput = window.prompt("输入 Embedding API Key");
-    if (!apiKeyInput || !apiKeyInput.trim()) {
+    apiKey = window.prompt("输入 Embedding API Key");
+    if (!apiKey || !apiKey.trim()) {
       els.embeddingSelect.value = state.selectedEmbedding;
       return;
     }
-    baseUrl = baseUrlInput.trim();
-    apiKey = apiKeyInput.trim();
   }
 
   await apiRequest("/embedding/models", {
@@ -431,25 +432,21 @@ async function handleEmbeddingChange() {
       user_id: state.userId,
       model_name: normalizedModelName,
       provider,
-      base_url: baseUrl,
-      api_key: apiKey,
+      base_url: baseUrl ? baseUrl.trim() : null,
+      api_key: apiKey ? apiKey.trim() : null,
     },
   });
 
   state.selectedEmbedding = normalizedModelName;
   persistSelectedEmbedding();
   await loadEmbeddingConfigs();
-  showToast(`已添加并切换到向量模型 ${state.selectedEmbedding}`);
+  showToast(`已添加并切换到向量模型 ${normalizedModelName}`);
 }
 
 async function handleSaveAuth() {
   const rawAccountId = els.accountIdInput.value.trim();
   const accountId = rawAccountId.replace(/\s+/g, "_").slice(0, 64);
   const accountName = els.accountNameInput.value.trim() || accountId;
-  const teamId = accountId;
-  const userId = accountId;
-  const teamName = accountName || accountId;
-  const displayName = accountName || accountId;
 
   if (!accountId) {
     showToast("account_id 不能为空", true);
@@ -459,22 +456,25 @@ async function handleSaveAuth() {
   setButtonLoading(els.saveAuthBtn, true, "保存中...");
 
   try {
-    await createOrReuseTeam(teamId, teamName);
-    await createOrReuseUser(userId, teamId, displayName);
+    await createOrReuseTeam(accountId, accountName);
+    await createOrReuseUser(accountId, accountId, accountName);
 
-    state.teamId = teamId;
-    state.teamName = teamName;
-    state.userId = userId;
-    state.displayName = displayName;
+    state.teamId = accountId;
+    state.teamName = accountName;
+    state.userId = accountId;
+    state.displayName = accountName;
     state.conversationId = "";
+    state.selectedDocumentIds = [];
     persistIdentity();
     persistConversation();
+    state.selectedModel = loadSelectedModelFromStorage();
+    state.selectedEmbedding = loadSelectedEmbeddingFromStorage();
 
     updateIdentityCard();
     closeAuthModal();
     clearConversation();
     await loadAllData();
-    showToast(`已登录账号：${displayName}`);
+    showToast(`已登录账户：${accountName}`);
   } catch (error) {
     showToast(error.message, true);
   } finally {
@@ -510,23 +510,29 @@ async function createOrReuseUser(userId, teamId, displayName) {
         role: "member",
       },
     });
-    return;
   } catch (error) {
     if (!String(error.message).includes("already exists")) {
       throw error;
     }
   }
+}
 
-  const existing = await apiRequest(`/users/${encodeURIComponent(userId)}`);
-  if (existing.team_id !== teamId) {
-    throw new Error(`账号 ${userId} 已绑定其他团队 ${existing.team_id}，请更换 account_id。`);
+async function loadAllData() {
+  if (!ensureIdentity()) {
+    return;
   }
+
+  await Promise.all([loadModelConfigs(), loadEmbeddingConfigs()]);
+  initModelOptions();
+  initEmbeddingOptions();
+  await loadConversations();
+  await ensureActiveConversation();
+  await Promise.all([loadHistory(), loadDocuments()]);
 }
 
 async function loadModelConfigs() {
-  if (!state.teamId || !state.userId) {
+  if (!ensureIdentity()) {
     state.modelConfigs = [];
-    state.selectedModel = DEFAULT_MODEL_ID;
     initModelOptions();
     return;
   }
@@ -537,14 +543,12 @@ async function loadModelConfigs() {
   });
   const response = await apiRequest(`/llm/models?${query.toString()}`);
   state.modelConfigs = Array.isArray(response.items) ? response.items : [];
-  state.selectedModel = loadSelectedModelFromStorage();
   initModelOptions();
 }
 
 async function loadEmbeddingConfigs() {
-  if (!state.teamId || !state.userId) {
+  if (!ensureIdentity()) {
     state.embeddingConfigs = [];
-    state.selectedEmbedding = DEFAULT_EMBEDDING_ID;
     initEmbeddingOptions();
     return;
   }
@@ -555,19 +559,7 @@ async function loadEmbeddingConfigs() {
   });
   const response = await apiRequest(`/embedding/models?${query.toString()}`);
   state.embeddingConfigs = Array.isArray(response.items) ? response.items : [];
-  state.selectedEmbedding = loadSelectedEmbeddingFromStorage();
   initEmbeddingOptions();
-}
-
-async function loadAllData() {
-  if (!state.teamId || !state.userId) {
-    return;
-  }
-
-  await Promise.all([loadModelConfigs(), loadEmbeddingConfigs()]);
-  await loadConversations();
-  await ensureActiveConversation();
-  await Promise.all([loadHistory(), loadDocuments()]);
 }
 
 async function loadConversations() {
@@ -592,13 +584,11 @@ async function ensureActiveConversation() {
     state.conversationId = state.conversations[0].conversation_id;
     persistConversation();
   }
-
   renderConversationList();
 }
 
 function renderConversationList() {
   els.historyList.innerHTML = "";
-
   if (!state.conversations.length) {
     appendEmpty(els.historyList, "暂无会话");
     return;
@@ -608,70 +598,76 @@ function renderConversationList() {
     const li = document.createElement("li");
     li.classList.toggle("active", item.conversation_id === state.conversationId);
 
-    const title = truncate(item.title || "新会话", 24);
-    const createdAt = formatTime(item.created_at);
-    const pinActionText = item.is_pinned ? "取消顶置" : "顶置聊天";
+    const row = document.createElement("div");
+    row.className = "history-row";
 
-    li.innerHTML = `
-      <div class="history-row">
-        <div class="history-title-wrap">
-          <div class="history-title">${escapeHtml(title)}</div>
-          ${item.is_pinned ? '<span class="history-pin-tag">置顶</span>' : ""}
-        </div>
-        <div class="history-actions">
-          <details class="history-menu">
-            <summary class="history-more" title="会话操作">...</summary>
-            <div class="history-menu-panel">
-              <button class="history-action-btn" type="button" data-action="rename" data-id="${escapeHtml(item.conversation_id)}">重命名</button>
-              <button class="history-action-btn" type="button" data-action="pin" data-id="${escapeHtml(item.conversation_id)}">${pinActionText}</button>
-              <button class="history-action-btn danger" type="button" data-action="delete" data-id="${escapeHtml(item.conversation_id)}">删除</button>
-            </div>
-          </details>
-        </div>
-      </div>
-      <div class="history-meta">${escapeHtml(createdAt)}</div>
-    `;
+    const titleWrap = document.createElement("div");
+    titleWrap.className = "history-title-wrap";
 
-    li.addEventListener("click", (event) => {
-      const target = event.target instanceof Element ? event.target : null;
-      if (target && target.closest(".history-menu")) {
-        return;
-      }
+    const title = document.createElement("button");
+    title.type = "button";
+    title.className = "doc-card-action";
+    title.textContent = item.title || "新会话";
+    title.addEventListener("click", () => {
       switchConversation(item.conversation_id).catch((error) => showToast(error.message, true));
     });
+    titleWrap.appendChild(title);
 
-    const actionButtons = li.querySelectorAll(".history-action-btn");
-    for (const button of actionButtons) {
-      button.addEventListener("click", (event) => {
-        event.stopPropagation();
-        const menu = event.currentTarget?.closest(".history-menu");
-        if (menu) {
-          menu.removeAttribute("open");
-        }
-        const action = event.currentTarget?.dataset?.action;
-        if (action === "rename") {
-          renameConversation(item).catch((error) => showToast(error.message, true));
-          return;
-        }
-        if (action === "pin") {
-          pinConversation(item.conversation_id, !item.is_pinned).catch((error) => showToast(error.message, true));
-          return;
-        }
-        if (action === "delete") {
-          deleteConversation(item.conversation_id).catch((error) => showToast(error.message, true));
-        }
-      });
+    if (item.is_pinned) {
+      const pinTag = document.createElement("span");
+      pinTag.className = "history-pin-tag";
+      pinTag.textContent = "置顶";
+      titleWrap.appendChild(pinTag);
     }
+
+    const actions = document.createElement("div");
+    actions.className = "history-actions";
+
+    const menu = document.createElement("details");
+    menu.className = "history-menu";
+
+    const summary = document.createElement("summary");
+    summary.className = "history-more";
+    summary.textContent = "...";
+
+    const panel = document.createElement("div");
+    panel.className = "history-menu-panel";
+    panel.append(
+      createHistoryActionButton("重命名", () => {
+        menu.open = false;
+        renameConversation(item).catch((error) => showToast(error.message, true));
+      }),
+      createHistoryActionButton(item.is_pinned ? "取消置顶" : "置顶", () => {
+        menu.open = false;
+        pinConversation(item.conversation_id, !item.is_pinned).catch((error) => showToast(error.message, true));
+      }),
+      createHistoryActionButton("删除", () => {
+        menu.open = false;
+        deleteConversation(item.conversation_id).catch((error) => showToast(error.message, true));
+      }, true),
+    );
+
+    menu.append(summary, panel);
+    actions.appendChild(menu);
+    row.append(titleWrap, actions);
+    li.appendChild(row);
+
+    const meta = document.createElement("div");
+    meta.className = "history-meta";
+    meta.textContent = `${item.status || "active"} · ${formatTime(item.created_at)}`;
+    li.appendChild(meta);
 
     els.historyList.appendChild(li);
   }
 }
 
-async function switchConversation(conversationId) {
-  state.conversationId = conversationId;
-  persistConversation();
-  renderConversationList();
-  await Promise.all([loadHistory(), loadDocuments()]);
+function createHistoryActionButton(label, onClick, danger = false) {
+  const button = document.createElement("button");
+  button.className = `history-action-btn${danger ? " danger" : ""}`;
+  button.type = "button";
+  button.textContent = label;
+  button.addEventListener("click", onClick);
+  return button;
 }
 
 async function createConversation(title) {
@@ -685,20 +681,44 @@ async function createConversation(title) {
   });
 }
 
+async function createAndSwitchConversation() {
+  if (!ensureIdentity()) {
+    openAuthModal();
+    showToast("请先登录账户", true);
+    return;
+  }
+
+  const created = await createConversation("新会话");
+  state.conversationId = created.conversation_id;
+  state.selectedDocumentIds = [];
+  persistConversation();
+  await loadConversations();
+  clearConversation();
+  await Promise.all([loadHistory(), loadDocuments()]);
+  showToast("已创建新会话");
+}
+
+async function switchConversation(conversationId) {
+  if (!conversationId || state.conversationId === conversationId) {
+    return;
+  }
+  state.conversationId = conversationId;
+  state.selectedDocumentIds = [];
+  persistConversation();
+  renderConversationList();
+  clearConversation();
+  await Promise.all([loadHistory(), loadDocuments()]);
+}
+
 async function renameConversation(conversation) {
   const currentTitle = String(conversation.title || "新会话").trim();
-  const input = window.prompt("输入新的会话名称", currentTitle);
-  if (input === null) {
+  const nextTitle = window.prompt("输入新的会话标题", currentTitle);
+  if (nextTitle === null) {
     return;
   }
-
-  const title = input.trim();
-  if (!title) {
-    showToast("会话名称不能为空", true);
-    return;
-  }
-
-  if (title === currentTitle) {
+  const normalizedTitle = nextTitle.trim();
+  if (!normalizedTitle) {
+    showToast("会话标题不能为空", true);
     return;
   }
 
@@ -707,12 +727,11 @@ async function renameConversation(conversation) {
     body: {
       team_id: state.teamId,
       user_id: state.userId,
-      title,
+      title: normalizedTitle,
     },
   });
-
   await loadConversations();
-  showToast("会话已重命名");
+  showToast("会话标题已更新");
 }
 
 async function pinConversation(conversationId, pinned) {
@@ -725,30 +744,11 @@ async function pinConversation(conversationId, pinned) {
     },
   });
   await loadConversations();
-  showToast(pinned ? "已顶置会话" : "已取消顶置");
-}
-
-async function createAndSwitchConversation() {
-  if (!ensureIdentity()) {
-    openAuthModal();
-    showToast("请先登录账号", true);
-    return;
-  }
-
-  if (!state.conversationId) {
-    await ensureActiveConversation();
-  }
-
-  const created = await createConversation("新会话");
-  state.conversationId = created.conversation_id;
-  persistConversation();
-  await loadConversations();
-  clearConversation();
-  await Promise.all([loadDocuments(), loadHistory()]);
+  showToast(pinned ? "已置顶会话" : "已取消置顶");
 }
 
 async function deleteConversation(conversationId) {
-  if (!window.confirm("确认删除这个会话？会同时删除该会话下的聊天记录和会话文件。")) {
+  if (!window.confirm("确认删除这个会话吗？")) {
     return;
   }
 
@@ -762,6 +762,7 @@ async function deleteConversation(conversationId) {
 
   if (state.conversationId === conversationId) {
     state.conversationId = "";
+    state.selectedDocumentIds = [];
     persistConversation();
   }
 
@@ -770,7 +771,6 @@ async function deleteConversation(conversationId) {
   await Promise.all([loadHistory(), loadDocuments()]);
   showToast("会话已删除");
 }
-
 async function loadHistory() {
   if (!state.conversationId) {
     clearConversation();
@@ -788,11 +788,39 @@ async function loadHistory() {
   renderCurrentConversationMessages();
 }
 
+function renderCurrentConversationMessages() {
+  clearConversation();
+  if (!state.history.length) {
+    return;
+  }
+
+  const ordered = [...state.history].reverse();
+  for (const item of ordered) {
+    appendMessage("user", item.request_text || "", {
+      createdAt: item.created_at,
+      messageId: item.message_id,
+      channel: item.channel,
+      editable: item.channel !== "action",
+      deletable: true,
+    });
+
+    const responsePayload = item.response_payload || {};
+    appendMessage("assistant", item.response_text || "", {
+      createdAt: item.created_at,
+      sources: normalizeResponseSources(responsePayload),
+      mode: responsePayload.mode || "",
+      model: responsePayload.model || "",
+      messageId: item.message_id,
+      requestText: item.request_text || "",
+      channel: item.channel,
+    });
+  }
+}
+
 async function deleteHistoryMessage(messageId) {
   if (!messageId) {
     return;
   }
-
   if (!window.confirm("确认删除这一轮对话吗？")) {
     return;
   }
@@ -802,7 +830,6 @@ async function deleteHistoryMessage(messageId) {
     user_id: state.userId,
     conversation_id: state.conversationId,
   });
-
   await apiRequest(`/chat/history/${encodeURIComponent(messageId)}?${query.toString()}`, {
     method: "DELETE",
   });
@@ -814,7 +841,6 @@ async function editHistoryMessage(messageId, currentText, channel) {
   if (!messageId) {
     return;
   }
-
   if (channel === "action") {
     showToast("工具调用消息不支持编辑", true);
     return;
@@ -824,13 +850,11 @@ async function editHistoryMessage(messageId, currentText, channel) {
   if (input === null) {
     return;
   }
-
   const requestText = input.trim();
   if (!requestText) {
     showToast("消息不能为空", true);
     return;
   }
-
   if (requestText === (currentText || "").trim()) {
     return;
   }
@@ -843,7 +867,6 @@ async function editHistoryMessage(messageId, currentText, channel) {
       request_text: requestText,
     },
   });
-
   await loadHistory();
   showToast("消息已更新并重新生成回复");
 }
@@ -866,9 +889,8 @@ async function regenerateAssistantMessage(messageId, requestText, channel) {
   if (!messageId || !requestText) {
     return;
   }
-
   if (channel === "action") {
-    showToast("工具调用消息不支持重生成", true);
+    showToast("工具调用消息不支持重新生成", true);
     return;
   }
 
@@ -877,10 +899,7 @@ async function regenerateAssistantMessage(messageId, requestText, channel) {
     NONE_MODEL_ID,
     ...state.modelConfigs.map((item) => item.model_name),
   ]);
-  const selected = window.prompt(
-    `选择重生成模型：${availableModels.join(", ")}`,
-    state.selectedModel || DEFAULT_MODEL_ID,
-  );
+  const selected = window.prompt(`选择重新生成模型：${availableModels.join(", ")}`, state.selectedModel || DEFAULT_MODEL_ID);
   if (selected === null) {
     return;
   }
@@ -913,41 +932,12 @@ async function regenerateAssistantMessage(messageId, requestText, channel) {
   showToast(`已使用 ${normalizedModel} 重新生成`);
 }
 
-function renderCurrentConversationMessages() {
-  clearConversation();
-  if (!state.history.length) {
-    return;
-  }
-
-  const ordered = [...state.history].reverse();
-  for (const item of ordered) {
-    appendMessage("user", item.request_text || "", {
-      createdAt: item.created_at,
-      messageId: item.message_id,
-      channel: item.channel,
-      editable: item.channel !== "action",
-      deletable: true,
-    });
-    const hits = item.response_payload && Array.isArray(item.response_payload.hits) ? item.response_payload.hits : [];
-    const model = item.response_payload && item.response_payload.model ? item.response_payload.model : "";
-    const mode = item.response_payload && item.response_payload.mode ? item.response_payload.mode : "";
-    appendMessage("assistant", item.response_text || "", {
-      createdAt: item.created_at,
-      hits,
-      mode,
-      model,
-      messageId: item.message_id,
-      requestText: item.request_text || "",
-      channel: item.channel,
-    });
-  }
-}
-
 async function loadDocuments() {
   if (!state.conversationId) {
     state.documents = [];
+    state.selectedDocumentIds = [];
     renderDocuments();
-    renderDocSelect();
+    renderAttachmentStrip();
     return;
   }
 
@@ -957,51 +947,250 @@ async function loadDocuments() {
   });
   const response = await apiRequest(`/documents?${query.toString()}`);
   state.documents = Array.isArray(response) ? response : [];
+  state.selectedDocumentIds = state.selectedDocumentIds.filter((documentId) => {
+    return state.documents.some((doc) => doc.document_id === documentId && doc.status === "ready");
+  });
   renderDocuments();
-  renderDocSelect();
+  renderAttachmentStrip();
 }
 
 function renderDocuments() {
   els.documentList.innerHTML = "";
 
   if (!state.documents.length) {
-    appendEmpty(els.documentList, "暂无项目文档");
+    appendEmpty(els.documentList, "还没有导入文件");
     return;
   }
 
   for (const doc of state.documents) {
     const li = document.createElement("li");
-    li.innerHTML = `
-      <div class="doc-title">${escapeHtml(doc.source_name)}</div>
-      <div class="doc-meta">${escapeHtml(doc.document_id.slice(0, 8))} · ${escapeHtml(String(doc.content_type))}</div>
-    `;
-    li.addEventListener("click", () => {
-      els.docSelect.value = doc.document_id;
-      showToast(`问答范围已切到 ${doc.source_name}`);
+
+    const head = document.createElement("div");
+    head.className = "doc-card-head";
+
+    const titleBtn = document.createElement("button");
+    titleBtn.type = "button";
+    titleBtn.className = "doc-card-action";
+    titleBtn.textContent = doc.source_name;
+    titleBtn.addEventListener("click", () => {
+      openSourcePreview({
+        document_id: doc.document_id,
+        source_name: doc.source_name,
+        chunk_index: null,
+        snippet: null,
+      }).catch((error) => showToast(error.message, true));
     });
+
+    const status = document.createElement("span");
+    status.className = `doc-status ${normalizeStatus(doc.status)}`;
+    status.textContent = formatStatusLabel(doc.status);
+    head.append(titleBtn, status);
+
+    const meta = document.createElement("div");
+    meta.className = "doc-meta";
+    meta.textContent = `${doc.content_type} · ${formatTime(doc.created_at)}`;
+
+    const actions = document.createElement("div");
+    actions.className = "doc-card-actions";
+
+    const previewBtn = document.createElement("button");
+    previewBtn.type = "button";
+    previewBtn.className = "doc-card-action";
+    previewBtn.textContent = "预览";
+    previewBtn.addEventListener("click", () => {
+      openSourcePreview({
+        document_id: doc.document_id,
+        source_name: doc.source_name,
+        chunk_index: null,
+        snippet: null,
+      }).catch((error) => showToast(error.message, true));
+    });
+
+    const deleteBtn = document.createElement("button");
+    deleteBtn.type = "button";
+    deleteBtn.className = "doc-card-action danger";
+    deleteBtn.textContent = "删除";
+    deleteBtn.addEventListener("click", () => {
+      deleteDocument(doc.document_id, doc.source_name).catch((error) => showToast(error.message, true));
+    });
+
+    actions.append(previewBtn, deleteBtn);
+    li.append(head, meta, actions);
     els.documentList.appendChild(li);
   }
 }
 
-function renderDocSelect() {
-  const previous = els.docSelect.value;
-  els.docSelect.innerHTML = "";
+function renderAttachmentStrip() {
+  els.attachmentStrip.innerHTML = "";
 
-  const allOption = document.createElement("option");
-  allOption.value = "";
-  allOption.textContent = "当前会话文档（session_only）";
-  els.docSelect.appendChild(allOption);
+  if (!state.documents.length) {
+    els.attachmentStrip.classList.add("hidden");
+    return;
+  }
+
+  els.attachmentStrip.classList.remove("hidden");
+
+  const helper = document.createElement("div");
+  helper.className = "attachment-helper";
+  if (state.selectedDocumentIds.length) {
+    helper.textContent = `本轮已选 ${state.selectedDocumentIds.length} 个文件，发送时只检索这些文件。`;
+  } else {
+    helper.textContent = "默认自动使用本会话全部 ready 文件。点选附件可切换为本轮精确范围。";
+  }
+  els.attachmentStrip.appendChild(helper);
+
+  const list = document.createElement("div");
+  list.className = "attachment-list";
 
   for (const doc of state.documents) {
-    const option = document.createElement("option");
-    option.value = doc.document_id;
-    option.textContent = doc.source_name;
-    els.docSelect.appendChild(option);
+    const chip = document.createElement("div");
+    chip.className = `attachment-chip${state.selectedDocumentIds.includes(doc.document_id) ? " active" : ""}`;
+
+    const mainBtn = document.createElement("button");
+    mainBtn.type = "button";
+    mainBtn.className = "doc-chip-main";
+    mainBtn.addEventListener("click", () => handleChipClick(doc));
+
+    const name = document.createElement("span");
+    name.className = "doc-chip-name";
+    name.textContent = doc.source_name;
+
+    const status = document.createElement("span");
+    status.className = `doc-status ${normalizeStatus(doc.status)}`;
+    status.textContent = formatStatusLabel(doc.status);
+
+    mainBtn.append(name, status);
+
+    const deleteBtn = document.createElement("button");
+    deleteBtn.type = "button";
+    deleteBtn.className = "doc-chip-delete";
+    deleteBtn.textContent = "×";
+    deleteBtn.title = `删除 ${doc.source_name}`;
+    deleteBtn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      deleteDocument(doc.document_id, doc.source_name).catch((error) => showToast(error.message, true));
+    });
+
+    chip.append(mainBtn, deleteBtn);
+    list.appendChild(chip);
   }
 
-  if (state.documents.some((doc) => doc.document_id === previous)) {
-    els.docSelect.value = previous;
+  els.attachmentStrip.appendChild(list);
+}
+
+function handleChipClick(doc) {
+  if (doc.status !== "ready") {
+    openSourcePreview({
+      document_id: doc.document_id,
+      source_name: doc.source_name,
+      chunk_index: null,
+      snippet: null,
+    }).catch((error) => showToast(error.message, true));
+    return;
   }
+  toggleDocumentSelection(doc.document_id);
+}
+
+function toggleDocumentSelection(documentId) {
+  if (state.selectedDocumentIds.includes(documentId)) {
+    state.selectedDocumentIds = state.selectedDocumentIds.filter((item) => item !== documentId);
+  } else {
+    state.selectedDocumentIds = [...state.selectedDocumentIds, documentId];
+  }
+  renderAttachmentStrip();
+}
+
+async function deleteDocument(documentId, sourceName) {
+  if (!window.confirm(`确认删除文件“${sourceName}”吗？`)) {
+    return;
+  }
+
+  const query = new URLSearchParams({
+    team_id: state.teamId,
+    conversation_id: state.conversationId,
+  });
+  await apiRequest(`/documents/${encodeURIComponent(documentId)}?${query.toString()}`, {
+    method: "DELETE",
+  });
+
+  state.selectedDocumentIds = state.selectedDocumentIds.filter((item) => item !== documentId);
+  closePreviewDrawer();
+  await loadDocuments();
+  showToast(`已删除文件：${sourceName}`);
+}
+async function openSourcePreview(source) {
+  const document = await getDocumentFromStateOrApi(source.document_id);
+  els.previewTitle.textContent = document.source_name || source.source_name || "文件预览";
+  els.previewMeta.innerHTML = "";
+
+  const metaLines = [
+    `状态：${formatStatusLabel(document.status)}`,
+    `类型：${document.content_type}`,
+    source.chunk_index === null || source.chunk_index === undefined ? null : `定位：第 ${Number(source.chunk_index) + 1} 段`,
+  ].filter(Boolean);
+
+  for (const line of metaLines) {
+    const div = document.createElement("div");
+    div.textContent = line;
+    els.previewMeta.appendChild(div);
+  }
+
+  if (source.snippet) {
+    els.previewSnippet.classList.remove("hidden");
+    els.previewSnippet.textContent = source.snippet;
+  } else {
+    els.previewSnippet.classList.add("hidden");
+    els.previewSnippet.textContent = "";
+  }
+
+  els.previewContent.textContent = document.content || "";
+  els.previewDrawer.classList.remove("hidden");
+  els.previewDrawer.setAttribute("aria-hidden", "false");
+}
+
+function closePreviewDrawer() {
+  els.previewDrawer.classList.add("hidden");
+  els.previewDrawer.setAttribute("aria-hidden", "true");
+}
+
+async function getDocumentFromStateOrApi(documentId) {
+  const cached = state.documents.find((item) => item.document_id === documentId);
+  if (cached) {
+    return cached;
+  }
+
+  const query = new URLSearchParams({
+    team_id: state.teamId,
+    conversation_id: state.conversationId,
+  });
+  return apiRequest(`/documents/${encodeURIComponent(documentId)}?${query.toString()}`);
+}
+
+function showImportComposer() {
+  els.importComposer.classList.remove("hidden");
+  if (!els.sourceName.value.trim()) {
+    els.sourceName.focus();
+  } else {
+    els.fileContent.focus();
+  }
+}
+
+function hideImportComposer() {
+  els.importComposer.classList.add("hidden");
+  els.sourceName.value = "";
+  els.fileContent.value = "";
+}
+
+function closeAttachMenu() {
+  els.attachMenu.classList.add("hidden");
+}
+
+async function ensureConversationReady() {
+  if (state.conversationId) {
+    return;
+  }
+  await loadConversations();
+  await ensureActiveConversation();
 }
 
 async function handleSend() {
@@ -1012,10 +1201,11 @@ async function handleSend() {
 
   if (!ensureIdentity()) {
     openAuthModal();
-    showToast("请先登录账号", true);
+    showToast("请先登录账户", true);
     return;
   }
 
+  await ensureConversationReady();
   state.sending = true;
   els.sendBtn.disabled = true;
 
@@ -1037,8 +1227,9 @@ async function handleSend() {
       payload.model = state.selectedModel;
     }
 
-    if (els.docSelect.value) {
-      payload.document_id = els.docSelect.value;
+    const selectedDocumentIds = getExplicitSelectedDocumentIds();
+    if (selectedDocumentIds.length) {
+      payload.selected_document_ids = selectedDocumentIds;
     }
 
     const response = await apiRequest("/chat/ask", {
@@ -1047,7 +1238,7 @@ async function handleSend() {
     });
 
     appendMessage("assistant", response.answer || "", {
-      hits: Array.isArray(response.hits) ? response.hits : [],
+      sources: normalizeResponseSources(response),
       mode: response.mode || "",
       model: response.model || state.selectedModel,
     });
@@ -1055,7 +1246,6 @@ async function handleSend() {
     await loadHistory();
   } catch (error) {
     const message = String(error.message || "发送失败");
-
     const fallbackResult = await tryEchoFallback(question, message);
     if (fallbackResult) {
       appendMessage("assistant", fallbackResult.answer, {
@@ -1073,13 +1263,19 @@ async function handleSend() {
   }
 }
 
+function getExplicitSelectedDocumentIds() {
+  return state.selectedDocumentIds.filter((documentId) => {
+    return state.documents.some((doc) => doc.document_id === documentId && doc.status === "ready");
+  });
+}
+
 function shouldUseEchoFallback(errorMessage) {
   const text = String(errorMessage || "").toLowerCase();
   return (
-    text.includes("no indexed chunks found") ||
-    text.includes("llm_api_key is required") ||
-    text.includes("llm request failed") ||
-    text.includes("timed out")
+    text.includes("no indexed chunks found")
+    || text.includes("llm_api_key is required")
+    || text.includes("llm request failed")
+    || text.includes("timed out")
   );
 }
 
@@ -1108,27 +1304,35 @@ async function tryEchoFallback(question, errorMessage) {
   }
 }
 
-async function handleImportDocument() {
+async function handleImportFromComposer() {
+  const sourceName = els.sourceName.value.trim();
+  const content = els.fileContent.value.trim();
+  if (!sourceName || !content) {
+    showToast("请填写文件名并粘贴内容", true);
+    return;
+  }
+
+  await importDocumentWithContent({
+    sourceName,
+    content,
+    contentType: inferContentType(sourceName),
+  });
+  hideImportComposer();
+}
+
+async function importDocumentWithContent({ sourceName, content, contentType }) {
   if (state.importing) {
     return;
   }
   if (!ensureIdentity()) {
     openAuthModal();
-    showToast("请先登录账号", true);
+    showToast("请先登录账户", true);
     return;
   }
 
-  const sourceName = els.sourceName.value.trim();
-  const content = els.fileContent.value.trim();
-  const contentType = els.contentType.value;
-
-  if (!sourceName || !content) {
-    showToast("请填写 source_name 并输入内容", true);
-    return;
-  }
-
+  await ensureConversationReady();
   state.importing = true;
-  els.importBtn.disabled = true;
+  setButtonLoading(els.importBtn, true, "导入中...");
 
   try {
     const doc = await apiRequest("/documents/import", {
@@ -1142,81 +1346,82 @@ async function handleImportDocument() {
       },
     });
 
-    const documentId = doc.document_id;
-    let chunkError = null;
-    let indexError = null;
+    upsertDocumentState(doc);
+    renderDocuments();
+    renderAttachmentStrip();
 
-    if (els.autoChunk.checked) {
-      try {
-        await apiRequest(`/documents/${encodeURIComponent(documentId)}/chunk`, {
-          method: "POST",
-          body: {
-            team_id: state.teamId,
-            conversation_id: state.conversationId,
-            max_chars: Number(els.maxChars.value || 600),
-            overlap: Number(els.overlap.value || 80),
-          },
-        });
-      } catch (error) {
-        chunkError = error;
-      }
-    }
+    setDocumentStatusLocal(doc.document_id, "chunking");
+    await apiRequest(`/documents/${encodeURIComponent(doc.document_id)}/chunk`, {
+      method: "POST",
+      body: {
+        team_id: state.teamId,
+        conversation_id: state.conversationId,
+        max_chars: DEFAULT_IMPORT_MAX_CHARS,
+        overlap: DEFAULT_IMPORT_OVERLAP,
+      },
+    });
 
-    if (els.autoIndex.checked && chunkError === null) {
-      try {
-        await apiRequest("/retrieval/index", {
-          method: "POST",
-          body: {
-            team_id: state.teamId,
-            user_id: state.userId,
-            conversation_id: state.conversationId,
-            document_id: documentId,
-            embedding_model: state.selectedEmbedding || DEFAULT_EMBEDDING_ID,
-          },
-        });
-      } catch (error) {
-        indexError = error;
-      }
-    }
+    setDocumentStatusLocal(doc.document_id, "indexing");
+    await apiRequest("/retrieval/index", {
+      method: "POST",
+      body: {
+        team_id: state.teamId,
+        user_id: state.userId,
+        conversation_id: state.conversationId,
+        document_ids: [doc.document_id],
+        embedding_model: state.selectedEmbedding || DEFAULT_EMBEDDING_ID,
+      },
+    });
 
+    setDocumentStatusLocal(doc.document_id, "ready");
     await loadDocuments();
-    els.docSelect.value = documentId;
-    if (chunkError !== null) {
-      showToast(`文档已导入，但分块失败：${chunkError.message}`, true);
-      return;
-    }
-    if (indexError !== null) {
-      showToast(`文档已导入并分块，但索引失败：${indexError.message}`, true);
-      return;
-    }
     showToast(`导入完成：${sourceName}`);
   } catch (error) {
+    await loadDocuments();
     showToast(error.message, true);
   } finally {
     state.importing = false;
-    els.importBtn.disabled = false;
+    setButtonLoading(els.importBtn, false, "导入");
   }
+}
+
+function upsertDocumentState(doc) {
+  const existingIndex = state.documents.findIndex((item) => item.document_id === doc.document_id);
+  if (existingIndex >= 0) {
+    state.documents[existingIndex] = doc;
+  } else {
+    state.documents = [doc, ...state.documents];
+  }
+}
+
+function setDocumentStatusLocal(documentId, status) {
+  state.documents = state.documents.map((doc) => {
+    if (doc.document_id === documentId) {
+      return { ...doc, status };
+    }
+    return doc;
+  });
+  renderDocuments();
+  renderAttachmentStrip();
 }
 
 async function handleFileInputChange(event) {
   const file = event.target.files && event.target.files[0];
+  event.target.value = "";
   if (!file) {
     return;
   }
 
   try {
-    const text = await file.text();
-    els.fileContent.value = text;
-    if (!els.sourceName.value.trim()) {
-      els.sourceName.value = file.name;
-    }
-    if (file.name.toLowerCase().endsWith(".txt")) {
-      els.contentType.value = "txt";
-    } else {
-      els.contentType.value = "md";
-    }
-  } catch {
-    showToast("读取文件失败，请改用粘贴文本", true);
+    const contentType = inferContentType(file.name);
+    const content = await file.text();
+    await importDocumentWithContent({
+      sourceName: file.name,
+      content,
+      contentType,
+    });
+  } catch (error) {
+    showToast(error.message || "读取文件失败", true);
   }
 }
 
@@ -1256,41 +1461,47 @@ function appendMessage(role, content, options = {}) {
     right.textContent = timeText;
   }
 
-  head.appendChild(left);
-  head.appendChild(right);
+  head.append(left, right);
 
   const body = document.createElement("div");
   body.className = "message-body";
   body.textContent = content;
 
-  message.appendChild(head);
-  message.appendChild(body);
+  message.append(head, body);
+  if (role === "assistant" && Array.isArray(options.sources) && options.sources.length) {
+    const sourceBox = document.createElement("div");
+    sourceBox.className = "source-box";
 
-  if (role === "assistant" && Array.isArray(options.hits) && options.hits.length) {
-    const hitBox = document.createElement("div");
-    hitBox.className = "hit-box";
+    const title = document.createElement("div");
+    title.className = "source-title";
+    title.textContent = "引用来源";
+    sourceBox.appendChild(title);
 
-    const topHits = options.hits.slice(0, 3);
-    for (const hit of topHits) {
-      const item = document.createElement("div");
-      item.className = "hit-item";
+    const sourceList = document.createElement("div");
+    sourceList.className = "source-list";
+    for (const source of options.sources.slice(0, 4)) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "source-pill";
+      button.addEventListener("click", () => {
+        openSourcePreview(source).catch((error) => showToast(error.message, true));
+      });
 
-      const meta = document.createElement("div");
-      meta.className = "hit-meta";
-      const score = Number(hit.score || 0).toFixed(4);
-      const sourceName = hit.source_name ? `source=${hit.source_name} · ` : "";
-      meta.textContent = `${sourceName}doc=${hit.document_id} · chunk=${hit.chunk_index} · score=${score}`;
+      const sourceTitle = document.createElement("div");
+      sourceTitle.className = "source-pill-title";
+      const paragraph = Number.isInteger(source.chunk_index) ? ` · 第 ${Number(source.chunk_index) + 1} 段` : "";
+      sourceTitle.textContent = `${source.source_name || "未命名文件"}${paragraph}`;
 
-      const snippet = document.createElement("div");
-      snippet.className = "hit-content";
-      snippet.textContent = truncate(String(hit.content || ""), 180);
+      const sourceSnippet = document.createElement("div");
+      sourceSnippet.className = "source-pill-snippet";
+      sourceSnippet.textContent = source.snippet || "点击查看文件预览";
 
-      item.appendChild(meta);
-      item.appendChild(snippet);
-      hitBox.appendChild(item);
+      button.append(sourceTitle, sourceSnippet);
+      sourceList.appendChild(button);
     }
 
-    message.appendChild(hitBox);
+    sourceBox.appendChild(sourceList);
+    message.appendChild(sourceBox);
   }
 
   row.appendChild(message);
@@ -1300,58 +1511,32 @@ function appendMessage(role, content, options = {}) {
 
   if (role === "user" && options.messageId) {
     if (options.editable) {
-      const editBtn = document.createElement("button");
-      editBtn.className = "message-icon-btn";
-      editBtn.type = "button";
-      editBtn.title = "编辑";
-      editBtn.textContent = "✎";
-      editBtn.addEventListener("click", () => {
+      actionRail.appendChild(createMessageActionButton("编辑", "✎", () => {
         editHistoryMessage(options.messageId, content, options.channel).catch((error) => {
           showToast(error.message, true);
         });
-      });
-      actionRail.appendChild(editBtn);
+      }));
     }
     if (options.deletable) {
-      const deleteBtn = document.createElement("button");
-      deleteBtn.className = "message-icon-btn";
-      deleteBtn.type = "button";
-      deleteBtn.title = "删除";
-      deleteBtn.textContent = "⌫";
-      deleteBtn.addEventListener("click", () => {
+      actionRail.appendChild(createMessageActionButton("删除", "⌫", () => {
         deleteHistoryMessage(options.messageId).catch((error) => {
           showToast(error.message, true);
         });
-      });
-      actionRail.appendChild(deleteBtn);
+      }));
     }
   }
 
   if (role === "assistant") {
-    const copyBtn = document.createElement("button");
-    copyBtn.className = "message-icon-btn";
-    copyBtn.type = "button";
-    copyBtn.title = "复制";
-    copyBtn.textContent = "⧉";
-    copyBtn.addEventListener("click", () => {
+    actionRail.appendChild(createMessageActionButton("复制", "⧉", () => {
       copyMessageText(content).catch((error) => showToast(error.message, true));
-    });
-    actionRail.appendChild(copyBtn);
+    }));
 
     if (options.messageId && options.requestText) {
-      const regenBtn = document.createElement("button");
-      regenBtn.className = "message-icon-btn";
-      regenBtn.type = "button";
-      regenBtn.title = "切换模型重生成";
-      regenBtn.textContent = "↻";
-      regenBtn.addEventListener("click", () => {
-        regenerateAssistantMessage(
-          options.messageId,
-          options.requestText,
-          options.channel,
-        ).catch((error) => showToast(error.message, true));
-      });
-      actionRail.appendChild(regenBtn);
+      actionRail.appendChild(createMessageActionButton("重新生成", "↻", () => {
+        regenerateAssistantMessage(options.messageId, options.requestText, options.channel).catch((error) => {
+          showToast(error.message, true);
+        });
+      }));
     }
   }
 
@@ -1363,6 +1548,42 @@ function appendMessage(role, content, options = {}) {
   scrollToBottom();
 }
 
+function createMessageActionButton(title, text, onClick) {
+  const button = document.createElement("button");
+  button.className = "message-icon-btn";
+  button.type = "button";
+  button.title = title;
+  button.textContent = text;
+  button.addEventListener("click", onClick);
+  return button;
+}
+
+function normalizeResponseSources(payload) {
+  if (Array.isArray(payload.sources) && payload.sources.length) {
+    return payload.sources.map((item) => ({
+      document_id: item.document_id,
+      source_name: item.source_name || "",
+      chunk_id: item.chunk_id || "",
+      chunk_index: Number.isFinite(Number(item.chunk_index)) ? Number(item.chunk_index) : null,
+      snippet: item.snippet || "",
+      score: Number(item.score || 0),
+    }));
+  }
+
+  if (Array.isArray(payload.hits) && payload.hits.length) {
+    return payload.hits.map((item) => ({
+      document_id: item.document_id,
+      source_name: item.source_name || "",
+      chunk_id: item.chunk_id || "",
+      chunk_index: Number.isFinite(Number(item.chunk_index)) ? Number(item.chunk_index) : null,
+      snippet: truncate(String(item.content || "").replace(/\s+/g, " ").trim(), 220),
+      score: Number(item.score || 0),
+    }));
+  }
+
+  return [];
+}
+
 function clearConversation() {
   els.messageList.innerHTML = "";
   setHeroVisible(true);
@@ -1370,14 +1591,12 @@ function clearConversation() {
 
 function setHeroVisible(visible) {
   els.heroTitle.style.display = visible ? "block" : "none";
-  if (els.scenarioCards) {
-    els.scenarioCards.style.display = visible ? "grid" : "none";
-  }
+  els.scenarioCards.style.display = visible ? "grid" : "none";
 }
 
 function applyScenarioCard(scene) {
   const templates = {
-    summary: "请帮我总结以下资料，输出：1）关键结论 2）风险点 3）下一步行动建议。",
+    summary: "请帮我总结以下资料，输出：1）关键信息 2）风险点 3）下一步行动建议。",
     plan: "请基于这个目标帮我写方案，包含：背景、目标、里程碑、资源投入、风险与验收标准。",
     qa: "请做知识问答：先给结论，再列出依据来源和不确定项。",
   };
@@ -1458,13 +1677,38 @@ function truncate(text, length) {
   return `${text.slice(0, length - 1)}…`;
 }
 
-function escapeHtml(raw) {
-  return String(raw)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll("\"", "&quot;")
-    .replaceAll("'", "&#39;");
+function normalizeStatus(status) {
+  const normalized = String(status || "pending").trim().toLowerCase();
+  if (["pending", "chunking", "indexing", "ready", "failed"].includes(normalized)) {
+    return normalized;
+  }
+  return "pending";
+}
+
+function formatStatusLabel(status) {
+  switch (normalizeStatus(status)) {
+    case "chunking":
+      return "切块中";
+    case "indexing":
+      return "索引中";
+    case "ready":
+      return "可用";
+    case "failed":
+      return "失败";
+    default:
+      return "待处理";
+  }
+}
+
+function inferContentType(sourceName) {
+  const normalized = String(sourceName || "").trim().toLowerCase();
+  if (normalized.endsWith(".txt")) {
+    return "txt";
+  }
+  if (normalized.endsWith(".md") || !normalized) {
+    return "md";
+  }
+  throw new Error("当前仅支持导入 .txt 和 .md 文件，粘贴文本也可直接使用。");
 }
 
 async function apiRequest(path, options = {}) {
@@ -1492,7 +1736,7 @@ async function apiRequest(path, options = {}) {
 
   if (!response.ok) {
     const detail = data && typeof data === "object" && "detail" in data ? data.detail : response.statusText;
-    throw new Error(String(detail || `请求失败(${response.status})`));
+    throw new Error(String(detail || `请求失败（${response.status}）`));
   }
 
   return data;
@@ -1516,13 +1760,11 @@ function setButtonLoading(button, loading, loadingText) {
 
 function showToast(message, isError = false) {
   clearTimeout(toastTimer);
-
   els.toast.textContent = message;
   els.toast.classList.remove("hidden", "error");
   if (isError) {
     els.toast.classList.add("error");
   }
-
   toastTimer = setTimeout(() => {
     els.toast.classList.add("hidden");
   }, 2600);

@@ -1,12 +1,14 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import EntityNotFoundError
+from app.models.chunk_embedding import ChunkEmbedding
 from app.models.conversation import Conversation
 from app.models.document import Document
+from app.models.document_chunk import DocumentChunk
 from app.models.team import Team
 from app.schemas.document import DocumentImportRequest
 
@@ -35,6 +37,7 @@ class DocumentService:
             conversation_id=payload.conversation_id,
             source_name=payload.source_name,
             content_type=payload.content_type,
+            status="pending",
             content=payload.content,
             # Use Python-side timestamp to preserve microseconds for deterministic recency ordering.
             created_at=datetime.now(timezone.utc),
@@ -70,3 +73,55 @@ class DocumentService:
             )
 
         return document
+
+    def update_document_status(
+        self,
+        *,
+        document_id: str,
+        team_id: str,
+        status: str,
+        conversation_id: str | None = None,
+    ) -> Document:
+        document = self.get_document_in_team(
+            document_id=document_id,
+            team_id=team_id,
+            conversation_id=conversation_id,
+        )
+        document.status = status
+        self.db.add(document)
+        self.db.commit()
+        self.db.refresh(document)
+        return document
+
+    def delete_document(
+        self,
+        *,
+        document_id: str,
+        team_id: str,
+        conversation_id: str | None = None,
+    ) -> None:
+        self.get_document_in_team(
+            document_id=document_id,
+            team_id=team_id,
+            conversation_id=conversation_id,
+        )
+
+        self.db.execute(
+            delete(ChunkEmbedding).where(
+                ChunkEmbedding.document_id == document_id,
+                ChunkEmbedding.team_id == team_id,
+            )
+        )
+        self.db.execute(
+            delete(DocumentChunk).where(
+                DocumentChunk.document_id == document_id,
+                DocumentChunk.team_id == team_id,
+            )
+        )
+        self.db.execute(
+            delete(Document).where(
+                Document.document_id == document_id,
+                Document.team_id == team_id,
+            )
+        )
+        self.db.commit()
