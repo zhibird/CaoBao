@@ -9,10 +9,14 @@ ROOT_ENV_FILE = PROJECT_ROOT / ".env"
 
 class Settings(BaseSettings):
     app_name: str = "CaiBao"
-    app_version: str = "0.6.0"
+    app_version: str = "0.9.0"
     app_env: str = "dev"
     api_prefix: str = "/api/v1"
     database_url: str = "sqlite:///./CaiBao.db"
+    dev_admin_enabled: bool = True
+    dev_admin_account_id: str = "dev_admin"
+    dev_admin_display_name: str = "Developer Admin"
+    dev_admin_token: str = "dev-admin-token"
 
     llm_provider: str = "mock"
     llm_base_url: str = "https://api.openai.com/v1"

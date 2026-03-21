@@ -1,9 +1,11 @@
-from fastapi import Depends
+from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.config import reload_settings
+from app.core.config import get_settings, reload_settings
+from app.core.exceptions import DomainValidationError
 from app.db.session import get_db_session
 from app.services.action_chat_service import ActionChatService
+from app.services.admin_service import AdminService
 from app.services.chat_history_service import ChatHistoryService
 from app.services.chat_service import ChatService
 from app.services.chunk_service import ChunkService
@@ -26,6 +28,20 @@ def get_team_service(db: Session = Depends(get_db_session)) -> TeamService:
 
 def get_user_service(db: Session = Depends(get_db_session)) -> UserService:
     return UserService(db)
+
+
+def get_admin_service(db: Session = Depends(get_db_session)) -> AdminService:
+    return AdminService(db=db, settings=get_settings())
+
+
+def require_dev_admin(
+    x_dev_admin_token: str | None = Header(default=None, alias="X-Dev-Admin-Token"),
+    admin_service: AdminService = Depends(get_admin_service),
+):
+    try:
+        return admin_service.authenticate(x_dev_admin_token)
+    except DomainValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
 
 
 def get_document_service(db: Session = Depends(get_db_session)) -> DocumentService:

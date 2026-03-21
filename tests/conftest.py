@@ -11,6 +11,10 @@ os.environ["LLM_PROVIDER"] = "mock"
 os.environ["EMBEDDING_PROVIDER"] = "mock"
 os.environ["LLM_API_KEY"] = ""
 os.environ["EMBEDDING_API_KEY"] = ""
+os.environ["DEV_ADMIN_ENABLED"] = "true"
+os.environ["DEV_ADMIN_ACCOUNT_ID"] = "dev_admin_test"
+os.environ["DEV_ADMIN_DISPLAY_NAME"] = "Developer Admin Test"
+os.environ["DEV_ADMIN_TOKEN"] = "test-admin-token"
 reload_settings()
 
 

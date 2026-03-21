@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CaiBao Chat</title>
-  <link rel="stylesheet" href="/web/styles.css?v=0.7.2" />
+  <link rel="stylesheet" href="/web/styles.css?v=0.9.0" />
 </head>
 <body>
   <div class="bg-orb orb-a" aria-hidden="true"></div>
@@ -14,7 +14,10 @@
   <div class="shell">
     <aside class="sidebar">
       <div class="sidebar-top">
-        <div class="product-badge">CaiBao</div>
+        <div class="product-badge-row">
+          <div class="product-badge">CaiBao</div>
+          <a class="admin-link" href="/web/admin.html" target="_blank" rel="noopener">Admin</a>
+        </div>
         <button id="newSessionBtn" class="primary-btn" type="button">+ 新会话</button>
 
         <p class="section-title">会话列表</p>
@@ -144,6 +147,6 @@
 
   <div id="toast" class="toast hidden"></div>
 
-  <script src="/web/app.js?v=0.7.2" defer></script>
+  <script src="/web/app.js?v=0.9.0" defer></script>
 </body>
 </html>

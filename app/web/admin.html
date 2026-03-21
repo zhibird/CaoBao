@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CaiBao Admin Console</title>
+  <link rel="stylesheet" href="/web/admin.css?v=0.9.0" />
+</head>
+<body>
+  <div class="admin-shell">
+    <header class="topbar">
+      <div>
+        <div class="badge">CaiBao</div>
+        <h1>Developer Admin Console</h1>
+        <p class="subtitle">开发者管理员：跨团队查看与管理团队、用户、会话和上传文件。</p>
+      </div>
+      <a class="ghost-btn" href="/">返回聊天</a>
+    </header>
+
+    <section class="auth-card">
+      <div class="field">
+        <label for="adminTokenInput">X-Dev-Admin-Token</label>
+        <input id="adminTokenInput" type="password" placeholder="请输入管理员 token" />
+      </div>
+      <div class="auth-actions">
+        <button id="adminLoginBtn" class="primary-btn" type="button">登录管理员</button>
+        <button id="adminLogoutBtn" class="ghost-btn" type="button">退出</button>
+      </div>
+      <p id="authHint" class="auth-hint">未登录</p>
+    </section>
+
+    <main id="adminMain" class="admin-main hidden">
+      <section class="stats-grid">
+        <article class="stat-card">
+          <span class="stat-label">Teams</span>
+          <strong id="statTeams">0</strong>
+        </article>
+        <article class="stat-card">
+          <span class="stat-label">Users</span>
+          <strong id="statUsers">0</strong>
+        </article>
+        <article class="stat-card">
+          <span class="stat-label">Conversations</span>
+          <strong id="statConversations">0</strong>
+        </article>
+        <article class="stat-card">
+          <span class="stat-label">Documents</span>
+          <strong id="statDocuments">0</strong>
+        </article>
+        <article class="stat-card">
+          <span class="stat-label">Messages</span>
+          <strong id="statMessages">0</strong>
+        </article>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>团队</h2>
+          <button id="refreshTeamsBtn" class="ghost-btn compact" type="button">刷新</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>team_id</th>
+                <th>name</th>
+                <th>users</th>
+                <th>conversations</th>
+                <th>documents</th>
+                <th>created_at</th>
+                <th>actions</th>
+              </tr>
+            </thead>
+            <tbody id="teamsTableBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>账户</h2>
+          <div class="inline-actions">
+            <label class="inline-field">
+              <span>team</span>
+              <select id="usersTeamFilter"></select>
+            </label>
+            <button id="refreshUsersBtn" class="ghost-btn compact" type="button">刷新</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>user_id</th>
+                <th>team_id</th>
+                <th>name</th>
+                <th>role</th>
+                <th>conversations</th>
+                <th>documents</th>
+                <th>created_at</th>
+                <th>actions</th>
+              </tr>
+            </thead>
+            <tbody id="usersTableBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>会话</h2>
+          <div class="inline-actions">
+            <label class="inline-field">
+              <span>team</span>
+              <select id="conversationsTeamFilter"></select>
+            </label>
+            <label class="inline-field">
+              <span>user</span>
+              <select id="conversationsUserFilter"></select>
+            </label>
+            <button id="refreshConversationsBtn" class="ghost-btn compact" type="button">刷新</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>conversation_id</th>
+                <th>title</th>
+                <th>team_id</th>
+                <th>user_id</th>
+                <th>messages</th>
+                <th>documents</th>
+                <th>created_at</th>
+                <th>actions</th>
+              </tr>
+            </thead>
+            <tbody id="conversationsTableBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>文件</h2>
+          <div class="inline-actions">
+            <label class="inline-field">
+              <span>team</span>
+              <select id="documentsTeamFilter"></select>
+            </label>
+            <label class="inline-field">
+              <span>user</span>
+              <select id="documentsUserFilter"></select>
+            </label>
+            <label class="inline-field">
+              <span>conversation</span>
+              <input id="documentsConversationFilter" type="text" placeholder="conversation_id (可选)" />
+            </label>
+            <button id="refreshDocumentsBtn" class="ghost-btn compact" type="button">刷新</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>document_id</th>
+                <th>source_name</th>
+                <th>team_id</th>
+                <th>conversation_id</th>
+                <th>status</th>
+                <th>chars</th>
+                <th>preview</th>
+                <th>created_at</th>
+                <th>actions</th>
+              </tr>
+            </thead>
+            <tbody id="documentsTableBody"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="docModal" class="doc-modal hidden" aria-hidden="true">
+    <div id="docBackdrop" class="doc-backdrop"></div>
+    <section class="doc-panel" role="dialog" aria-modal="true" aria-labelledby="docTitle">
+      <header class="doc-head">
+        <h3 id="docTitle">文件内容</h3>
+        <button id="closeDocModalBtn" class="ghost-btn compact" type="button">关闭</button>
+      </header>
+      <div id="docMeta" class="doc-meta"></div>
+      <pre id="docContent" class="doc-content"></pre>
+    </section>
+  </div>
+
+  <div id="adminToast" class="toast hidden"></div>
+  <script src="/web/admin.js?v=0.9.0" defer></script>
+</body>
+</html>
