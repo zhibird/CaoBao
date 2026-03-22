@@ -1,61 +1,16 @@
-# v0.9.0 - 2026-03-21
-
-## 版本概览
-
-本次版本新增“开发者可用”的管理员账户与独立管理后台，用于集中查看和管理全量团队、用户、会话与上传文件。
-
-## 新增内容
-
-1. 开发者管理员配置项：
-   - `DEV_ADMIN_ENABLED`
-   - `DEV_ADMIN_ACCOUNT_ID`
-   - `DEV_ADMIN_DISPLAY_NAME`
-   - `DEV_ADMIN_TOKEN`
-2. 管理员 API（`/api/v1/admin`）：
-   - 管理员会话校验
-   - 全局统计看板
-   - 团队/用户/会话/文件的全局列表与管理删除
-   - 用户角色更新
-3. 独立管理前端：
-   - `GET /web/admin.html`
-   - 基于 `X-Dev-Admin-Token` 登录
-   - 按团队/用户筛选查看数据并执行管理操作
-
-## 主要变更
-
-1. 后端新增管理员服务与鉴权依赖，支持跨团队管理与级联删除清理。  
-2. 路由层新增 `admin` 路由组并接入主 API Router。  
-3. 聊天页面侧边栏新增 `Admin` 快捷入口，跳转独立管理界面。  
-4. 默认应用版本升级为 `0.9.0`，并更新 `.env.example` 配置示例。
-
-## 验证结果
-
-1. Python 语法编译通过：`compiled 60 files`
-2. 前端脚本检查通过：
-   - `node --check app/web/admin.js`
-   - `node --check app/web/app.js`
-3. 管理员专项测试通过：`PYTHONPATH=. pytest -q tests/test_admin.py` => `4 passed`
-4. 全量测试通过：`PYTHONPATH=. pytest -q` => `46 passed`
-
-## 已实现
-
-1. 管理员后端能力  
-   `app/services/admin_service.py`  
-   `app/api/routes/admin.py`  
-   `app/api/deps.py`  
-   `app/api/router.py`  
-   `app/schemas/admin.py`  
-   `app/core/config.py`
-
-2. 管理后台前端  
-   `app/web/admin.html`  
-   `app/web/admin.js`  
-   `app/web/admin.css`  
-   `app/web/index.html`  
-   `app/web/styles.css`
-
-3. 配置与回归  
-   `.env.example`  
-   `README.md`  
-   `tests/conftest.py`  
-   `tests/test_admin.py`
+##changelog
+v0.1.0: 后端MVP+前端基础页面
+v0.2.0: +会话管理 - 引入会话(conversation_id)与实现会话隔离、删除
+v0.3.0: +支持会话重命名、消息删除、用户发送的对话消息重新编辑
+v0.4.0: +完善调用大模型API进行对话的功能，支持用户在前端填写API key和URL配置模型，并严格按照账号隔离使用
+v0.5.0: +优化前端界面，新增会话置顶(pin)接口，支持复制与切换模型重生成
+   v0.5.1: +前端 UI 细节优化
+v0.6.0: +RAG 检索链路正式支持真实 embedding（非 mock）并可安全重建索引
+        +新增真实场景性能评估数据集
+v0.7.0: +从面向团队暂时调整为面向用户(account)，产品初步定位为小豆包
+        +问答返回补齐 mode + sources，支持前端清晰展示回答模式与来源
+        +首页新增场景卡区块，点击后可一键填充提示词模板
+   v0.7.1: 修复RAG链路存在的bug
+v0.8.0: +本版本将会话内 RAG 交互从“系统视角的文档范围配置”调整为“用户视角的附件式聊天流”，使其更符合用户(我)心中的豆包心智模型
+v0.9.0: +本版本新增“开发者可用”的管理员账户与独立管理后台，用于集中查看和管理全量团队、用户、会话与上传文件
+   v0.9.1: +隔离测试用数据库，修复测试数据污染生产主库的问题，清理历史脏数据
