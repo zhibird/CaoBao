@@ -1,4 +1,34 @@
+import time
+from io import BytesIO
 from uuid import uuid4
+
+from PIL import Image
+from pypdf import PdfWriter
+
+
+def _wait_document_terminal_status(client, *, team_id: str, document_id: str, max_attempts: int = 30) -> str:
+    for _ in range(max_attempts):
+        response = client.get(f"/api/v1/documents/{document_id}", params={"team_id": team_id})
+        assert response.status_code == 200
+        status = response.json()["status"]
+        if status in {"ready", "failed"}:
+            return status
+        time.sleep(0.05)
+    raise AssertionError("document did not reach terminal status in time")
+
+
+def _build_pdf_bytes() -> bytes:
+    writer = PdfWriter()
+    writer.add_blank_page(width=200, height=200)
+    output = BytesIO()
+    writer.write(output)
+    return output.getvalue()
+
+
+def _build_png_bytes() -> bytes:
+    output = BytesIO()
+    Image.new("RGB", (2, 2), color=(255, 255, 255)).save(output, format="PNG")
+    return output.getvalue()
 
 
 def test_document_import_and_query_in_team(client) -> None:
@@ -162,7 +192,7 @@ def test_document_status_and_delete_flow(client) -> None:
     )
     assert import_response.status_code == 201
     document_id = import_response.json()["document_id"]
-    assert import_response.json()["status"] == "pending"
+    assert import_response.json()["status"] == "uploaded"
 
     chunk_response = client.post(
         f"/api/v1/documents/{document_id}/chunk",
@@ -176,7 +206,7 @@ def test_document_status_and_delete_flow(client) -> None:
 
     after_chunk = client.get(f"/api/v1/documents/{document_id}", params={"team_id": team_id})
     assert after_chunk.status_code == 200
-    assert after_chunk.json()["status"] == "pending"
+    assert after_chunk.json()["status"] == "uploaded"
 
     index_response = client.post(
         "/api/v1/retrieval/index",
@@ -200,3 +230,69 @@ def test_document_status_and_delete_flow(client) -> None:
     list_response = client.get("/api/v1/documents", params={"team_id": team_id})
     assert list_response.status_code == 200
     assert list_response.json() == []
+
+
+def test_document_upload_supports_pdf_and_image(client) -> None:
+    suffix = uuid4().hex[:8]
+    team_id = f"team_upload_{suffix}"
+
+    create_team = client.post(
+        "/api/v1/teams",
+        json={
+            "team_id": team_id,
+            "name": "Upload Team",
+            "description": "for upload test",
+        },
+    )
+    assert create_team.status_code == 201
+
+    pdf_upload = client.post(
+        "/api/v1/documents/upload",
+        data={
+            "team_id": team_id,
+            "auto_index": "true",
+        },
+        files={
+            "file": ("report.pdf", _build_pdf_bytes(), "application/pdf"),
+        },
+    )
+    assert pdf_upload.status_code == 201
+    pdf_doc = pdf_upload.json()
+    assert pdf_doc["content_type"] == "pdf"
+    assert pdf_doc["mime_type"] == "application/pdf"
+
+    pdf_status = _wait_document_terminal_status(
+        client,
+        team_id=team_id,
+        document_id=pdf_doc["document_id"],
+    )
+    assert pdf_status == "ready"
+
+    pdf_file = client.get(
+        f"/api/v1/documents/{pdf_doc['document_id']}/file",
+        params={"team_id": team_id},
+    )
+    assert pdf_file.status_code == 200
+    assert "application/pdf" in pdf_file.headers.get("content-type", "")
+
+    image_upload = client.post(
+        "/api/v1/documents/upload",
+        data={
+            "team_id": team_id,
+            "auto_index": "true",
+        },
+        files={
+            "file": ("receipt.png", _build_png_bytes(), "image/png"),
+        },
+    )
+    assert image_upload.status_code == 201
+    image_doc = image_upload.json()
+    assert image_doc["content_type"] == "png"
+    assert image_doc["mime_type"] == "image/png"
+
+    image_status = _wait_document_terminal_status(
+        client,
+        team_id=team_id,
+        document_id=image_doc["document_id"],
+    )
+    assert image_status == "ready"

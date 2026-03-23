@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from uuid import uuid4
 
 from sqlalchemy import delete, select
@@ -7,6 +8,15 @@ from app.core.exceptions import DomainValidationError, EntityNotFoundError
 from app.models.chunk_embedding import ChunkEmbedding
 from app.models.document import Document
 from app.models.document_chunk import DocumentChunk
+
+
+@dataclass(frozen=True)
+class ChunkSection:
+    text: str
+    page_no: int | None = None
+    locator_label: str | None = None
+    block_type: str | None = None
+    meta_json: str | None = None
 
 
 class ChunkService:
@@ -20,6 +30,7 @@ class ChunkService:
         conversation_id: str | None,
         max_chars: int,
         overlap: int,
+        sections: list[ChunkSection] | None = None,
     ) -> list[DocumentChunk]:
         if overlap >= max_chars:
             raise DomainValidationError("overlap must be smaller than max_chars.")
@@ -34,8 +45,9 @@ class ChunkService:
         self.db.commit()
 
         try:
-            pieces = self._split_text(
+            pieces = self._split_with_sections(
                 text=document.content,
+                sections=sections,
                 max_chars=max_chars,
                 overlap=overlap,
             )
@@ -56,7 +68,7 @@ class ChunkService:
             )
 
             chunks: list[DocumentChunk] = []
-            for index, (content, start_char, end_char) in enumerate(pieces):
+            for index, (content, start_char, end_char, section) in enumerate(pieces):
                 chunk = DocumentChunk(
                     chunk_id=str(uuid4()),
                     document_id=document_id,
@@ -65,11 +77,15 @@ class ChunkService:
                     content=content,
                     start_char=start_char,
                     end_char=end_char,
+                    page_no=section.page_no if section is not None else None,
+                    locator_label=section.locator_label if section is not None else None,
+                    block_type=section.block_type if section is not None else None,
+                    meta_json=section.meta_json if section is not None else None,
                 )
                 chunks.append(chunk)
 
             self.db.add_all(chunks)
-            document.status = "pending"
+            document.status = "uploaded"
             self.db.add(document)
             self.db.commit()
         except Exception:
@@ -125,6 +141,38 @@ class ChunkService:
             )
 
         return document
+
+    def _split_with_sections(
+        self,
+        *,
+        text: str,
+        sections: list[ChunkSection] | None,
+        max_chars: int,
+        overlap: int,
+    ) -> list[tuple[str, int, int, ChunkSection | None]]:
+        if not sections:
+            return [
+                (content, start_char, end_char, None)
+                for content, start_char, end_char in self._split_text(text=text, max_chars=max_chars, overlap=overlap)
+            ]
+
+        pieces: list[tuple[str, int, int, ChunkSection | None]] = []
+        cursor = 0
+        for section in sections:
+            section_text = section.text.strip()
+            if not section_text:
+                continue
+            if cursor > 0:
+                cursor += 2
+            section_start = cursor
+            local_pieces = self._split_text(text=section_text, max_chars=max_chars, overlap=overlap)
+            for content, start_char, end_char in local_pieces:
+                pieces.append((content, section_start + start_char, section_start + end_char, section))
+            cursor = section_start + len(section_text)
+
+        if not pieces:
+            raise DomainValidationError("Document content is empty.")
+        return pieces
 
     def _split_text(self, text: str, max_chars: int, overlap: int) -> list[tuple[str, int, int]]:
         normalized = text.strip()

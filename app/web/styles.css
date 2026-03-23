@@ -366,6 +366,12 @@ body {
   background: #fff4d8;
 }
 
+.doc-status.uploaded,
+.doc-status.parsing {
+  color: #8a5a00;
+  background: #fff4d8;
+}
+
 .doc-status.chunking,
 .doc-status.indexing {
   color: #0c5a80;
@@ -380,6 +386,11 @@ body {
 .doc-status.failed {
   color: #a53131;
   background: #ffe2e2;
+}
+
+.doc-status.deleted {
+  color: #5f6368;
+  background: #eceff1;
 }
 
 .doc-card-actions {

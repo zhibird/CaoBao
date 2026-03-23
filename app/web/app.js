@@ -5,8 +5,8 @@ const ADD_MODEL_OPTION = "__add_model__";
 const DEFAULT_EMBEDDING_ID = "default";
 const MOCK_EMBEDDING_ID = "mock";
 const ADD_EMBEDDING_OPTION = "__add_embedding_model__";
-const DEFAULT_IMPORT_MAX_CHARS = 600;
-const DEFAULT_IMPORT_OVERLAP = 80;
+const DOCUMENT_STATUS_POLL_INTERVAL_MS = 2000;
+const DOCUMENT_STATUS_POLL_TIMEOUT_MS = 120000;
 
 const STORAGE_KEYS = {
   teamId: "caibao.teamId",
@@ -948,7 +948,7 @@ async function loadDocuments() {
   const response = await apiRequest(`/documents?${query.toString()}`);
   state.documents = Array.isArray(response) ? response : [];
   state.selectedDocumentIds = state.selectedDocumentIds.filter((documentId) => {
-    return state.documents.some((doc) => doc.document_id === documentId && doc.status === "ready");
+    return state.documents.some((doc) => doc.document_id === documentId && normalizeStatus(doc.status) === "ready");
   });
   renderDocuments();
   renderAttachmentStrip();
@@ -1079,7 +1079,7 @@ function renderAttachmentStrip() {
 }
 
 function handleChipClick(doc) {
-  if (doc.status !== "ready") {
+  if (normalizeStatus(doc.status) !== "ready") {
     openSourcePreview({
       document_id: doc.document_id,
       source_name: doc.source_name,
@@ -1123,10 +1123,15 @@ async function openSourcePreview(source) {
   els.previewTitle.textContent = document.source_name || source.source_name || "文件预览";
   els.previewMeta.innerHTML = "";
 
+  const pageLabel = source.locator_label
+    || (Number.isInteger(source.page_no) ? `Page ${Number(source.page_no)}` : null);
   const metaLines = [
     `状态：${formatStatusLabel(document.status)}`,
-    `类型：${document.content_type}`,
-    source.chunk_index === null || source.chunk_index === undefined ? null : `定位：第 ${Number(source.chunk_index) + 1} 段`,
+    `类型：${document.content_type}${document.mime_type ? ` (${document.mime_type})` : ""}`,
+    Number.isFinite(Number(document.size_bytes)) ? `大小：${Math.max(0, Number(document.size_bytes))} bytes` : null,
+    Number.isInteger(document.page_count) ? `页数：${document.page_count}` : null,
+    pageLabel || (source.chunk_index === null || source.chunk_index === undefined ? null : `定位：第 ${Number(source.chunk_index) + 1} 段`),
+    document.error_message ? `错误：${document.error_message}` : null,
   ].filter(Boolean);
 
   for (const line of metaLines) {
@@ -1143,7 +1148,18 @@ async function openSourcePreview(source) {
     els.previewSnippet.textContent = "";
   }
 
-  els.previewContent.textContent = document.content || "";
+  const filePreviewUrl = buildDocumentFileUrl(document.document_id);
+  if (["pdf", "png", "jpg", "jpeg", "webp"].includes(String(document.content_type || "").toLowerCase())) {
+    const previewHint = [
+      `原文件预览：${filePreviewUrl}`,
+      "",
+      "以下是提取文本（若有）：",
+      document.content || "",
+    ].join("\n");
+    els.previewContent.textContent = previewHint;
+  } else {
+    els.previewContent.textContent = document.content || "";
+  }
   els.previewDrawer.classList.remove("hidden");
   els.previewDrawer.setAttribute("aria-hidden", "false");
 }
@@ -1153,16 +1169,24 @@ function closePreviewDrawer() {
   els.previewDrawer.setAttribute("aria-hidden", "true");
 }
 
+function buildDocumentFileUrl(documentId) {
+  const query = new URLSearchParams({ team_id: state.teamId });
+  if (state.conversationId) {
+    query.set("conversation_id", state.conversationId);
+  }
+  return `${API_PREFIX}/documents/${encodeURIComponent(documentId)}/file?${query.toString()}`;
+}
+
 async function getDocumentFromStateOrApi(documentId) {
   const cached = state.documents.find((item) => item.document_id === documentId);
   if (cached) {
     return cached;
   }
 
-  const query = new URLSearchParams({
-    team_id: state.teamId,
-    conversation_id: state.conversationId,
-  });
+  const query = new URLSearchParams({ team_id: state.teamId });
+  if (state.conversationId) {
+    query.set("conversation_id", state.conversationId);
+  }
   return apiRequest(`/documents/${encodeURIComponent(documentId)}?${query.toString()}`);
 }
 
@@ -1265,7 +1289,7 @@ async function handleSend() {
 
 function getExplicitSelectedDocumentIds() {
   return state.selectedDocumentIds.filter((documentId) => {
-    return state.documents.some((doc) => doc.document_id === documentId && doc.status === "ready");
+    return state.documents.some((doc) => doc.document_id === documentId && normalizeStatus(doc.status) === "ready");
   });
 }
 
@@ -1339,43 +1363,26 @@ async function importDocumentWithContent({ sourceName, content, contentType }) {
       method: "POST",
       body: {
         team_id: state.teamId,
+        user_id: state.userId,
         conversation_id: state.conversationId,
         source_name: sourceName,
         content_type: contentType,
         content,
+        auto_index: true,
+        embedding_model: state.selectedEmbedding || DEFAULT_EMBEDDING_ID,
       },
     });
 
     upsertDocumentState(doc);
     renderDocuments();
     renderAttachmentStrip();
-
-    setDocumentStatusLocal(doc.document_id, "chunking");
-    await apiRequest(`/documents/${encodeURIComponent(doc.document_id)}/chunk`, {
-      method: "POST",
-      body: {
-        team_id: state.teamId,
-        conversation_id: state.conversationId,
-        max_chars: DEFAULT_IMPORT_MAX_CHARS,
-        overlap: DEFAULT_IMPORT_OVERLAP,
-      },
-    });
-
-    setDocumentStatusLocal(doc.document_id, "indexing");
-    await apiRequest("/retrieval/index", {
-      method: "POST",
-      body: {
-        team_id: state.teamId,
-        user_id: state.userId,
-        conversation_id: state.conversationId,
-        document_ids: [doc.document_id],
-        embedding_model: state.selectedEmbedding || DEFAULT_EMBEDDING_ID,
-      },
-    });
-
-    setDocumentStatusLocal(doc.document_id, "ready");
-    await loadDocuments();
-    showToast(`导入完成：${sourceName}`);
+    await pollDocumentsUntilSettled([doc.document_id]);
+    const latest = state.documents.find((item) => item.document_id === doc.document_id);
+    if (latest && normalizeStatus(latest.status) === "failed") {
+      showToast(`导入失败：${latest.error_message || latest.error_code || sourceName}`, true);
+    } else {
+      showToast(`导入完成：${sourceName}`);
+    }
   } catch (error) {
     await loadDocuments();
     showToast(error.message, true);
@@ -1413,15 +1420,78 @@ async function handleFileInputChange(event) {
   }
 
   try {
-    const contentType = inferContentType(file.name);
-    const content = await file.text();
-    await importDocumentWithContent({
-      sourceName: file.name,
-      content,
-      contentType,
-    });
+    await uploadDocumentFile(file);
   } catch (error) {
-    showToast(error.message || "读取文件失败", true);
+    showToast(error.message || "上传文件失败", true);
+  }
+}
+
+async function uploadDocumentFile(file) {
+  if (state.importing) {
+    return;
+  }
+  if (!ensureIdentity()) {
+    openAuthModal();
+    showToast("请先登录账户", true);
+    return;
+  }
+
+  await ensureConversationReady();
+  state.importing = true;
+  setButtonLoading(els.importBtn, true, "上传中...");
+
+  try {
+    const formData = new FormData();
+    formData.append("team_id", state.teamId);
+    formData.append("user_id", state.userId);
+    formData.append("conversation_id", state.conversationId);
+    formData.append("auto_index", "true");
+    formData.append("embedding_model", state.selectedEmbedding || DEFAULT_EMBEDDING_ID);
+    formData.append("file", file);
+
+    const doc = await apiRequest("/documents/upload", {
+      method: "POST",
+      formData,
+    });
+
+    upsertDocumentState(doc);
+    renderDocuments();
+    renderAttachmentStrip();
+
+    await pollDocumentsUntilSettled([doc.document_id]);
+    const latest = state.documents.find((item) => item.document_id === doc.document_id);
+    if (latest && normalizeStatus(latest.status) === "failed") {
+      showToast(`上传失败：${latest.error_message || latest.error_code || file.name}`, true);
+    } else {
+      showToast(`上传完成：${file.name}`);
+    }
+  } finally {
+    state.importing = false;
+    setButtonLoading(els.importBtn, false, "导入");
+  }
+}
+
+async function pollDocumentsUntilSettled(documentIds) {
+  if (!Array.isArray(documentIds) || !documentIds.length) {
+    return;
+  }
+
+  const deduped = dedupeStrings(documentIds);
+  const deadline = Date.now() + DOCUMENT_STATUS_POLL_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    await sleep(DOCUMENT_STATUS_POLL_INTERVAL_MS);
+    await loadDocuments();
+    const targets = state.documents.filter((doc) => deduped.includes(doc.document_id));
+    if (!targets.length) {
+      return;
+    }
+    const allSettled = targets.every((doc) => {
+      const normalized = normalizeStatus(doc.status);
+      return normalized === "ready" || normalized === "failed";
+    });
+    if (allSettled) {
+      return;
+    }
   }
 }
 
@@ -1489,8 +1559,12 @@ function appendMessage(role, content, options = {}) {
 
       const sourceTitle = document.createElement("div");
       sourceTitle.className = "source-pill-title";
-      const paragraph = Number.isInteger(source.chunk_index) ? ` · 第 ${Number(source.chunk_index) + 1} 段` : "";
-      sourceTitle.textContent = `${source.source_name || "未命名文件"}${paragraph}`;
+      const locator = source.locator_label
+        || (Number.isInteger(source.page_no) ? `Page ${Number(source.page_no)}` : null)
+        || (Number.isInteger(source.chunk_index) ? `第 ${Number(source.chunk_index) + 1} 段` : null);
+      sourceTitle.textContent = locator
+        ? `${source.source_name || "未命名文件"} · ${locator}`
+        : (source.source_name || "未命名文件");
 
       const sourceSnippet = document.createElement("div");
       sourceSnippet.className = "source-pill-snippet";
@@ -1565,6 +1639,8 @@ function normalizeResponseSources(payload) {
       source_name: item.source_name || "",
       chunk_id: item.chunk_id || "",
       chunk_index: Number.isFinite(Number(item.chunk_index)) ? Number(item.chunk_index) : null,
+      page_no: Number.isFinite(Number(item.page_no)) ? Number(item.page_no) : null,
+      locator_label: item.locator_label || "",
       snippet: item.snippet || "",
       score: Number(item.score || 0),
     }));
@@ -1576,6 +1652,8 @@ function normalizeResponseSources(payload) {
       source_name: item.source_name || "",
       chunk_id: item.chunk_id || "",
       chunk_index: Number.isFinite(Number(item.chunk_index)) ? Number(item.chunk_index) : null,
+      page_no: Number.isFinite(Number(item.page_no)) ? Number(item.page_no) : null,
+      locator_label: item.locator_label || "",
       snippet: truncate(String(item.content || "").replace(/\s+/g, " ").trim(), 220),
       score: Number(item.score || 0),
     }));
@@ -1677,16 +1755,26 @@ function truncate(text, length) {
   return `${text.slice(0, length - 1)}…`;
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
 function normalizeStatus(status) {
-  const normalized = String(status || "pending").trim().toLowerCase();
-  if (["pending", "chunking", "indexing", "ready", "failed"].includes(normalized)) {
+  const normalized = String(status || "uploaded").trim().toLowerCase();
+  if (["pending", "uploaded", "parsing", "chunking", "indexing", "ready", "failed", "deleted"].includes(normalized)) {
     return normalized;
   }
-  return "pending";
+  return "uploaded";
 }
 
 function formatStatusLabel(status) {
   switch (normalizeStatus(status)) {
+    case "uploaded":
+      return "已上传";
+    case "parsing":
+      return "解析中";
     case "chunking":
       return "切块中";
     case "indexing":
@@ -1695,31 +1783,39 @@ function formatStatusLabel(status) {
       return "可用";
     case "failed":
       return "失败";
-    default:
+    case "deleted":
+      return "已删除";
+    case "pending":
       return "待处理";
+    default:
+      return "已上传";
   }
 }
 
 function inferContentType(sourceName) {
   const normalized = String(sourceName || "").trim().toLowerCase();
-  if (normalized.endsWith(".txt")) {
-    return "txt";
+  const candidates = ["txt", "md", "pdf", "png", "jpg", "jpeg", "webp"];
+  for (const ext of candidates) {
+    if (normalized.endsWith(`.${ext}`)) {
+      return ext;
+    }
   }
-  if (normalized.endsWith(".md") || !normalized) {
+  if (!normalized) {
     return "md";
   }
-  throw new Error("当前仅支持导入 .txt 和 .md 文件，粘贴文本也可直接使用。");
+  throw new Error("当前仅支持 .txt/.md/.pdf/.png/.jpg/.jpeg/.webp 文件。");
 }
 
 async function apiRequest(path, options = {}) {
+  const useFormData = options.formData instanceof FormData;
   const requestOptions = {
     method: options.method || "GET",
     headers: {
       Accept: "application/json",
-      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...(!useFormData && options.body ? { "Content-Type": "application/json" } : {}),
       ...(options.headers || {}),
     },
-    body: options.body ? JSON.stringify(options.body) : undefined,
+    body: useFormData ? options.formData : (options.body ? JSON.stringify(options.body) : undefined),
   };
 
   const response = await fetch(`${API_PREFIX}${path}`, requestOptions);

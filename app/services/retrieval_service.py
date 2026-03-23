@@ -187,6 +187,8 @@ class RetrievalService:
                     "source_name": document.source_name,
                     "team_id": chunk.team_id,
                     "chunk_index": chunk.chunk_index,
+                    "page_no": chunk.page_no,
+                    "locator_label": chunk.locator_label,
                     "content": chunk.content,
                     "score": round(score, 6),
                 }

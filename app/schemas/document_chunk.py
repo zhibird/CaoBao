@@ -18,6 +18,10 @@ class DocumentChunkResponse(BaseModel):
     content: str
     start_char: int
     end_char: int
+    page_no: int | None = None
+    locator_label: str | None = None
+    block_type: str | None = None
+    meta_json: str | None = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

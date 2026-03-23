@@ -55,6 +55,8 @@ class ChatSource(BaseModel):
     source_name: str | None = None
     chunk_id: str
     chunk_index: int
+    page_no: int | None = None
+    locator_label: str | None = None
     snippet: str | None = None
     score: float
 

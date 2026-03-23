@@ -4,3 +4,7 @@ pydantic-settings==2.11.0
 sqlalchemy==2.0.44
 pytest==8.4.2
 httpx==0.28.1
+pypdf==5.9.0
+Pillow==11.3.0
+pytesseract==0.3.13
+python-multipart==0.0.20

@@ -37,6 +37,8 @@ class RetrievalHit(BaseModel):
     source_name: str | None = None
     team_id: str
     chunk_index: int
+    page_no: int | None = None
+    locator_label: str | None = None
     content: str
     score: float
 

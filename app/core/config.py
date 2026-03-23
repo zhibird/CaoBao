@@ -33,6 +33,8 @@ class Settings(BaseSettings):
     embedding_mock_dim: int = 256
     embedding_batch_size: int = 32
     embedding_timeout_seconds: float = 30.0
+    upload_root_dir: str = "data/uploads"
+    upload_max_file_size_mb: int = 20
 
     model_config = SettingsConfigDict(
         env_file=str(ROOT_ENV_FILE),

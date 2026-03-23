@@ -127,6 +127,8 @@ class RagChatService:
                     source_name=(str(hit.get("source_name", "")).strip() or None),
                     chunk_id=chunk_id,
                     chunk_index=int(hit.get("chunk_index", 0)),
+                    page_no=int(hit.get("page_no")) if hit.get("page_no") is not None else None,
+                    locator_label=(str(hit.get("locator_label", "")).strip() or None),
                     snippet=self._build_snippet(hit.get("content")),
                     score=float(hit.get("score", 0.0)),
                 )
