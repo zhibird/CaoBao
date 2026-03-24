@@ -716,6 +716,24 @@ textarea:focus {
   padding: 10px 16px 16px;
 }
 
+.composer-zone.drop-active {
+  border-radius: 16px;
+  outline: 2px dashed #2ea88f;
+  outline-offset: -6px;
+  background: rgba(46, 168, 143, 0.08);
+}
+
+.composer-zone.drop-active::after {
+  content: "释放鼠标，上传附件";
+  position: absolute;
+  top: 14px;
+  right: 22px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #0f6e5d;
+  pointer-events: none;
+}
+
 .attachment-strip {
   max-width: 980px;
   margin: 0 auto 10px;

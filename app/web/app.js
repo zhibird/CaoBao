@@ -34,6 +34,7 @@ const state = {
   selectedDocumentIds: [],
   sending: false,
   importing: false,
+  dragCounter: 0,
 };
 
 const els = {};
@@ -68,6 +69,7 @@ function bindElements() {
   els.heroTitle = document.getElementById("heroTitle");
   els.scenarioCards = document.getElementById("scenarioCards");
   els.messageList = document.getElementById("messageList");
+  els.composerZone = document.querySelector(".composer-zone");
   els.newSessionBtn = document.getElementById("newSessionBtn");
   els.toggleImportBtn = document.getElementById("toggleImportBtn");
   els.attachMenu = document.getElementById("attachMenu");
@@ -150,6 +152,15 @@ function bindEvents() {
 
   els.previewBackdrop.addEventListener("click", closePreviewDrawer);
   els.closePreviewBtn.addEventListener("click", closePreviewDrawer);
+
+  if (els.composerZone) {
+    els.composerZone.addEventListener("dragenter", handleComposerDragEnter);
+    els.composerZone.addEventListener("dragover", handleComposerDragOver);
+    els.composerZone.addEventListener("dragleave", handleComposerDragLeave);
+    els.composerZone.addEventListener("drop", handleComposerDrop);
+  }
+  window.addEventListener("dragover", preventWindowFileDrop);
+  window.addEventListener("drop", preventWindowFileDrop);
 
   document.addEventListener("click", handleGlobalDocumentClick);
   document.addEventListener("keydown", (event) => {
@@ -1420,23 +1431,28 @@ function setDocumentStatusLocal(documentId, status) {
 }
 
 async function handleFileInputChange(event) {
-  const file = event.target.files && event.target.files[0];
+  const files = event.target.files ? Array.from(event.target.files) : [];
   event.target.value = "";
-  if (!file) {
+  if (!files.length) {
     return;
   }
 
-  try {
-    await uploadDocumentFile(file);
-  } catch (error) {
-    showToast(error.message || "上传文件失败", true);
+  for (const file of files) {
+    try {
+      await uploadDocumentFile(file);
+    } catch (error) {
+      showToast(error.message || "上传文件失败", true);
+      break;
+    }
   }
 }
 
 async function uploadDocumentFile(file) {
   if (state.importing) {
+    showToast("正在上传中，请稍候…", true);
     return;
   }
+  inferContentType(file.name);
   if (!ensureIdentity()) {
     openAuthModal();
     showToast("请先登录账户", true);
@@ -1476,6 +1492,82 @@ async function uploadDocumentFile(file) {
     state.importing = false;
     setButtonLoading(els.importBtn, false, "导入");
   }
+}
+
+function hasDraggedFiles(event) {
+  return Boolean(
+    event.dataTransfer
+    && event.dataTransfer.types
+    && Array.from(event.dataTransfer.types).includes("Files")
+  );
+}
+
+function preventWindowFileDrop(event) {
+  if (!hasDraggedFiles(event)) {
+    return;
+  }
+  event.preventDefault();
+}
+
+function handleComposerDragEnter(event) {
+  if (!hasDraggedFiles(event)) {
+    return;
+  }
+  event.preventDefault();
+  state.dragCounter += 1;
+  setComposerDropActive(true);
+}
+
+function handleComposerDragOver(event) {
+  if (!hasDraggedFiles(event)) {
+    return;
+  }
+  event.preventDefault();
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = "copy";
+  }
+  setComposerDropActive(true);
+}
+
+function handleComposerDragLeave(event) {
+  if (!hasDraggedFiles(event)) {
+    return;
+  }
+  event.preventDefault();
+  state.dragCounter = Math.max(0, state.dragCounter - 1);
+  if (state.dragCounter === 0) {
+    setComposerDropActive(false);
+  }
+}
+
+async function handleComposerDrop(event) {
+  if (!hasDraggedFiles(event)) {
+    return;
+  }
+  event.preventDefault();
+  state.dragCounter = 0;
+  setComposerDropActive(false);
+
+  const files = event.dataTransfer ? Array.from(event.dataTransfer.files || []) : [];
+  if (!files.length) {
+    return;
+  }
+
+  for (const file of files) {
+    try {
+      await uploadDocumentFile(file);
+    } catch (error) {
+      showToast(error.message || "上传文件失败", true);
+      break;
+    }
+  }
+}
+
+function setComposerDropActive(active) {
+  if (!els.composerZone) {
+    return;
+  }
+  els.composerZone.classList.toggle("drop-active", Boolean(active));
 }
 
 async function pollDocumentsUntilSettled(documentIds) {
