@@ -635,3 +635,49 @@ For this repo, the best tradeoff is:
 5. add page-aware chunk metadata for citations.
 
 This gets PDF/image support without rebuilding the whole retrieval architecture.
+
+
+已按 docs/step-10-attachment-upload-design.md 实现了图片/PDF 上传的 Phase 1 主链路，并按步骤落地了功能。
+
+数据层扩展（地基）
+新增功能：documents 增加 mime_type/size_bytes/sha256/storage_key/page_count/failure_stage/error_code/error_message/meta_json/updated_at，document_chunks 增加 page_no/locator_label/block_type/meta_json。
+设计：保持 documents 仍是主实体，不重建检索架构；通过轻量迁移自动补列+回填旧数据，兼容现有库。
+关键文件：document.py, document_chunk.py, session.py
+
+后端上传接口与文件存储
+新增功能：POST /api/v1/documents/upload（multipart），GET /api/v1/documents/{id}/file（下载/预览原文件）。
+设计：后端校验扩展名+MIME+magic bytes，限制大小，文件落盘到 UPLOAD_ROOT_DIR，数据库存 storage_key。
+关键文件：document.py, document_service.py, config.py
+
+后端接管处理流水线（上传后自动处理）
+新增功能：import/upload 后由后端异步任务自动执行 parsing -> chunking -> indexing -> ready/failed。
+设计：前端不再直接调 chunk/index；失败时写入 failure_stage/error_code/error_message，便于 UI 展示和后续 retry。
+关键文件：document.py, document_service.py, chunk_service.py
+
+PDF/图片解析能力
+新增功能：
+
+txt/md：UTF-8 解码
+pdf：文本层抽取（无文本时使用降级占位文本）
+png/jpg/jpeg/webp：支持上传并解析（OCR可用则走 OCR，不可用自动降级）
+设计：先保证链路稳定可用，再逐步增强 OCR 精度。
+关键文件：document_service.py
+页码来源元数据贯通到检索/聊天
+新增功能：检索命中与聊天 sources 增加 page_no/locator_label。
+设计：保持原 document_id + chunk_id 模型不变，只增元数据，低成本支持 PDF 页码引用。
+关键文件：retrieval.py, retrieval_service.py, chat.py, rag_chat_service.py
+
+前端上传流改造
+新增功能：
+
+文件上传改为 FormData -> /documents/upload（不再 file.text()）
+粘贴文本 import 也走后端自动处理
+新增状态轮询（2s）直到 ready/failed
+状态与引用展示支持 uploaded/parsing/... 和 Page N
+设计：前端只负责发起上传与展示状态，处理编排全部后移到后端。
+关键文件：app.js, index.html, styles.css
+依赖与测试
+新增依赖：pypdf, Pillow, pytesseract, python-multipart。
+新增测试：上传 PDF/图片用例。
+验证结果：47 passed。
+关键文件：requirements.txt, test_document.py
