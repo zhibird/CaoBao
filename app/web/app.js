@@ -1119,19 +1119,19 @@ async function deleteDocument(documentId, sourceName) {
   showToast(`已删除文件：${sourceName}`);
 }
 async function openSourcePreview(source) {
-  const document = await getDocumentFromStateOrApi(source.document_id);
-  els.previewTitle.textContent = document.source_name || source.source_name || "文件预览";
+  const doc = await getDocumentFromStateOrApi(source.document_id);
+  els.previewTitle.textContent = doc.source_name || source.source_name || "文件预览";
   els.previewMeta.innerHTML = "";
 
   const pageLabel = source.locator_label
     || (Number.isInteger(source.page_no) ? `Page ${Number(source.page_no)}` : null);
   const metaLines = [
-    `状态：${formatStatusLabel(document.status)}`,
-    `类型：${document.content_type}${document.mime_type ? ` (${document.mime_type})` : ""}`,
-    Number.isFinite(Number(document.size_bytes)) ? `大小：${Math.max(0, Number(document.size_bytes))} bytes` : null,
-    Number.isInteger(document.page_count) ? `页数：${document.page_count}` : null,
+    `状态：${formatStatusLabel(doc.status)}`,
+    `类型：${doc.content_type}${doc.mime_type ? ` (${doc.mime_type})` : ""}`,
+    Number.isFinite(Number(doc.size_bytes)) ? `大小：${Math.max(0, Number(doc.size_bytes))} bytes` : null,
+    Number.isInteger(doc.page_count) ? `页数：${doc.page_count}` : null,
     pageLabel || (source.chunk_index === null || source.chunk_index === undefined ? null : `定位：第 ${Number(source.chunk_index) + 1} 段`),
-    document.error_message ? `错误：${document.error_message}` : null,
+    doc.error_message ? `错误：${doc.error_message}` : null,
   ].filter(Boolean);
 
   for (const line of metaLines) {
@@ -1148,17 +1148,24 @@ async function openSourcePreview(source) {
     els.previewSnippet.textContent = "";
   }
 
-  const filePreviewUrl = buildDocumentFileUrl(document.document_id);
-  if (["pdf", "png", "jpg", "jpeg", "webp"].includes(String(document.content_type || "").toLowerCase())) {
+  const filePreviewUrl = buildDocumentFileUrl(doc.document_id);
+  if (["pdf", "png", "jpg", "jpeg", "webp"].includes(String(doc.content_type || "").toLowerCase())) {
+    const previewLink = document.createElement("a");
+    previewLink.href = filePreviewUrl;
+    previewLink.target = "_blank";
+    previewLink.rel = "noopener";
+    previewLink.textContent = "打开原文件预览";
+    els.previewMeta.appendChild(previewLink);
+
     const previewHint = [
       `原文件预览：${filePreviewUrl}`,
       "",
       "以下是提取文本（若有）：",
-      document.content || "",
+      doc.content || "",
     ].join("\n");
     els.previewContent.textContent = previewHint;
   } else {
-    els.previewContent.textContent = document.content || "";
+    els.previewContent.textContent = doc.content || "";
   }
   els.previewDrawer.classList.remove("hidden");
   els.previewDrawer.setAttribute("aria-hidden", "false");
