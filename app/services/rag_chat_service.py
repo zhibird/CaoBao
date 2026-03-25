@@ -1,9 +1,9 @@
-from app.schemas.chat import ChatAskRequest, ChatAskResponse, ChatSource
+from app.schemas.chat import ChatAskRequest, ChatAskResponse, ChatContentPart, ChatSource
 from app.schemas.retrieval import RetrievalHit
 from app.models.document import Document
 from app.services.document_service import DocumentService
 from app.services.llm_model_service import LLMModelService
-from app.services.llm_service import LLMService, VisionAttachment
+from app.services.llm_service import AssistantContentPart, LLMAnswer, LLMService, VisionAttachment
 from app.services.retrieval_service import RetrievalService
 from app.services.user_service import UserService
 
@@ -72,7 +72,7 @@ class RagChatService:
         )
 
         if not should_use_rag:
-            answer = self.llm_service.answer_chat(
+            llm_answer = self.llm_service.answer_chat(
                 message=payload.question,
                 model=runtime_selected_model,
                 base_url=runtime_model.base_url if runtime_model is not None else None,
@@ -86,7 +86,8 @@ class RagChatService:
                 team_id=payload.team_id,
                 conversation_id=payload.conversation_id,
                 question=payload.question,
-                answer=answer,
+                answer=llm_answer.answer,
+                content_parts=self._build_content_parts(llm_answer),
                 hits=[],
                 mode="chat",
                 sources=[],
@@ -104,7 +105,7 @@ class RagChatService:
             embedding_model=payload.embedding_model,
         )
 
-        answer = self.llm_service.answer_question(
+        llm_answer = self.llm_service.answer_question(
             question=payload.question,
             hits=raw_hits,
             model=runtime_selected_model,
@@ -121,7 +122,8 @@ class RagChatService:
             team_id=payload.team_id,
             conversation_id=payload.conversation_id,
             question=payload.question,
-            answer=answer,
+            answer=llm_answer.answer,
+            content_parts=self._build_content_parts(llm_answer),
             hits=hits,
             mode="rag",
             sources=sources,
@@ -181,6 +183,21 @@ class RagChatService:
         if not parts:
             return None
         return "\n\n".join(parts)
+
+    def _build_content_parts(self, answer: LLMAnswer) -> list[ChatContentPart]:
+        items: list[ChatContentPart] = []
+        for part in answer.content_parts:
+            items.append(self._build_content_part(part))
+        return items
+
+    def _build_content_part(self, part: AssistantContentPart) -> ChatContentPart:
+        return ChatContentPart(
+            type="image" if part.type == "image" else "text",
+            text=part.text,
+            url=part.url,
+            mime_type=part.mime_type,
+            alt=part.alt,
+        )
 
     def _resolve_selected_document_ids(self, payload: ChatAskRequest) -> list[str] | None:
         values: list[str] = []

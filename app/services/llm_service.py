@@ -17,6 +17,21 @@ class VisionAttachment:
     data_url: str
 
 
+@dataclass(frozen=True)
+class AssistantContentPart:
+    type: str
+    text: str | None = None
+    url: str | None = None
+    mime_type: str | None = None
+    alt: str | None = None
+
+
+@dataclass(frozen=True)
+class LLMAnswer:
+    answer: str
+    content_parts: tuple[AssistantContentPart, ...] = ()
+
+
 class LLMService:
     """LLM wrapper with a default local mock mode for beginner-friendly setup."""
     _CONTINUE_PROMPT = "Continue exactly from where you stopped. Do not repeat prior text. Finish the current answer."
@@ -34,7 +49,7 @@ class LLMService:
         api_key: str | None = None,
         force_mock: bool = False,
         image_attachments: list[VisionAttachment] | None = None,
-    ) -> str:
+    ) -> LLMAnswer:
         if force_mock:
             return self._mock_answer(question=question, hits=hits)
 
@@ -60,7 +75,7 @@ class LLMService:
         force_mock: bool = False,
         image_attachments: list[VisionAttachment] | None = None,
         fallback_text_context: str | None = None,
-    ) -> str:
+    ) -> LLMAnswer:
         """General chat answer without retrieval context."""
         if force_mock:
             return self._mock_chat_answer(message=message)
@@ -78,22 +93,24 @@ class LLMService:
             fallback_text_context=fallback_text_context,
         )
 
-    def _mock_answer(self, question: str, hits: list[dict[str, object]]) -> str:
+    def _mock_answer(self, question: str, hits: list[dict[str, object]]) -> LLMAnswer:
         if not hits:
-            return "No relevant knowledge chunks were found, so I cannot answer this yet."
+            answer = "No relevant knowledge chunks were found, so I cannot answer this yet."
+            return self._build_text_answer(answer)
 
         candidates = self._extract_candidate_sentences(hits)
         if not candidates:
-            return "Chunks were retrieved, but their content is empty, so no answer can be generated."
+            answer = "Chunks were retrieved, but their content is empty, so no answer can be generated."
+            return self._build_text_answer(answer)
 
         answer = self._pick_best_sentence(question=question, candidates=candidates)
-        return f"[Mock Answer] {answer}"
+        return self._build_text_answer(f"[Mock Answer] {answer}")
 
-    def _mock_chat_answer(self, message: str) -> str:
+    def _mock_chat_answer(self, message: str) -> LLMAnswer:
         normalized = message.strip()
         if not normalized:
-            return "[Mock Chat] Please tell me what you want to discuss."
-        return f"[Mock Chat] {normalized}"
+            return self._build_text_answer("[Mock Chat] Please tell me what you want to discuss.")
+        return self._build_text_answer(f"[Mock Chat] {normalized}")
 
     def _openai_compatible_answer(
         self,
@@ -103,7 +120,7 @@ class LLMService:
         base_url: str = "",
         api_key: str = "",
         image_attachments: list[VisionAttachment] | None = None,
-    ) -> str:
+    ) -> LLMAnswer:
         context = self._build_context(hits)
 
         system_prompt = (
@@ -143,7 +160,7 @@ class LLMService:
         api_key: str = "",
         image_attachments: list[VisionAttachment] | None = None,
         fallback_text_context: str | None = None,
-    ) -> str:
+    ) -> LLMAnswer:
         system_prompt = "You are CaiBao, a helpful enterprise assistant."
         try:
             return self._request_chat_answer(
@@ -188,7 +205,7 @@ class LLMService:
         base_url: str,
         api_key: str,
         image_attachments: list[VisionAttachment] | None,
-    ) -> str:
+    ) -> LLMAnswer:
         user_content = self._build_user_content(
             user_prompt=user_prompt,
             image_attachments=image_attachments,
@@ -198,6 +215,7 @@ class LLMService:
             {"role": "user", "content": user_content},
         ]
         answer_parts: list[str] = []
+        content_parts: list[AssistantContentPart] = []
 
         for _ in range(self._MAX_COMPLETION_SEGMENTS):
             payload = self._build_payload(model=model, messages=messages)
@@ -216,18 +234,25 @@ class LLMService:
 
             body = response.json()
             answer_part, finish_reason = self._parse_llm_answer(body)
-            answer_parts.append(answer_part)
+            if answer_part.answer:
+                answer_parts.append(answer_part.answer)
+            content_parts.extend(answer_part.content_parts)
 
-            if finish_reason != "length":
+            if finish_reason != "length" or not answer_part.answer.strip():
                 break
 
-            messages.append({"role": "assistant", "content": answer_part})
+            messages.append({"role": "assistant", "content": answer_part.answer})
             messages.append({"role": "user", "content": self._CONTINUE_PROMPT})
 
         answer = "".join(answer_parts).strip()
-        if not answer:
+        if not answer and any(part.type == "image" and part.url for part in content_parts):
+            answer = "Image output"
+        if not answer and not content_parts:
             raise DomainValidationError("LLM returned an empty answer.")
-        return answer
+        return LLMAnswer(
+            answer=answer,
+            content_parts=tuple(self._coalesce_content_parts(content_parts)),
+        )
 
     def _build_user_content(
         self,
@@ -334,40 +359,162 @@ class LLMService:
         ]
         return any(keyword in normalized for keyword in keywords)
 
-    def _parse_llm_answer(self, body: dict[str, object]) -> tuple[str, str | None]:
+    def _parse_llm_answer(self, body: dict[str, object]) -> tuple[LLMAnswer, str | None]:
         try:
             choice = body["choices"][0]  # type: ignore[index]
-            content = choice["message"]["content"]  # type: ignore[index]
+            message = choice["message"]  # type: ignore[index]
         except (KeyError, IndexError, TypeError) as exc:
             raise DomainValidationError("LLM response format is invalid.") from exc
 
-        answer = self._extract_message_content(content)
-        if not answer.strip():
+        parts = self._extract_content_parts(message)
+        if not parts:
             raise DomainValidationError("LLM returned an empty answer.")
+        answer = "".join(part.text or "" for part in parts if part.type == "text")
+        if not answer.strip() and any(part.type == "image" and part.url for part in parts):
+            answer = "Image output"
         finish_reason = choice.get("finish_reason") if isinstance(choice, dict) else None
-        return answer, str(finish_reason).strip() if finish_reason is not None else None
+        return (
+            LLMAnswer(
+                answer=answer,
+                content_parts=tuple(self._coalesce_content_parts(parts)),
+            ),
+            str(finish_reason).strip() if finish_reason is not None else None,
+        )
 
-    def _extract_message_content(self, content: object) -> str:
+    def _extract_content_parts(self, message: object) -> list[AssistantContentPart]:
+        if isinstance(message, str):
+            return [AssistantContentPart(type="text", text=message)]
+
+        if not isinstance(message, dict):
+            return self._extract_content_parts_from_value(message)
+
+        parts = self._extract_content_parts_from_value(message.get("content"))
+        direct_image = self._extract_image_part_from_item(message)
+        if direct_image is not None:
+            parts.append(direct_image)
+        return parts
+
+    def _extract_content_parts_from_value(self, content: object) -> list[AssistantContentPart]:
         if isinstance(content, str):
-            return content
+            return [AssistantContentPart(type="text", text=content)]
+        if isinstance(content, dict):
+            return self._extract_content_parts_from_items([content])
         if isinstance(content, list):
-            parts: list[str] = []
-            for item in content:
-                if isinstance(item, str):
-                    parts.append(item)
+            return self._extract_content_parts_from_items(content)
+        return []
+
+    def _extract_content_parts_from_items(self, items: list[object]) -> list[AssistantContentPart]:
+        parts: list[AssistantContentPart] = []
+        for item in items:
+            if isinstance(item, str):
+                parts.append(AssistantContentPart(type="text", text=item))
+                continue
+            if not isinstance(item, dict):
+                continue
+            text_part = self._extract_text_part_from_item(item)
+            if text_part is not None:
+                parts.append(text_part)
+                continue
+            image_part = self._extract_image_part_from_item(item)
+            if image_part is not None:
+                parts.append(image_part)
+        return parts
+
+    def _extract_text_part_from_item(self, item: dict[str, object]) -> AssistantContentPart | None:
+        part_type = str(item.get("type", "")).strip().lower()
+        text_value = item.get("text")
+        if part_type in {"text", "output_text"} and isinstance(text_value, str) and text_value:
+            return AssistantContentPart(type="text", text=text_value)
+        if isinstance(text_value, str) and text_value and not part_type.startswith("image"):
+            return AssistantContentPart(type="text", text=text_value)
+        return None
+
+    def _extract_image_part_from_item(self, item: dict[str, object]) -> AssistantContentPart | None:
+        part_type = str(item.get("type", "")).strip().lower()
+        allowed_types = {
+            "image",
+            "image_url",
+            "input_image",
+            "output_image",
+            "generated_image",
+        }
+
+        image_url = self._coerce_image_url(item)
+        if image_url is None and part_type and part_type not in allowed_types:
+            return None
+        if image_url is None:
+            return None
+
+        mime_type = self._coerce_image_mime_type(item, image_url)
+        alt = self._coerce_optional_string(
+            item.get("alt") or item.get("caption") or item.get("revised_prompt") or item.get("text")
+        )
+        return AssistantContentPart(
+            type="image",
+            url=image_url,
+            mime_type=mime_type,
+            alt=alt,
+        )
+
+    def _coerce_image_url(self, item: dict[str, object]) -> str | None:
+        direct_url = self._coerce_optional_string(item.get("url"))
+        if direct_url:
+            return direct_url
+
+        image_url = item.get("image_url")
+        if isinstance(image_url, str) and image_url.strip():
+            return image_url.strip()
+        if isinstance(image_url, dict):
+            nested_url = self._coerce_optional_string(image_url.get("url"))
+            if nested_url:
+                return nested_url
+
+        b64_value = self._coerce_optional_string(
+            item.get("b64_json") or item.get("image_base64") or item.get("base64")
+        )
+        if b64_value:
+            mime_type = self._coerce_image_mime_type(item, None) or "image/png"
+            return f"data:{mime_type};base64,{b64_value}"
+        return None
+
+    def _coerce_image_mime_type(self, item: dict[str, object], image_url: str | None) -> str | None:
+        mime_type = self._coerce_optional_string(item.get("mime_type") or item.get("media_type"))
+        if mime_type:
+            return mime_type
+        if image_url and image_url.startswith("data:image/"):
+            prefix = image_url.split(";", 1)[0]
+            return prefix.removeprefix("data:")
+        return None
+
+    def _coerce_optional_string(self, value: object) -> str | None:
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        return None
+
+    def _coalesce_content_parts(self, parts: list[AssistantContentPart]) -> list[AssistantContentPart]:
+        compacted: list[AssistantContentPart] = []
+        for part in parts:
+            if part.type == "text":
+                if not part.text:
                     continue
-                if not isinstance(item, dict):
+                if compacted and compacted[-1].type == "text":
+                    previous = compacted[-1]
+                    compacted[-1] = AssistantContentPart(
+                        type="text",
+                        text=f"{previous.text or ''}{part.text}",
+                    )
                     continue
-                text = item.get("text")
-                if isinstance(text, str):
-                    parts.append(text)
-                    continue
-                if item.get("type") == "text":
-                    inner_text = item.get("text")
-                    if isinstance(inner_text, str):
-                        parts.append(inner_text)
-            return "".join(parts)
-        return str(content)
+                compacted.append(part)
+                continue
+            if part.type == "image" and part.url:
+                compacted.append(part)
+        return compacted
+
+    def _build_text_answer(self, answer: str) -> LLMAnswer:
+        return LLMAnswer(
+            answer=answer,
+            content_parts=(AssistantContentPart(type="text", text=answer),),
+        )
 
     def _build_context(self, hits: list[dict[str, object]]) -> str:
         if not hits:

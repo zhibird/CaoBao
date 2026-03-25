@@ -1,6 +1,6 @@
 import json
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -61,12 +61,21 @@ class ChatSource(BaseModel):
     score: float
 
 
+class ChatContentPart(BaseModel):
+    type: Literal["text", "image"]
+    text: str | None = None
+    url: str | None = None
+    mime_type: str | None = None
+    alt: str | None = None
+
+
 class ChatAskResponse(BaseModel):
     user_id: str
     team_id: str
     conversation_id: str | None = None
     question: str
     answer: str
+    content_parts: list[ChatContentPart] = Field(default_factory=list)
     hits: list[RetrievalHit]
     mode: str
     sources: list[ChatSource]
@@ -81,6 +90,7 @@ class ChatAskResponse(BaseModel):
         conversation_id: str | None,
         question: str,
         answer: str,
+        content_parts: list[ChatContentPart] | None,
         hits: list[RetrievalHit],
         mode: str,
         sources: list[ChatSource],
@@ -92,6 +102,7 @@ class ChatAskResponse(BaseModel):
             conversation_id=conversation_id,
             question=question,
             answer=answer,
+            content_parts=content_parts or [],
             hits=hits,
             mode=mode,
             sources=sources,

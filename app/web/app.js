@@ -819,6 +819,7 @@ function renderCurrentConversationMessages() {
     const responsePayload = item.response_payload || {};
     appendMessage("assistant", item.response_text || "", {
       createdAt: item.created_at,
+      contentParts: normalizeResponseContentParts(responsePayload),
       sources: normalizeResponseSources(responsePayload),
       mode: responsePayload.mode || "",
       model: responsePayload.model || "",
@@ -1311,6 +1312,7 @@ async function handleSend() {
     });
 
     appendMessage("assistant", response.answer || "", {
+      contentParts: normalizeResponseContentParts(response),
       sources: normalizeResponseSources(response),
       mode: response.mode || "",
       model: response.model || state.selectedModel,
@@ -1626,7 +1628,8 @@ async function pollDocumentsUntilSettled(documentIds) {
 }
 
 function appendMessage(role, content, options = {}) {
-  if (!content) {
+  const contentParts = role === "assistant" ? normalizeContentParts(options.contentParts) : [];
+  if (!content && !contentParts.length) {
     return;
   }
 
@@ -1665,7 +1668,12 @@ function appendMessage(role, content, options = {}) {
 
   const body = document.createElement("div");
   body.className = "message-body";
-  body.textContent = content;
+  if (role === "assistant" && contentParts.length) {
+    body.classList.add("rich-content");
+    renderAssistantContent(body, contentParts, content);
+  } else {
+    body.textContent = content;
+  }
 
   message.append(head, body);
   if (role === "assistant" && Array.isArray(options.sources) && options.sources.length) {
@@ -1732,7 +1740,7 @@ function appendMessage(role, content, options = {}) {
 
   if (role === "assistant") {
     actionRail.appendChild(createMessageActionButton("复制", "⧉", () => {
-      copyMessageText(content).catch((error) => showToast(error.message, true));
+      copyMessageText(extractCopyText(content, contentParts)).catch((error) => showToast(error.message, true));
     }));
 
     if (options.messageId && options.requestText) {
@@ -1750,6 +1758,68 @@ function appendMessage(role, content, options = {}) {
 
   els.messageList.appendChild(row);
   scrollToBottom();
+}
+
+function renderAssistantContent(container, contentParts, fallbackText = "") {
+  container.textContent = "";
+  let rendered = false;
+
+  for (const part of contentParts) {
+    if (part.type === "text" && part.text) {
+      const textBlock = document.createElement("div");
+      textBlock.className = "message-part message-part-text";
+      textBlock.textContent = part.text;
+      container.appendChild(textBlock);
+      rendered = true;
+      continue;
+    }
+
+    if (part.type === "image" && part.url) {
+      const frame = document.createElement("figure");
+      frame.className = "message-part message-part-image";
+
+      const link = document.createElement("a");
+      link.className = "message-part-image-link";
+      link.href = part.url;
+      link.target = "_blank";
+      link.rel = "noopener";
+
+      const image = document.createElement("img");
+      image.className = "message-part-image-frame";
+      image.src = part.url;
+      image.alt = part.alt || "assistant image output";
+      image.loading = "lazy";
+      link.appendChild(image);
+      frame.appendChild(link);
+
+      if (part.alt) {
+        const caption = document.createElement("figcaption");
+        caption.className = "message-part-image-caption";
+        caption.textContent = part.alt;
+        frame.appendChild(caption);
+      }
+
+      container.appendChild(frame);
+      rendered = true;
+    }
+  }
+
+  if (!rendered && fallbackText) {
+    container.textContent = fallbackText;
+  }
+}
+
+function extractCopyText(content, contentParts = []) {
+  const parts = Array.isArray(contentParts) ? contentParts : [];
+  const text = parts
+    .filter((part) => part.type === "text" && part.text)
+    .map((part) => part.text)
+    .join("\n\n")
+    .trim();
+  if (text) {
+    return text;
+  }
+  return content || "";
 }
 
 function createMessageActionButton(title, text, onClick) {
@@ -1790,6 +1860,58 @@ function normalizeResponseSources(payload) {
   }
 
   return [];
+}
+
+function normalizeResponseContentParts(payload) {
+  if (!payload || !Array.isArray(payload.content_parts) || !payload.content_parts.length) {
+    return [];
+  }
+  return normalizeContentParts(payload.content_parts);
+}
+
+function normalizeContentParts(parts) {
+  if (!Array.isArray(parts)) {
+    return [];
+  }
+
+  return parts
+    .map((item) => {
+      const type = String(item?.type || "").trim().toLowerCase();
+      if (type === "text") {
+        const text = String(item?.text || "");
+        if (!text) {
+          return null;
+        }
+        return { type: "text", text };
+      }
+
+      if (type === "image") {
+        const url = normalizeRenderableImageUrl(item?.url);
+        if (!url) {
+          return null;
+        }
+        return {
+          type: "image",
+          url,
+          alt: String(item?.alt || "").trim(),
+          mimeType: String(item?.mime_type || "").trim(),
+        };
+      }
+
+      return null;
+    })
+    .filter(Boolean);
+}
+
+function normalizeRenderableImageUrl(value) {
+  const url = String(value || "").trim();
+  if (!url) {
+    return "";
+  }
+  if (url.startsWith("data:image/") || url.startsWith("https://") || url.startsWith("http://")) {
+    return url;
+  }
+  return "";
 }
 
 function clearConversation() {

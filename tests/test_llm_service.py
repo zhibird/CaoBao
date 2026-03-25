@@ -54,7 +54,10 @@ def test_llm_service_default_uses_env_runtime_when_credentials_exist(monkeypatch
     service = LLMService(settings=settings)
 
     answer = service.answer_chat("hello")
-    assert answer == "real-chat-answer"
+    assert answer.answer == "real-chat-answer"
+    assert len(answer.content_parts) == 1
+    assert answer.content_parts[0].type == "text"
+    assert answer.content_parts[0].text == "real-chat-answer"
     assert captured_payload["url"] == "https://api.openai.com/v1/chat/completions"
     assert captured_payload["json"] == {
         "model": "gpt-4.1-mini",
@@ -108,7 +111,7 @@ def test_llm_service_sends_multimodal_payload_when_images_are_provided(monkeypat
             )
         ],
     )
-    assert answer == "vision-answer"
+    assert answer.answer == "vision-answer"
 
     user_message = captured_payload["json"]["messages"][1]  # type: ignore[index]
     assert user_message["role"] == "user"
@@ -169,7 +172,7 @@ def test_llm_service_falls_back_to_text_when_vision_is_rejected(monkeypatch) -> 
         ],
         fallback_text_context="[invoice.png]\nOCR result",
     )
-    assert answer == "fallback-answer"
+    assert answer.answer == "fallback-answer"
     assert len(captured_payloads) == 2
     assert isinstance(captured_payloads[0]["messages"][1]["content"], list)  # type: ignore[index]
     assert captured_payloads[1]["messages"][1]["content"] == (  # type: ignore[index]
@@ -221,7 +224,7 @@ def test_llm_service_continues_when_model_hits_token_limit(monkeypatch) -> None:
 
     answer = service.answer_chat("Give me a long answer.")
 
-    assert answer == "Part one. Part two."
+    assert answer.answer == "Part one. Part two."
     assert len(captured_payloads) == 2
     assert captured_payloads[1]["messages"][-2:] == [  # type: ignore[index]
         {"role": "assistant", "content": "Part one. "},
@@ -233,3 +236,46 @@ def test_llm_service_continues_when_model_hits_token_limit(monkeypatch) -> None:
             ),
         },
     ]
+
+
+def test_llm_service_preserves_image_output_parts(monkeypatch) -> None:
+    def _fake_post(url, headers, json, timeout):  # noqa: ANN001, ARG001
+        return _FakeResponse(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": [
+                                {"type": "text", "text": "Here is the generated chart."},
+                                {
+                                    "type": "image_url",
+                                    "image_url": {
+                                        "url": "data:image/png;base64,AAAA",
+                                    },
+                                },
+                            ],
+                        },
+                        "finish_reason": "stop",
+                    }
+                ]
+            }
+        )
+
+    monkeypatch.setattr("app.services.llm_service.httpx.post", _fake_post)
+
+    settings = Settings(
+        llm_provider="mock",
+        llm_base_url="https://api.openai.com/v1",
+        llm_api_key="sk-test",
+        llm_model="gpt-4.1-mini",
+    )
+    service = LLMService(settings=settings)
+
+    answer = service.answer_chat("Generate a chart image.")
+
+    assert answer.answer == "Here is the generated chart."
+    assert len(answer.content_parts) == 2
+    assert answer.content_parts[0].type == "text"
+    assert answer.content_parts[0].text == "Here is the generated chart."
+    assert answer.content_parts[1].type == "image"
+    assert answer.content_parts[1].url == "data:image/png;base64,AAAA"

@@ -637,6 +637,42 @@ textarea:focus {
   font-size: 14px;
 }
 
+.message-body.rich-content {
+  white-space: normal;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.message-part-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.message-part-image {
+  margin: 0;
+}
+
+.message-part-image-link {
+  display: block;
+  max-width: min(520px, 100%);
+}
+
+.message-part-image-frame {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  border-radius: 14px;
+  border: 1px solid #d7e1ea;
+  background: #f7fafc;
+}
+
+.message-part-image-caption {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #5f7387;
+}
+
 .message-action-rail {
   display: flex;
   gap: 6px;
