@@ -1,7 +1,9 @@
 from app.schemas.chat import ChatAskRequest, ChatAskResponse, ChatSource
 from app.schemas.retrieval import RetrievalHit
+from app.models.document import Document
+from app.services.document_service import DocumentService
 from app.services.llm_model_service import LLMModelService
-from app.services.llm_service import LLMService
+from app.services.llm_service import LLMService, VisionAttachment
 from app.services.retrieval_service import RetrievalService
 from app.services.user_service import UserService
 
@@ -10,11 +12,13 @@ class RagChatService:
     def __init__(
         self,
         user_service: UserService,
+        document_service: DocumentService,
         retrieval_service: RetrievalService,
         llm_service: LLMService,
         llm_model_service: LLMModelService,
     ) -> None:
         self.user_service = user_service
+        self.document_service = document_service
         self.retrieval_service = retrieval_service
         self.llm_service = llm_service
         self.llm_model_service = llm_model_service
@@ -25,6 +29,14 @@ class RagChatService:
             team_id=payload.team_id,
         )
         selected_document_ids = self._resolve_selected_document_ids(payload)
+        scope_documents = self.document_service.get_documents_in_scope(
+            team_id=payload.team_id,
+            conversation_id=payload.conversation_id,
+            document_ids=selected_document_ids,
+            ready_only=True,
+        )
+        image_attachments = self._build_image_attachments(scope_documents)
+        fallback_text_context = self._build_attachment_text_fallback(scope_documents)
 
         requested_model = payload.model.strip() if payload.model else None
         force_mock = False
@@ -66,6 +78,8 @@ class RagChatService:
                 base_url=runtime_model.base_url if runtime_model is not None else None,
                 api_key=runtime_model.api_key if runtime_model is not None else None,
                 force_mock=force_mock,
+                image_attachments=image_attachments,
+                fallback_text_context=fallback_text_context,
             )
             return ChatAskResponse.from_result(
                 user_id=payload.user_id,
@@ -97,6 +111,7 @@ class RagChatService:
             base_url=runtime_model.base_url if runtime_model is not None else None,
             api_key=runtime_model.api_key if runtime_model is not None else None,
             force_mock=force_mock,
+            image_attachments=image_attachments,
         )
 
         hits = [RetrievalHit.model_validate(item) for item in raw_hits]
@@ -134,6 +149,38 @@ class RagChatService:
                 )
             )
         return sources
+
+    def _build_image_attachments(self, documents: list[Document]) -> list[VisionAttachment]:
+        raw_items = self.document_service.build_chat_image_attachments(documents=documents)
+        attachments: list[VisionAttachment] = []
+        for item in raw_items:
+            data_url = str(item.get("data_url", "")).strip()
+            if not data_url:
+                continue
+            attachments.append(
+                VisionAttachment(
+                    document_id=str(item.get("document_id", "")).strip(),
+                    source_name=str(item.get("source_name", "")).strip(),
+                    mime_type=str(item.get("mime_type", "")).strip(),
+                    data_url=data_url,
+                )
+            )
+        return attachments
+
+    def _build_attachment_text_fallback(self, documents: list[Document]) -> str | None:
+        parts: list[str] = []
+        for item in documents:
+            content_type = str(getattr(item, "content_type", "")).strip().lower()
+            if content_type not in {"png", "jpg", "jpeg", "webp"}:
+                continue
+            source_name = str(getattr(item, "source_name", "")).strip() or "image"
+            content = str(getattr(item, "content", "")).strip()
+            if not content:
+                continue
+            parts.append(f"[{source_name}]\n{content}")
+        if not parts:
+            return None
+        return "\n\n".join(parts)
 
     def _resolve_selected_document_ids(self, payload: ChatAskRequest) -> list[str] | None:
         values: list[str] = []

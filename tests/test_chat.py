@@ -1,4 +1,8 @@
+import time
+from io import BytesIO
 from uuid import uuid4
+
+from PIL import Image
 
 
 def _create_team_user_and_conversation(client, suffix: str) -> tuple[str, str, str]:
@@ -38,6 +42,27 @@ def _create_team_user_and_conversation(client, suffix: str) -> tuple[str, str, s
     conversation_id = create_conversation.json()["conversation_id"]
 
     return team_id, user_id, conversation_id
+
+
+def _build_png_bytes() -> bytes:
+    output = BytesIO()
+    Image.new("RGB", (4, 4), color=(240, 240, 240)).save(output, format="PNG")
+    return output.getvalue()
+
+
+def _wait_document_ready(client, *, team_id: str, conversation_id: str, document_id: str, max_attempts: int = 30) -> None:
+    for _ in range(max_attempts):
+        response = client.get(
+            f"/api/v1/documents/{document_id}",
+            params={"team_id": team_id, "conversation_id": conversation_id},
+        )
+        assert response.status_code == 200
+        status = response.json()["status"]
+        if status == "ready":
+            return
+        assert status != "failed"
+        time.sleep(0.05)
+    raise AssertionError("document did not reach ready status in time")
 
 
 def test_chat_echo_requires_configured_user_team(client) -> None:
@@ -360,6 +385,124 @@ def test_chat_ask_supports_none_model_for_forced_mock(client) -> None:
     assert body["hits"] == []
     assert body["mode"] == "chat"
     assert body["sources"] == []
+
+
+def test_chat_ask_prefers_multimodal_image_input_when_image_is_selected(client, monkeypatch) -> None:
+    suffix = uuid4().hex[:8]
+    team_id = f"team_ask_image_{suffix}"
+    user_id = f"u_ask_image_{suffix}"
+
+    create_team = client.post(
+        "/api/v1/teams",
+        json={
+            "team_id": team_id,
+            "name": "Image Ask Team",
+            "description": "for multimodal image ask",
+        },
+    )
+    assert create_team.status_code == 201
+
+    create_user = client.post(
+        "/api/v1/users",
+        json={
+            "user_id": user_id,
+            "team_id": team_id,
+            "display_name": "Vision Operator",
+            "role": "member",
+        },
+    )
+    assert create_user.status_code == 201
+
+    create_conversation = client.post(
+        "/api/v1/conversations",
+        json={
+            "team_id": team_id,
+            "user_id": user_id,
+            "title": "Vision Session",
+        },
+    )
+    assert create_conversation.status_code == 201
+    conversation_id = create_conversation.json()["conversation_id"]
+
+    upsert_model = client.post(
+        "/api/v1/llm/models",
+        json={
+            "team_id": team_id,
+            "user_id": user_id,
+            "model_name": "gpt-4.1-mini",
+            "base_url": "https://api.openai.com/v1",
+            "api_key": "sk-test",
+        },
+    )
+    assert upsert_model.status_code == 200
+
+    upload_response = client.post(
+        "/api/v1/documents/upload",
+        data={
+            "team_id": team_id,
+            "user_id": user_id,
+            "conversation_id": conversation_id,
+            "auto_index": "true",
+        },
+        files={
+            "file": ("receipt.png", _build_png_bytes(), "image/png"),
+        },
+    )
+    assert upload_response.status_code == 201
+    document_id = upload_response.json()["document_id"]
+    _wait_document_ready(
+        client,
+        team_id=team_id,
+        conversation_id=conversation_id,
+        document_id=document_id,
+    )
+
+    captured_payload: dict[str, object] = {}
+
+    class _FakeResponse:
+        def raise_for_status(self) -> None:
+            return
+
+        def json(self) -> dict[str, object]:
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": "vision-answer",
+                        }
+                    }
+                ]
+            }
+
+    def _fake_post(url, headers, json, timeout):  # noqa: ANN001
+        captured_payload["url"] = url
+        captured_payload["headers"] = headers
+        captured_payload["json"] = json
+        captured_payload["timeout"] = timeout
+        return _FakeResponse()
+
+    monkeypatch.setattr("app.services.llm_service.httpx.post", _fake_post)
+
+    ask_response = client.post(
+        "/api/v1/chat/ask",
+        json={
+            "user_id": user_id,
+            "team_id": team_id,
+            "conversation_id": conversation_id,
+            "question": "请直接看图告诉我这是什么内容",
+            "selected_document_ids": [document_id],
+            "top_k": 3,
+            "model": "gpt-4.1-mini",
+        },
+    )
+    assert ask_response.status_code == 200
+    assert ask_response.json()["answer"] == "vision-answer"
+
+    user_message = captured_payload["json"]["messages"][1]  # type: ignore[index]
+    assert isinstance(user_message["content"], list)
+    assert user_message["content"][0]["type"] == "text"
+    assert user_message["content"][1]["type"] == "image_url"
+    assert str(user_message["content"][1]["image_url"]["url"]).startswith("data:image/png;base64,")
 
 
 def test_chat_action_create_incident(client) -> None:

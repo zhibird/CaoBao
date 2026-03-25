@@ -90,6 +90,7 @@ function bindElements() {
   els.previewTitle = document.getElementById("previewTitle");
   els.previewMeta = document.getElementById("previewMeta");
   els.previewSnippet = document.getElementById("previewSnippet");
+  els.previewMedia = document.getElementById("previewMedia");
   els.previewContent = document.getElementById("previewContent");
   els.authModal = document.getElementById("authModal");
   els.accountIdInput = document.getElementById("accountIdInput");
@@ -1133,6 +1134,8 @@ async function openSourcePreview(source) {
   const doc = await getDocumentFromStateOrApi(source.document_id);
   els.previewTitle.textContent = doc.source_name || source.source_name || "文件预览";
   els.previewMeta.innerHTML = "";
+  els.previewMedia.innerHTML = "";
+  els.previewMedia.classList.add("hidden");
 
   const pageLabel = source.locator_label
     || (Number.isInteger(source.page_no) ? `Page ${Number(source.page_no)}` : null);
@@ -1160,7 +1163,28 @@ async function openSourcePreview(source) {
   }
 
   const filePreviewUrl = buildDocumentFileUrl(doc.document_id);
-  if (["pdf", "png", "jpg", "jpeg", "webp"].includes(String(doc.content_type || "").toLowerCase())) {
+  const normalizedType = String(doc.content_type || "").toLowerCase();
+  if (["png", "jpg", "jpeg", "webp"].includes(normalizedType)) {
+    const previewLink = document.createElement("a");
+    previewLink.href = filePreviewUrl;
+    previewLink.target = "_blank";
+    previewLink.rel = "noopener";
+    previewLink.textContent = "打开原图";
+    els.previewMeta.appendChild(previewLink);
+
+    const image = document.createElement("img");
+    image.src = filePreviewUrl;
+    image.alt = doc.source_name || "image preview";
+    image.className = "preview-media-frame image";
+    els.previewMedia.appendChild(image);
+    els.previewMedia.classList.remove("hidden");
+
+    const previewHint = [
+      "以下文本仅在模型不支持视觉输入时，作为 OCR/文本回退内容使用：",
+      doc.content || "(no extracted text)",
+    ].join("\n\n");
+    els.previewContent.textContent = previewHint;
+  } else if (normalizedType === "pdf") {
     const previewLink = document.createElement("a");
     previewLink.href = filePreviewUrl;
     previewLink.target = "_blank";
@@ -1168,10 +1192,15 @@ async function openSourcePreview(source) {
     previewLink.textContent = "打开原文件预览";
     els.previewMeta.appendChild(previewLink);
 
+    const frame = document.createElement("iframe");
+    frame.src = filePreviewUrl;
+    frame.className = "preview-media-frame pdf";
+    frame.title = doc.source_name || "pdf preview";
+    els.previewMedia.appendChild(frame);
+    els.previewMedia.classList.remove("hidden");
+
     const previewHint = [
-      `原文件预览：${filePreviewUrl}`,
-      "",
-      "以下是提取文本（若有）：",
+      "以下文本主要用于检索与不支持原生 PDF/视觉输入时的回退：",
       doc.content || "",
     ].join("\n");
     els.previewContent.textContent = previewHint;
@@ -1183,6 +1212,8 @@ async function openSourcePreview(source) {
 }
 
 function closePreviewDrawer() {
+  els.previewMedia.innerHTML = "";
+  els.previewMedia.classList.add("hidden");
   els.previewDrawer.classList.add("hidden");
   els.previewDrawer.setAttribute("aria-hidden", "true");
 }

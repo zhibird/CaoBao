@@ -1010,6 +1010,36 @@ textarea:focus {
   color: #233548;
 }
 
+.preview-media {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.preview-media.hidden {
+  display: none;
+}
+
+.preview-media-frame {
+  width: 100%;
+  min-height: 240px;
+  border: 1px solid #d9e4ef;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.preview-media-frame.image {
+  display: block;
+  min-height: 0;
+  max-height: 360px;
+  object-fit: contain;
+  padding: 8px;
+}
+
+.preview-media-frame.pdf {
+  height: 420px;
+}
+
 .preview-content {
   margin: 0;
   padding: 14px;

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import re
@@ -52,6 +53,7 @@ class PipelineError:
 
 class DocumentService:
     _ALLOWED_TYPES = {"txt", "md", "pdf", "png", "jpg", "jpeg", "webp"}
+    _IMAGE_TYPES = {"png", "jpg", "jpeg", "webp"}
     _MIME_BY_TYPE = {
         "txt": "text/plain",
         "md": "text/markdown",
@@ -237,6 +239,70 @@ class DocumentService:
         stmt = stmt.order_by(Document.created_at.desc())
         stmt = stmt.limit(max(1, min(limit, 200)))
         return list(self.db.scalars(stmt).all())
+
+    def get_documents_in_scope(
+        self,
+        *,
+        team_id: str,
+        conversation_id: str | None,
+        document_ids: list[str] | None = None,
+        ready_only: bool = True,
+        limit: int = 200,
+    ) -> list[Document]:
+        if document_ids:
+            ordered: list[Document] = []
+            for document_id in document_ids:
+                try:
+                    item = self.get_document_in_team(
+                        document_id=document_id,
+                        team_id=team_id,
+                        conversation_id=conversation_id,
+                    )
+                except EntityNotFoundError:
+                    continue
+                if ready_only and item.status != "ready":
+                    continue
+                ordered.append(item)
+            return ordered
+
+        if conversation_id is None:
+            return []
+
+        items = self.list_documents(
+            team_id=team_id,
+            conversation_id=conversation_id,
+            status="ready" if ready_only else None,
+            limit=limit,
+        )
+        if ready_only:
+            return [item for item in items if item.status == "ready"]
+        return items
+
+    def build_chat_image_attachments(
+        self,
+        *,
+        documents: list[Document],
+    ) -> list[dict[str, str]]:
+        attachments: list[dict[str, str]] = []
+        for item in documents:
+            if item.content_type not in self._IMAGE_TYPES:
+                continue
+            if item.storage_key.startswith("inline://"):
+                continue
+            path = self.upload_root / item.storage_key
+            if not path.exists() or not path.is_file():
+                continue
+            file_bytes = path.read_bytes()
+            data_url = self._to_data_url(mime_type=item.mime_type, file_bytes=file_bytes)
+            attachments.append(
+                {
+                    "document_id": item.document_id,
+                    "source_name": item.source_name,
+                    "mime_type": item.mime_type,
+                    "data_url": data_url,
+                }
+            )
+        return attachments
 
     def get_document_in_team(
         self,
@@ -642,6 +708,10 @@ class DocumentService:
         target = self.upload_root / storage_key
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(file_bytes)
+
+    def _to_data_url(self, *, mime_type: str, file_bytes: bytes) -> str:
+        encoded = base64.b64encode(file_bytes).decode("ascii")
+        return f"data:{mime_type};base64,{encoded}"
 
     def _best_effort_delete_file(self, document: Document) -> None:
         if document.storage_key.startswith("inline://"):

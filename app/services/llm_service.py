@@ -1,11 +1,20 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import re
 
 import httpx
 
 from app.core.config import Settings, get_settings
 from app.core.exceptions import DomainValidationError
+
+
+@dataclass(frozen=True)
+class VisionAttachment:
+    document_id: str
+    source_name: str
+    mime_type: str
+    data_url: str
 
 
 class LLMService:
@@ -22,6 +31,7 @@ class LLMService:
         base_url: str | None = None,
         api_key: str | None = None,
         force_mock: bool = False,
+        image_attachments: list[VisionAttachment] | None = None,
     ) -> str:
         if force_mock:
             return self._mock_answer(question=question, hits=hits)
@@ -36,6 +46,7 @@ class LLMService:
             model=model,
             base_url=runtime[0],
             api_key=runtime[1],
+            image_attachments=image_attachments,
         )
 
     def answer_chat(
@@ -45,6 +56,8 @@ class LLMService:
         base_url: str | None = None,
         api_key: str | None = None,
         force_mock: bool = False,
+        image_attachments: list[VisionAttachment] | None = None,
+        fallback_text_context: str | None = None,
     ) -> str:
         """General chat answer without retrieval context."""
         if force_mock:
@@ -59,6 +72,8 @@ class LLMService:
             model=model,
             base_url=runtime[0],
             api_key=runtime[1],
+            image_attachments=image_attachments,
+            fallback_text_context=fallback_text_context,
         )
 
     def _mock_answer(self, question: str, hits: list[dict[str, object]]) -> str:
@@ -85,6 +100,7 @@ class LLMService:
         model: str | None = None,
         base_url: str = "",
         api_key: str = "",
+        image_attachments: list[VisionAttachment] | None = None,
     ) -> str:
         context = self._build_context(hits)
 
@@ -92,27 +108,30 @@ class LLMService:
             "You are CaiBao, an enterprise assistant. Answer strictly based on the provided context. "
             "If context is insufficient, say so explicitly."
         )
+        if image_attachments:
+            system_prompt += " Attached images are primary evidence when relevant. Use context as supporting material."
         user_prompt = f"Question:\n{question}\n\nContext:\n{context}"
 
-        payload = self._build_payload(
-            model=model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-        )
-
         try:
-            response = self._post_chat_completion(
-                payload=payload,
+            return self._request_chat_answer(
+                model=model,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
                 base_url=base_url,
                 api_key=api_key,
+                image_attachments=image_attachments,
             )
-            response.raise_for_status()
-        except httpx.HTTPError as exc:
-            raise DomainValidationError(f"LLM request failed: {exc}") from exc
-
-        return self._parse_llm_answer(response.json())
+        except DomainValidationError as exc:
+            if image_attachments and self._should_retry_without_images(str(exc)):
+                return self._request_chat_answer(
+                    model=model,
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    base_url=base_url,
+                    api_key=api_key,
+                    image_attachments=None,
+                )
+            raise
 
     def _openai_compatible_chat_answer(
         self,
@@ -120,13 +139,65 @@ class LLMService:
         model: str | None = None,
         base_url: str = "",
         api_key: str = "",
+        image_attachments: list[VisionAttachment] | None = None,
+        fallback_text_context: str | None = None,
     ) -> str:
         system_prompt = "You are CaiBao, a helpful enterprise assistant."
+        try:
+            return self._request_chat_answer(
+                model=model,
+                system_prompt=system_prompt,
+                user_prompt=message,
+                base_url=base_url,
+                api_key=api_key,
+                image_attachments=image_attachments,
+            )
+        except DomainValidationError as exc:
+            if image_attachments and self._should_retry_without_images(str(exc)):
+                fallback_prompt = self._build_fallback_chat_prompt(
+                    message=message,
+                    fallback_text_context=fallback_text_context,
+                )
+                return self._request_chat_answer(
+                    model=model,
+                    system_prompt=system_prompt,
+                    user_prompt=fallback_prompt,
+                    base_url=base_url,
+                    api_key=api_key,
+                    image_attachments=None,
+                )
+            raise
+
+    def _build_payload(self, model: str | None, messages: list[dict[str, object]]) -> dict[str, object]:
+        selected_model = model.strip() if model else self.settings.llm_model
+        return {
+            "model": selected_model,
+            "messages": messages,
+            "temperature": self.settings.llm_temperature,
+            "max_tokens": self.settings.llm_max_tokens,
+        }
+
+    def _request_chat_answer(
+        self,
+        *,
+        model: str | None,
+        system_prompt: str,
+        user_prompt: str,
+        base_url: str,
+        api_key: str,
+        image_attachments: list[VisionAttachment] | None,
+    ) -> str:
         payload = self._build_payload(
             model=model,
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": message},
+                {
+                    "role": "user",
+                    "content": self._build_user_content(
+                        user_prompt=user_prompt,
+                        image_attachments=image_attachments,
+                    ),
+                },
             ],
         )
 
@@ -137,19 +208,41 @@ class LLMService:
                 api_key=api_key,
             )
             response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            detail = self._extract_http_error_detail(exc.response)
+            raise DomainValidationError(f"LLM request failed: {detail}") from exc
         except httpx.HTTPError as exc:
             raise DomainValidationError(f"LLM request failed: {exc}") from exc
 
         return self._parse_llm_answer(response.json())
 
-    def _build_payload(self, model: str | None, messages: list[dict[str, str]]) -> dict[str, object]:
-        selected_model = model.strip() if model else self.settings.llm_model
-        return {
-            "model": selected_model,
-            "messages": messages,
-            "temperature": self.settings.llm_temperature,
-            "max_tokens": self.settings.llm_max_tokens,
-        }
+    def _build_user_content(
+        self,
+        *,
+        user_prompt: str,
+        image_attachments: list[VisionAttachment] | None,
+    ) -> str | list[dict[str, object]]:
+        if not image_attachments:
+            return user_prompt
+
+        content: list[dict[str, object]] = [{"type": "text", "text": user_prompt}]
+        for item in image_attachments:
+            content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": item.data_url,
+                        "detail": "auto",
+                    },
+                }
+            )
+        return content
+
+    def _build_fallback_chat_prompt(self, *, message: str, fallback_text_context: str | None) -> str:
+        normalized_context = (fallback_text_context or "").strip()
+        if not normalized_context:
+            return message
+        return f"{message}\n\nAttachment text fallback:\n{normalized_context}"
 
     def _post_chat_completion(
         self,
@@ -192,6 +285,41 @@ class LLMService:
         if not settings_key:
             raise DomainValidationError("LLM_API_KEY is required when llm_provider is not 'mock'.")
         return settings_base_url, settings_key
+
+    def _extract_http_error_detail(self, response: httpx.Response) -> str:
+        try:
+            body = response.json()
+        except ValueError:
+            body = None
+
+        if isinstance(body, dict):
+            detail = body.get("error") or body.get("detail") or body.get("message")
+            if isinstance(detail, dict):
+                message = detail.get("message")
+                if isinstance(message, str) and message.strip():
+                    return message.strip()
+            if isinstance(detail, str) and detail.strip():
+                return detail.strip()
+
+        text = response.text.strip()
+        if text:
+            return text
+        return f"HTTP {response.status_code}"
+
+    def _should_retry_without_images(self, error_message: str) -> bool:
+        normalized = error_message.lower()
+        keywords = [
+            "image",
+            "vision",
+            "multimodal",
+            "does not support",
+            "unsupported content",
+            "invalid content type",
+            "content type",
+            "input_image",
+            "image_url",
+        ]
+        return any(keyword in normalized for keyword in keywords)
 
     def _parse_llm_answer(self, body: dict[str, object]) -> str:
         try:
