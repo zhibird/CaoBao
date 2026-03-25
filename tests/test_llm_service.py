@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import httpx
 
 from app.core.config import Settings
@@ -68,6 +69,42 @@ def test_llm_service_default_uses_env_runtime_when_credentials_exist(monkeypatch
         "temperature": settings.llm_temperature,
         "max_tokens": settings.llm_max_tokens,
     }
+
+
+def test_llm_service_uses_longer_timeout_for_image_generation_prompt(monkeypatch) -> None:
+    captured_payload: dict[str, object] = {}
+
+    def _fake_post(url, headers, json, timeout):  # noqa: ANN001
+        captured_payload["url"] = url
+        captured_payload["timeout"] = timeout
+        return _FakeResponse(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": "image-answer",
+                        }
+                    }
+                ]
+            }
+        )
+
+    monkeypatch.setattr("app.services.llm_service.httpx.post", _fake_post)
+
+    settings = Settings(
+        llm_provider="mock",
+        llm_base_url="https://api.openai.com/v1",
+        llm_api_key="sk-test",
+        llm_model="gpt-4.1-mini",
+        llm_timeout_seconds=15,
+    )
+    service = LLMService(settings=settings)
+
+    answer = service.answer_chat("请生成图片：一只在办公室里的猫")
+
+    assert answer.answer == "image-answer"
+    assert captured_payload["url"] == "https://api.openai.com/v1/chat/completions"
+    assert captured_payload["timeout"] == 90.0
 
 
 def test_llm_service_sends_multimodal_payload_when_images_are_provided(monkeypatch) -> None:
@@ -238,6 +275,50 @@ def test_llm_service_continues_when_model_hits_token_limit(monkeypatch) -> None:
     ]
 
 
+def test_llm_service_stops_image_only_continuation_without_placeholder_pollution(monkeypatch) -> None:
+    captured_payloads: list[dict[str, object]] = []
+
+    def _fake_post(url, headers, json, timeout):  # noqa: ANN001
+        captured_payloads.append(json)
+        return _FakeResponse(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": [
+                                {
+                                    "type": "image_url",
+                                    "image_url": {
+                                        "url": "data:image/png;base64,AAAA",
+                                    },
+                                }
+                            ],
+                        },
+                        "finish_reason": "length",
+                    }
+                ]
+            }
+        )
+
+    monkeypatch.setattr("app.services.llm_service.httpx.post", _fake_post)
+
+    settings = Settings(
+        llm_provider="mock",
+        llm_base_url="https://api.openai.com/v1",
+        llm_api_key="sk-test",
+        llm_model="gpt-4.1-mini",
+        llm_max_tokens=512,
+    )
+    service = LLMService(settings=settings)
+
+    answer = service.answer_chat("Generate an image.")
+
+    assert answer.answer == "Image output"
+    assert len(answer.content_parts) == 1
+    assert answer.content_parts[0].type == "image"
+    assert len(captured_payloads) == 1
+
+
 def test_llm_service_preserves_image_output_parts(monkeypatch) -> None:
     def _fake_post(url, headers, json, timeout):  # noqa: ANN001, ARG001
         return _FakeResponse(
@@ -279,3 +360,95 @@ def test_llm_service_preserves_image_output_parts(monkeypatch) -> None:
     assert answer.content_parts[0].text == "Here is the generated chart."
     assert answer.content_parts[1].type == "image"
     assert answer.content_parts[1].url == "data:image/png;base64,AAAA"
+
+
+def test_llm_service_extracts_markdown_data_image_from_text_response(monkeypatch) -> None:
+    def _fake_post(url, headers, json, timeout):  # noqa: ANN001, ARG001
+        return _FakeResponse(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": "![Generated Image](data:image/jpeg;base64,/9j/AAAA)",
+                        },
+                        "finish_reason": "stop",
+                    }
+                ]
+            }
+        )
+
+    monkeypatch.setattr("app.services.llm_service.httpx.post", _fake_post)
+
+    settings = Settings(
+        llm_provider="mock",
+        llm_base_url="https://api.openai.com/v1",
+        llm_api_key="sk-test",
+        llm_model="gpt-4.1-mini",
+    )
+    service = LLMService(settings=settings)
+
+    answer = service.answer_chat("Generate a chart image.")
+
+    assert answer.answer == "Image output"
+    assert len(answer.content_parts) == 1
+    assert answer.content_parts[0].type == "image"
+    assert answer.content_parts[0].mime_type == "image/jpeg"
+    assert answer.content_parts[0].url == "data:image/jpeg;base64,/9j/AAAA"
+    assert answer.content_parts[0].alt == "Generated Image"
+
+
+def test_llm_service_inlines_remote_image_output_urls(monkeypatch) -> None:
+    image_bytes = b"\x89PNG\r\n\x1a\nPNGDATA"
+    expected_data_url = f"data:image/png;base64,{base64.b64encode(image_bytes).decode('ascii')}"
+
+    def _fake_post(url, headers, json, timeout):  # noqa: ANN001, ARG001
+        return _FakeResponse(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": [
+                                {"type": "text", "text": "Here is the generated chart."},
+                                {
+                                    "type": "image_url",
+                                    "image_url": {
+                                        "url": "https://cdn.example.com/generated/chart.png?signature=test",
+                                    },
+                                },
+                            ],
+                        },
+                        "finish_reason": "stop",
+                    }
+                ]
+            }
+        )
+
+    def _fake_get(url, follow_redirects, timeout):  # noqa: ANN001, ARG001
+        assert url == "https://cdn.example.com/generated/chart.png?signature=test"
+        assert follow_redirects is True
+        request = httpx.Request("GET", url)
+        return httpx.Response(
+            200,
+            request=request,
+            headers={"content-type": "image/png"},
+            content=image_bytes,
+        )
+
+    monkeypatch.setattr("app.services.llm_service.httpx.post", _fake_post)
+    monkeypatch.setattr("app.services.llm_service.httpx.get", _fake_get)
+
+    settings = Settings(
+        llm_provider="mock",
+        llm_base_url="https://api.openai.com/v1",
+        llm_api_key="sk-test",
+        llm_model="gpt-4.1-mini",
+    )
+    service = LLMService(settings=settings)
+
+    answer = service.answer_chat("Generate a chart image.")
+
+    assert answer.answer == "Here is the generated chart."
+    assert len(answer.content_parts) == 2
+    assert answer.content_parts[1].type == "image"
+    assert answer.content_parts[1].url == expected_data_url
+    assert answer.content_parts[1].mime_type == "image/png"

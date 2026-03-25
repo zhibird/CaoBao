@@ -1,7 +1,9 @@
+import base64
 import time
 from io import BytesIO
 from uuid import uuid4
 
+import httpx
 from PIL import Image
 
 
@@ -509,6 +511,8 @@ def test_chat_ask_returns_image_content_parts_and_history_payload(client, monkey
     suffix = uuid4().hex[:8]
     team_id = f"team_output_image_{suffix}"
     user_id = f"u_output_image_{suffix}"
+    image_bytes = b"\x89PNG\r\n\x1a\nPNGDATA"
+    expected_data_url = f"data:image/png;base64,{base64.b64encode(image_bytes).decode('ascii')}"
 
     create_team = client.post(
         "/api/v1/teams",
@@ -557,7 +561,7 @@ def test_chat_ask_returns_image_content_parts_and_history_payload(client, monkey
                                 {
                                     "type": "image_url",
                                     "image_url": {
-                                        "url": "data:image/png;base64,AAAA",
+                                        "url": "https://cdn.example.com/generated/diagram.png?signature=test",
                                     },
                                 },
                             ],
@@ -570,7 +574,19 @@ def test_chat_ask_returns_image_content_parts_and_history_payload(client, monkey
     def _fake_post(url, headers, json, timeout):  # noqa: ANN001, ARG001
         return _FakeResponse()
 
+    def _fake_get(url, follow_redirects, timeout):  # noqa: ANN001, ARG001
+        assert url == "https://cdn.example.com/generated/diagram.png?signature=test"
+        assert follow_redirects is True
+        request = httpx.Request("GET", url)
+        return httpx.Response(
+            200,
+            request=request,
+            headers={"content-type": "image/png"},
+            content=image_bytes,
+        )
+
     monkeypatch.setattr("app.services.llm_service.httpx.post", _fake_post)
+    monkeypatch.setattr("app.services.llm_service.httpx.get", _fake_get)
 
     ask_response = client.post(
         "/api/v1/chat/ask",
@@ -596,7 +612,7 @@ def test_chat_ask_returns_image_content_parts_and_history_payload(client, monkey
         {
             "type": "image",
             "text": None,
-            "url": "data:image/png;base64,AAAA",
+            "url": expected_data_url,
             "mime_type": "image/png",
             "alt": None,
         },
@@ -615,6 +631,89 @@ def test_chat_ask_returns_image_content_parts_and_history_payload(client, monkey
     assert len(items) == 1
     assert items[0]["response_text"] == "Here is the generated diagram."
     assert items[0]["response_payload"]["content_parts"] == body["content_parts"]
+
+
+def test_chat_ask_extracts_markdown_image_text_into_content_parts(client, monkeypatch) -> None:
+    suffix = uuid4().hex[:8]
+    team_id = f"team_markdown_image_{suffix}"
+    user_id = f"u_markdown_image_{suffix}"
+
+    create_team = client.post(
+        "/api/v1/teams",
+        json={
+            "team_id": team_id,
+            "name": "Markdown Image Team",
+            "description": "for markdown image output",
+        },
+    )
+    assert create_team.status_code == 201
+
+    create_user = client.post(
+        "/api/v1/users",
+        json={
+            "user_id": user_id,
+            "team_id": team_id,
+            "display_name": "Markdown Operator",
+            "role": "member",
+        },
+    )
+    assert create_user.status_code == 201
+
+    upsert_model = client.post(
+        "/api/v1/llm/models",
+        json={
+            "team_id": team_id,
+            "user_id": user_id,
+            "model_name": "gpt-4.1-mini",
+            "base_url": "https://api.openai.com/v1",
+            "api_key": "sk-test",
+        },
+    )
+    assert upsert_model.status_code == 200
+
+    class _FakeResponse:
+        def raise_for_status(self) -> None:
+            return
+
+        def json(self) -> dict[str, object]:
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": "![Generated Image](data:image/jpeg;base64,/9j/AAAA)",
+                        },
+                        "finish_reason": "stop",
+                    }
+                ]
+            }
+
+    def _fake_post(url, headers, json, timeout):  # noqa: ANN001, ARG001
+        return _FakeResponse()
+
+    monkeypatch.setattr("app.services.llm_service.httpx.post", _fake_post)
+
+    ask_response = client.post(
+        "/api/v1/chat/ask",
+        json={
+            "user_id": user_id,
+            "team_id": team_id,
+            "question": "Generate a diagram image.",
+            "top_k": 3,
+            "model": "gpt-4.1-mini",
+        },
+    )
+    assert ask_response.status_code == 200
+    body = ask_response.json()
+    assert body["answer"] == "Image output"
+    assert body["content_parts"] == [
+        {
+            "type": "image",
+            "text": None,
+            "url": "data:image/jpeg;base64,/9j/AAAA",
+            "mime_type": "image/jpeg",
+            "alt": "Generated Image",
+        }
+    ]
 
 
 def test_chat_action_create_incident(client) -> None:

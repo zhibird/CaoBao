@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import base64
 from dataclasses import dataclass
+from pathlib import PurePosixPath
 import re
+from urllib.parse import urlparse
 
 import httpx
 
@@ -36,6 +39,15 @@ class LLMService:
     """LLM wrapper with a default local mock mode for beginner-friendly setup."""
     _CONTINUE_PROMPT = "Continue exactly from where you stopped. Do not repeat prior text. Finish the current answer."
     _MAX_COMPLETION_SEGMENTS = 4
+    _IMAGE_GENERATION_TIMEOUT_SECONDS = 90.0
+    _MARKDOWN_IMAGE_RE = re.compile(r"!\[(?P<alt>[^\]]*)\]\((?P<url>[^)\s]+)\)")
+    _IMAGE_MIME_BY_SUFFIX = {
+        ".gif": "image/gif",
+        ".jpeg": "image/jpeg",
+        ".jpg": "image/jpeg",
+        ".png": "image/png",
+        ".webp": "image/webp",
+    }
 
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
@@ -216,6 +228,7 @@ class LLMService:
         ]
         answer_parts: list[str] = []
         content_parts: list[AssistantContentPart] = []
+        request_timeout = self._resolve_request_timeout(user_prompt=user_prompt)
 
         for _ in range(self._MAX_COMPLETION_SEGMENTS):
             payload = self._build_payload(model=model, messages=messages)
@@ -224,6 +237,7 @@ class LLMService:
                     payload=payload,
                     base_url=base_url,
                     api_key=api_key,
+                    timeout_seconds=request_timeout,
                 )
                 response.raise_for_status()
             except httpx.HTTPStatusError as exc:
@@ -288,6 +302,7 @@ class LLMService:
         *,
         base_url: str,
         api_key: str,
+        timeout_seconds: float,
     ) -> httpx.Response:
         normalized_base_url = base_url.rstrip("/")
         headers = {
@@ -298,7 +313,7 @@ class LLMService:
             f"{normalized_base_url}/chat/completions",
             headers=headers,
             json=payload,
-            timeout=self.settings.llm_timeout_seconds,
+            timeout=timeout_seconds,
         )
 
     def _resolve_runtime(self, *, base_url: str | None, api_key: str | None) -> tuple[str, str] | None:
@@ -370,8 +385,6 @@ class LLMService:
         if not parts:
             raise DomainValidationError("LLM returned an empty answer.")
         answer = "".join(part.text or "" for part in parts if part.type == "text")
-        if not answer.strip() and any(part.type == "image" and part.url for part in parts):
-            answer = "Image output"
         finish_reason = choice.get("finish_reason") if isinstance(choice, dict) else None
         return (
             LLMAnswer(
@@ -383,7 +396,7 @@ class LLMService:
 
     def _extract_content_parts(self, message: object) -> list[AssistantContentPart]:
         if isinstance(message, str):
-            return [AssistantContentPart(type="text", text=message)]
+            return self._extract_text_and_markdown_image_parts(message)
 
         if not isinstance(message, dict):
             return self._extract_content_parts_from_value(message)
@@ -396,7 +409,7 @@ class LLMService:
 
     def _extract_content_parts_from_value(self, content: object) -> list[AssistantContentPart]:
         if isinstance(content, str):
-            return [AssistantContentPart(type="text", text=content)]
+            return self._extract_text_and_markdown_image_parts(content)
         if isinstance(content, dict):
             return self._extract_content_parts_from_items([content])
         if isinstance(content, list):
@@ -407,27 +420,27 @@ class LLMService:
         parts: list[AssistantContentPart] = []
         for item in items:
             if isinstance(item, str):
-                parts.append(AssistantContentPart(type="text", text=item))
+                parts.extend(self._extract_text_and_markdown_image_parts(item))
                 continue
             if not isinstance(item, dict):
                 continue
-            text_part = self._extract_text_part_from_item(item)
-            if text_part is not None:
-                parts.append(text_part)
+            text_parts = self._extract_text_parts_from_item(item)
+            if text_parts:
+                parts.extend(text_parts)
                 continue
             image_part = self._extract_image_part_from_item(item)
             if image_part is not None:
                 parts.append(image_part)
         return parts
 
-    def _extract_text_part_from_item(self, item: dict[str, object]) -> AssistantContentPart | None:
+    def _extract_text_parts_from_item(self, item: dict[str, object]) -> list[AssistantContentPart]:
         part_type = str(item.get("type", "")).strip().lower()
         text_value = item.get("text")
         if part_type in {"text", "output_text"} and isinstance(text_value, str) and text_value:
-            return AssistantContentPart(type="text", text=text_value)
+            return self._extract_text_and_markdown_image_parts(text_value)
         if isinstance(text_value, str) and text_value and not part_type.startswith("image"):
-            return AssistantContentPart(type="text", text=text_value)
-        return None
+            return self._extract_text_and_markdown_image_parts(text_value)
+        return []
 
     def _extract_image_part_from_item(self, item: dict[str, object]) -> AssistantContentPart | None:
         part_type = str(item.get("type", "")).strip().lower()
@@ -446,6 +459,10 @@ class LLMService:
             return None
 
         mime_type = self._coerce_image_mime_type(item, image_url)
+        image_url, mime_type = self._materialize_image_url(
+            image_url=image_url,
+            mime_type=mime_type,
+        )
         alt = self._coerce_optional_string(
             item.get("alt") or item.get("caption") or item.get("revised_prompt") or item.get("text")
         )
@@ -478,18 +495,185 @@ class LLMService:
         return None
 
     def _coerce_image_mime_type(self, item: dict[str, object], image_url: str | None) -> str | None:
-        mime_type = self._coerce_optional_string(item.get("mime_type") or item.get("media_type"))
+        mime_type = self._normalize_image_mime_type(
+            self._coerce_optional_string(item.get("mime_type") or item.get("media_type"))
+        )
         if mime_type:
             return mime_type
         if image_url and image_url.startswith("data:image/"):
             prefix = image_url.split(";", 1)[0]
-            return prefix.removeprefix("data:")
+            return self._normalize_image_mime_type(prefix.removeprefix("data:"))
         return None
 
     def _coerce_optional_string(self, value: object) -> str | None:
         if isinstance(value, str) and value.strip():
             return value.strip()
         return None
+
+    def _extract_text_and_markdown_image_parts(self, text: str) -> list[AssistantContentPart]:
+        parts: list[AssistantContentPart] = []
+        cursor = 0
+
+        for match in self._MARKDOWN_IMAGE_RE.finditer(text):
+            start, end = match.span()
+            if start > cursor:
+                leading_text = text[cursor:start]
+                if leading_text:
+                    parts.append(AssistantContentPart(type="text", text=leading_text))
+
+            image_part = self._build_markdown_image_part(
+                alt=match.group("alt"),
+                raw_url=match.group("url"),
+            )
+            if image_part is not None:
+                parts.append(image_part)
+            else:
+                parts.append(AssistantContentPart(type="text", text=match.group(0)))
+            cursor = end
+
+        if cursor < len(text):
+            trailing_text = text[cursor:]
+            if trailing_text:
+                parts.append(AssistantContentPart(type="text", text=trailing_text))
+
+        if parts:
+            return parts
+        return [AssistantContentPart(type="text", text=text)] if text else []
+
+    def _build_markdown_image_part(self, *, alt: str, raw_url: str) -> AssistantContentPart | None:
+        image_url = raw_url.strip()
+        if not image_url:
+            return None
+
+        if not self._looks_like_image_url(image_url):
+            return None
+
+        mime_type = self._coerce_image_mime_type({}, image_url)
+        image_url, mime_type = self._materialize_image_url(
+            image_url=image_url,
+            mime_type=mime_type,
+        )
+        return AssistantContentPart(
+            type="image",
+            url=image_url,
+            mime_type=mime_type,
+            alt=alt.strip() or None,
+        )
+
+    def _looks_like_image_url(self, image_url: str) -> bool:
+        normalized = image_url.strip()
+        if normalized.startswith("data:image/"):
+            return True
+        if normalized.startswith("http://") or normalized.startswith("https://"):
+            suffix = PurePosixPath(urlparse(normalized).path).suffix.lower()
+            return suffix in self._IMAGE_MIME_BY_SUFFIX or "image" in normalized.lower()
+        return False
+
+    def _resolve_request_timeout(self, *, user_prompt: str) -> float:
+        default_timeout = float(self.settings.llm_timeout_seconds)
+        if self._looks_like_image_generation_request(user_prompt):
+            return max(default_timeout, self._IMAGE_GENERATION_TIMEOUT_SECONDS)
+        return default_timeout
+
+    def _looks_like_image_generation_request(self, user_prompt: str) -> bool:
+        normalized = user_prompt.strip().lower()
+        if not normalized:
+            return False
+
+        keywords = [
+            "generate image",
+            "generate an image",
+            "create image",
+            "create an image",
+            "draw ",
+            "illustration",
+            "poster",
+            "logo",
+            "diagram",
+            "生成图片",
+            "生成一张图",
+            "生成图像",
+            "画一张",
+            "画个",
+            "绘制",
+            "海报",
+            "插画",
+            "配图",
+            "图片",
+            "图像",
+            "示意图",
+            "流程图",
+        ]
+        return any(keyword in normalized for keyword in keywords)
+
+    def _materialize_image_url(self, *, image_url: str, mime_type: str | None) -> tuple[str, str | None]:
+        normalized_mime_type = self._normalize_image_mime_type(mime_type)
+        if image_url.startswith("http://") or image_url.startswith("https://"):
+            persisted = self._persist_remote_image_url(
+                image_url=image_url,
+                mime_type=normalized_mime_type,
+            )
+            if persisted is not None:
+                return persisted
+        return image_url, normalized_mime_type
+
+    def _persist_remote_image_url(self, *, image_url: str, mime_type: str | None) -> tuple[str, str] | None:
+        try:
+            response = httpx.get(
+                image_url,
+                follow_redirects=True,
+                timeout=self.settings.llm_timeout_seconds,
+            )
+            response.raise_for_status()
+        except httpx.HTTPError:
+            return None
+
+        file_bytes = response.content
+        if not file_bytes:
+            return None
+
+        max_size = max(1, int(self.settings.upload_max_file_size_mb)) * 1024 * 1024
+        if len(file_bytes) > max_size:
+            return None
+
+        response_mime_type = self._normalize_image_mime_type(response.headers.get("content-type"))
+        resolved_mime_type = (
+            self._sniff_image_mime_type(file_bytes)
+            or response_mime_type
+            or mime_type
+            or self._infer_image_mime_type_from_url(image_url)
+        )
+        if resolved_mime_type is None:
+            return None
+
+        return self._to_data_url(mime_type=resolved_mime_type, file_bytes=file_bytes), resolved_mime_type
+
+    def _normalize_image_mime_type(self, value: str | None) -> str | None:
+        if not value:
+            return None
+        normalized = value.split(";", 1)[0].strip().lower()
+        if normalized.startswith("image/"):
+            return normalized
+        return None
+
+    def _sniff_image_mime_type(self, file_bytes: bytes) -> str | None:
+        if file_bytes[:8] == b"\x89PNG\r\n\x1a\n":
+            return "image/png"
+        if file_bytes.startswith(b"\xff\xd8\xff"):
+            return "image/jpeg"
+        if len(file_bytes) >= 12 and file_bytes[:4] == b"RIFF" and file_bytes[8:12] == b"WEBP":
+            return "image/webp"
+        if file_bytes[:6] in {b"GIF87a", b"GIF89a"}:
+            return "image/gif"
+        return None
+
+    def _infer_image_mime_type_from_url(self, image_url: str) -> str | None:
+        suffix = PurePosixPath(urlparse(image_url).path).suffix.lower()
+        return self._IMAGE_MIME_BY_SUFFIX.get(suffix)
+
+    def _to_data_url(self, *, mime_type: str, file_bytes: bytes) -> str:
+        encoded = base64.b64encode(file_bytes).decode("ascii")
+        return f"data:{mime_type};base64,{encoded}"
 
     def _coalesce_content_parts(self, parts: list[AssistantContentPart]) -> list[AssistantContentPart]:
         compacted: list[AssistantContentPart] = []

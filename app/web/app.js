@@ -1344,18 +1344,52 @@ function getExplicitSelectedDocumentIds() {
   });
 }
 
-function shouldUseEchoFallback(errorMessage) {
+function looksLikeImageGenerationPrompt(question) {
+  const text = String(question || "").trim().toLowerCase();
+  if (!text) {
+    return false;
+  }
+
+  const keywords = [
+    "generate image",
+    "generate an image",
+    "create image",
+    "create an image",
+    "draw ",
+    "illustration",
+    "poster",
+    "logo",
+    "diagram",
+    "生成图片",
+    "生成一张图",
+    "生成图像",
+    "画一张",
+    "画个",
+    "绘制",
+    "海报",
+    "插画",
+    "配图",
+    "图片",
+    "图像",
+    "示意图",
+    "流程图",
+  ];
+  return keywords.some((keyword) => text.includes(keyword));
+}
+
+function shouldUseEchoFallback(errorMessage, question) {
   const text = String(errorMessage || "").toLowerCase();
+  if (looksLikeImageGenerationPrompt(question)) {
+    return false;
+  }
   return (
     text.includes("no indexed chunks found")
     || text.includes("llm_api_key is required")
-    || text.includes("llm request failed")
-    || text.includes("timed out")
   );
 }
 
 async function tryEchoFallback(question, errorMessage) {
-  if (!shouldUseEchoFallback(errorMessage)) {
+  if (!shouldUseEchoFallback(errorMessage, question)) {
     return null;
   }
 
