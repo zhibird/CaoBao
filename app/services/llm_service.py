@@ -19,6 +19,8 @@ class VisionAttachment:
 
 class LLMService:
     """LLM wrapper with a default local mock mode for beginner-friendly setup."""
+    _CONTINUE_PROMPT = "Continue exactly from where you stopped. Do not repeat prior text. Finish the current answer."
+    _MAX_COMPLETION_SEGMENTS = 4
 
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
@@ -187,34 +189,45 @@ class LLMService:
         api_key: str,
         image_attachments: list[VisionAttachment] | None,
     ) -> str:
-        payload = self._build_payload(
-            model=model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {
-                    "role": "user",
-                    "content": self._build_user_content(
-                        user_prompt=user_prompt,
-                        image_attachments=image_attachments,
-                    ),
-                },
-            ],
+        user_content = self._build_user_content(
+            user_prompt=user_prompt,
+            image_attachments=image_attachments,
         )
+        messages: list[dict[str, object]] = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+        ]
+        answer_parts: list[str] = []
 
-        try:
-            response = self._post_chat_completion(
-                payload=payload,
-                base_url=base_url,
-                api_key=api_key,
-            )
-            response.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            detail = self._extract_http_error_detail(exc.response)
-            raise DomainValidationError(f"LLM request failed: {detail}") from exc
-        except httpx.HTTPError as exc:
-            raise DomainValidationError(f"LLM request failed: {exc}") from exc
+        for _ in range(self._MAX_COMPLETION_SEGMENTS):
+            payload = self._build_payload(model=model, messages=messages)
+            try:
+                response = self._post_chat_completion(
+                    payload=payload,
+                    base_url=base_url,
+                    api_key=api_key,
+                )
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                detail = self._extract_http_error_detail(exc.response)
+                raise DomainValidationError(f"LLM request failed: {detail}") from exc
+            except httpx.HTTPError as exc:
+                raise DomainValidationError(f"LLM request failed: {exc}") from exc
 
-        return self._parse_llm_answer(response.json())
+            body = response.json()
+            answer_part, finish_reason = self._parse_llm_answer(body)
+            answer_parts.append(answer_part)
+
+            if finish_reason != "length":
+                break
+
+            messages.append({"role": "assistant", "content": answer_part})
+            messages.append({"role": "user", "content": self._CONTINUE_PROMPT})
+
+        answer = "".join(answer_parts).strip()
+        if not answer:
+            raise DomainValidationError("LLM returned an empty answer.")
+        return answer
 
     def _build_user_content(
         self,
@@ -321,16 +334,40 @@ class LLMService:
         ]
         return any(keyword in normalized for keyword in keywords)
 
-    def _parse_llm_answer(self, body: dict[str, object]) -> str:
+    def _parse_llm_answer(self, body: dict[str, object]) -> tuple[str, str | None]:
         try:
-            content = body["choices"][0]["message"]["content"]  # type: ignore[index]
+            choice = body["choices"][0]  # type: ignore[index]
+            content = choice["message"]["content"]  # type: ignore[index]
         except (KeyError, IndexError, TypeError) as exc:
             raise DomainValidationError("LLM response format is invalid.") from exc
 
-        answer = str(content).strip()
-        if not answer:
+        answer = self._extract_message_content(content)
+        if not answer.strip():
             raise DomainValidationError("LLM returned an empty answer.")
-        return answer
+        finish_reason = choice.get("finish_reason") if isinstance(choice, dict) else None
+        return answer, str(finish_reason).strip() if finish_reason is not None else None
+
+    def _extract_message_content(self, content: object) -> str:
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts: list[str] = []
+            for item in content:
+                if isinstance(item, str):
+                    parts.append(item)
+                    continue
+                if not isinstance(item, dict):
+                    continue
+                text = item.get("text")
+                if isinstance(text, str):
+                    parts.append(text)
+                    continue
+                if item.get("type") == "text":
+                    inner_text = item.get("text")
+                    if isinstance(inner_text, str):
+                        parts.append(inner_text)
+            return "".join(parts)
+        return str(content)
 
     def _build_context(self, hits: list[dict[str, object]]) -> str:
         if not hits:

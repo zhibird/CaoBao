@@ -98,7 +98,7 @@ def test_llm_service_sends_multimodal_payload_when_images_are_provided(monkeypat
     service = LLMService(settings=settings)
 
     answer = service.answer_chat(
-        "请描述图片内容",
+        "Describe the attached image.",
         image_attachments=[
             VisionAttachment(
                 document_id="doc-1",
@@ -113,7 +113,7 @@ def test_llm_service_sends_multimodal_payload_when_images_are_provided(monkeypat
     user_message = captured_payload["json"]["messages"][1]  # type: ignore[index]
     assert user_message["role"] == "user"
     assert isinstance(user_message["content"], list)
-    assert user_message["content"][0] == {"type": "text", "text": "请描述图片内容"}
+    assert user_message["content"][0] == {"type": "text", "text": "Describe the attached image."}
     assert user_message["content"][1] == {
         "type": "image_url",
         "image_url": {
@@ -158,7 +158,7 @@ def test_llm_service_falls_back_to_text_when_vision_is_rejected(monkeypatch) -> 
     service = LLMService(settings=settings)
 
     answer = service.answer_chat(
-        "请读取这张图片",
+        "Read the attached image.",
         image_attachments=[
             VisionAttachment(
                 document_id="doc-2",
@@ -172,4 +172,64 @@ def test_llm_service_falls_back_to_text_when_vision_is_rejected(monkeypatch) -> 
     assert answer == "fallback-answer"
     assert len(captured_payloads) == 2
     assert isinstance(captured_payloads[0]["messages"][1]["content"], list)  # type: ignore[index]
-    assert captured_payloads[1]["messages"][1]["content"] == "请读取这张图片\n\nAttachment text fallback:\n[invoice.png]\nOCR result"  # type: ignore[index]
+    assert captured_payloads[1]["messages"][1]["content"] == (  # type: ignore[index]
+        "Read the attached image.\n\nAttachment text fallback:\n[invoice.png]\nOCR result"
+    )
+
+
+def test_llm_service_continues_when_model_hits_token_limit(monkeypatch) -> None:
+    captured_payloads: list[dict[str, object]] = []
+    responses = iter(
+        [
+            _FakeResponse(
+                {
+                    "choices": [
+                        {
+                            "message": {"content": "Part one. "},
+                            "finish_reason": "length",
+                        }
+                    ]
+                }
+            ),
+            _FakeResponse(
+                {
+                    "choices": [
+                        {
+                            "message": {"content": "Part two."},
+                            "finish_reason": "stop",
+                        }
+                    ]
+                }
+            ),
+        ]
+    )
+
+    def _fake_post(url, headers, json, timeout):  # noqa: ANN001
+        captured_payloads.append(json)
+        return next(responses)
+
+    monkeypatch.setattr("app.services.llm_service.httpx.post", _fake_post)
+
+    settings = Settings(
+        llm_provider="mock",
+        llm_base_url="https://api.openai.com/v1",
+        llm_api_key="sk-test",
+        llm_model="gpt-4.1-mini",
+        llm_max_tokens=512,
+    )
+    service = LLMService(settings=settings)
+
+    answer = service.answer_chat("Give me a long answer.")
+
+    assert answer == "Part one. Part two."
+    assert len(captured_payloads) == 2
+    assert captured_payloads[1]["messages"][-2:] == [  # type: ignore[index]
+        {"role": "assistant", "content": "Part one. "},
+        {
+            "role": "user",
+            "content": (
+                "Continue exactly from where you stopped. "
+                "Do not repeat prior text. Finish the current answer."
+            ),
+        },
+    ]

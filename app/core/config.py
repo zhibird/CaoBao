@@ -9,7 +9,7 @@ ROOT_ENV_FILE = PROJECT_ROOT / ".env"
 
 class Settings(BaseSettings):
     app_name: str = "CaiBao"
-    app_version: str = "0.9.0"
+    app_version: str = "0.10.4"
     app_env: str = "dev"
     api_prefix: str = "/api/v1"
     database_url: str = "sqlite:///./CaiBao.db"
@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     llm_api_key: str | None = None
     llm_model: str = "gpt-4.1-mini"
     llm_temperature: float = 0.2
-    llm_max_tokens: int = 512
+    llm_max_tokens: int = 2048
     llm_timeout_seconds: float = 30.0
 
     embedding_provider: str = "mock"
