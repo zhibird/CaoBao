@@ -25,6 +25,7 @@ class AssistantContentPart:
     type: str
     text: str | None = None
     url: str | None = None
+    original_url: str | None = None
     mime_type: str | None = None
     alt: str | None = None
 
@@ -458,6 +459,7 @@ class LLMService:
         if image_url is None:
             return None
 
+        original_url = image_url if image_url.startswith("http://") or image_url.startswith("https://") else None
         mime_type = self._coerce_image_mime_type(item, image_url)
         image_url, mime_type = self._materialize_image_url(
             image_url=image_url,
@@ -469,6 +471,7 @@ class LLMService:
         return AssistantContentPart(
             type="image",
             url=image_url,
+            original_url=original_url,
             mime_type=mime_type,
             alt=alt,
         )
@@ -549,6 +552,7 @@ class LLMService:
             return None
 
         mime_type = self._coerce_image_mime_type({}, image_url)
+        original_url = image_url if image_url.startswith("http://") or image_url.startswith("https://") else None
         image_url, mime_type = self._materialize_image_url(
             image_url=image_url,
             mime_type=mime_type,
@@ -556,6 +560,7 @@ class LLMService:
         return AssistantContentPart(
             type="image",
             url=image_url,
+            original_url=original_url,
             mime_type=mime_type,
             alt=alt.strip() or None,
         )

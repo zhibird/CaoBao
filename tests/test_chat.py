@@ -606,6 +606,7 @@ def test_chat_ask_returns_image_content_parts_and_history_payload(client, monkey
             "type": "text",
             "text": "Here is the generated diagram.",
             "url": None,
+            "original_url": None,
             "mime_type": None,
             "alt": None,
         },
@@ -613,6 +614,7 @@ def test_chat_ask_returns_image_content_parts_and_history_payload(client, monkey
             "type": "image",
             "text": None,
             "url": expected_data_url,
+            "original_url": "https://cdn.example.com/generated/diagram.png?signature=test",
             "mime_type": "image/png",
             "alt": None,
         },
@@ -710,6 +712,7 @@ def test_chat_ask_extracts_markdown_image_text_into_content_parts(client, monkey
             "type": "image",
             "text": None,
             "url": "data:image/jpeg;base64,/9j/AAAA",
+            "original_url": None,
             "mime_type": "image/jpeg",
             "alt": "Generated Image",
         }

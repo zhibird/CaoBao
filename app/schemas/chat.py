@@ -65,6 +65,7 @@ class ChatContentPart(BaseModel):
     type: Literal["text", "image"]
     text: str | None = None
     url: str | None = None
+    original_url: str | None = None
     mime_type: str | None = None
     alt: str | None = None
 

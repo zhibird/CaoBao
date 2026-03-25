@@ -195,6 +195,7 @@ class RagChatService:
             type="image" if part.type == "image" else "text",
             text=part.text,
             url=part.url,
+            original_url=part.original_url,
             mime_type=part.mime_type,
             alt=part.alt,
         )

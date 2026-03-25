@@ -87,11 +87,22 @@ function bindElements() {
   els.previewDrawer = document.getElementById("previewDrawer");
   els.previewBackdrop = document.getElementById("previewBackdrop");
   els.closePreviewBtn = document.getElementById("closePreviewBtn");
+  els.previewEyebrow = document.getElementById("previewEyebrow");
   els.previewTitle = document.getElementById("previewTitle");
+  els.downloadPreviewBtn = document.getElementById("downloadPreviewBtn");
   els.previewMeta = document.getElementById("previewMeta");
   els.previewSnippet = document.getElementById("previewSnippet");
   els.previewMedia = document.getElementById("previewMedia");
   els.previewContent = document.getElementById("previewContent");
+  els.imageViewer = document.getElementById("imageViewer");
+  els.imageViewerBackdrop = document.getElementById("imageViewerBackdrop");
+  els.imageViewerTitle = document.getElementById("imageViewerTitle");
+  els.imageViewerMeta = document.getElementById("imageViewerMeta");
+  els.imageViewerImg = document.getElementById("imageViewerImg");
+  els.imageViewerCaption = document.getElementById("imageViewerCaption");
+  els.downloadImageBtn = document.getElementById("downloadImageBtn");
+  els.openOriginalImageBtn = document.getElementById("openOriginalImageBtn");
+  els.closeImageViewerBtn = document.getElementById("closeImageViewerBtn");
   els.authModal = document.getElementById("authModal");
   els.accountIdInput = document.getElementById("accountIdInput");
   els.accountNameInput = document.getElementById("accountNameInput");
@@ -153,6 +164,12 @@ function bindEvents() {
 
   els.previewBackdrop.addEventListener("click", closePreviewDrawer);
   els.closePreviewBtn.addEventListener("click", closePreviewDrawer);
+  if (els.imageViewerBackdrop) {
+    els.imageViewerBackdrop.addEventListener("click", closeImageViewer);
+  }
+  if (els.closeImageViewerBtn) {
+    els.closeImageViewerBtn.addEventListener("click", closeImageViewer);
+  }
 
   if (els.composerZone) {
     els.composerZone.addEventListener("dragenter", handleComposerDragEnter);
@@ -168,6 +185,7 @@ function bindEvents() {
     if (event.key === "Escape") {
       closeAttachMenu();
       closePreviewDrawer();
+      closeImageViewer();
     }
   });
 
@@ -1131,12 +1149,219 @@ async function deleteDocument(documentId, sourceName) {
   await loadDocuments();
   showToast(`已删除文件：${sourceName}`);
 }
-async function openSourcePreview(source) {
-  const doc = await getDocumentFromStateOrApi(source.document_id);
-  els.previewTitle.textContent = doc.source_name || source.source_name || "文件预览";
+
+function resetPreviewDrawer() {
+  if (els.previewEyebrow) {
+    els.previewEyebrow.textContent = "媒体预览";
+  }
+  els.previewTitle.textContent = "文件预览";
   els.previewMeta.innerHTML = "";
+  els.previewSnippet.classList.add("hidden");
+  els.previewSnippet.textContent = "";
   els.previewMedia.innerHTML = "";
   els.previewMedia.classList.add("hidden");
+  els.previewContent.textContent = "";
+  els.previewContent.classList.add("hidden");
+  setPreviewDownloadButton(null);
+}
+
+function openPreviewDrawer() {
+  els.previewDrawer.classList.remove("hidden");
+  els.previewDrawer.setAttribute("aria-hidden", "false");
+}
+
+function appendPreviewMetaLine(text) {
+  if (!text) {
+    return;
+  }
+  const div = document.createElement("div");
+  div.textContent = text;
+  els.previewMeta.appendChild(div);
+}
+
+function appendPreviewMetaLink({ href, text, download = "" }) {
+  if (!href || !text) {
+    return;
+  }
+  const link = document.createElement("a");
+  link.href = href;
+  link.target = "_blank";
+  link.rel = "noopener";
+  link.textContent = text;
+  if (download) {
+    link.download = download;
+  }
+  els.previewMeta.appendChild(link);
+}
+
+function setPreviewDownloadButton(config) {
+  if (!els.downloadPreviewBtn) {
+    return;
+  }
+  if (!config || !config.url) {
+    els.downloadPreviewBtn.classList.add("hidden");
+    els.downloadPreviewBtn.removeAttribute("href");
+    els.downloadPreviewBtn.removeAttribute("download");
+    return;
+  }
+
+  els.downloadPreviewBtn.href = config.url;
+  els.downloadPreviewBtn.download = config.fileName || "image";
+  els.downloadPreviewBtn.textContent = config.label || "下载图片";
+  els.downloadPreviewBtn.classList.remove("hidden");
+}
+
+function showPreviewContent(text) {
+  const normalized = String(text || "");
+  if (!normalized) {
+    els.previewContent.textContent = "";
+    els.previewContent.classList.add("hidden");
+    return;
+  }
+  els.previewContent.textContent = normalized;
+  els.previewContent.classList.remove("hidden");
+}
+
+function buildImageDownloadName({ title, mimeType, url, fallback = "image-preview" }) {
+  const normalizedTitle = String(title || "").trim().replace(/[\\/:*?"<>|]+/g, "_").replace(/\s+/g, "_");
+  const baseName = normalizedTitle || fallback;
+  const extension = imageExtensionFromMimeType(mimeType) || imageExtensionFromUrl(url) || "png";
+  return `${baseName}.${extension}`;
+}
+
+function imageExtensionFromMimeType(mimeType) {
+  const normalized = String(mimeType || "").trim().toLowerCase();
+  if (normalized === "image/png") {
+    return "png";
+  }
+  if (normalized === "image/jpeg") {
+    return "jpg";
+  }
+  if (normalized === "image/webp") {
+    return "webp";
+  }
+  if (normalized === "image/gif") {
+    return "gif";
+  }
+  return "";
+}
+
+function imageExtensionFromUrl(url) {
+  const normalized = String(url || "").trim();
+  if (!normalized || normalized.startsWith("data:image/")) {
+    return "";
+  }
+  const withoutQuery = normalized.split("?", 1)[0].toLowerCase();
+  if (withoutQuery.endsWith(".png")) {
+    return "png";
+  }
+  if (withoutQuery.endsWith(".jpg") || withoutQuery.endsWith(".jpeg")) {
+    return "jpg";
+  }
+  if (withoutQuery.endsWith(".webp")) {
+    return "webp";
+  }
+  if (withoutQuery.endsWith(".gif")) {
+    return "gif";
+  }
+  return "";
+}
+
+function inferImageMimeType(url) {
+  const normalized = String(url || "").trim();
+  if (normalized.startsWith("data:image/")) {
+    return normalized.slice("data:".length).split(";", 1)[0];
+  }
+  const ext = imageExtensionFromUrl(normalized);
+  if (ext === "png") {
+    return "image/png";
+  }
+  if (ext === "jpg") {
+    return "image/jpeg";
+  }
+  if (ext === "webp") {
+    return "image/webp";
+  }
+  if (ext === "gif") {
+    return "image/gif";
+  }
+  return "";
+}
+
+function resetImageViewer() {
+  if (!els.imageViewerTitle) {
+    return;
+  }
+  els.imageViewerTitle.textContent = "图片预览";
+  els.imageViewerMeta.textContent = "模型输出图片";
+  els.imageViewerImg.src = "";
+  els.imageViewerImg.alt = "";
+  els.imageViewerCaption.textContent = "";
+  els.imageViewerCaption.classList.add("hidden");
+  els.downloadImageBtn.removeAttribute("href");
+  els.downloadImageBtn.removeAttribute("download");
+  els.openOriginalImageBtn.removeAttribute("href");
+  els.openOriginalImageBtn.classList.add("hidden");
+}
+
+function openImageViewer() {
+  if (!els.imageViewer) {
+    return;
+  }
+  els.imageViewer.classList.remove("hidden");
+  els.imageViewer.setAttribute("aria-hidden", "false");
+}
+
+function closeImageViewer() {
+  if (!els.imageViewer) {
+    return;
+  }
+  resetImageViewer();
+  els.imageViewer.classList.add("hidden");
+  els.imageViewer.setAttribute("aria-hidden", "true");
+}
+
+function openAssistantImagePreview(part) {
+  if (!part || !part.url) {
+    return;
+  }
+
+  closePreviewDrawer();
+  resetImageViewer();
+  els.imageViewerTitle.textContent = part.alt || "生成图片";
+  els.imageViewerMeta.textContent = part.originalUrl && part.originalUrl !== part.url
+    ? "模型输出图片 · 当前图为稳定预览版"
+    : "模型输出图片";
+  els.imageViewerImg.src = part.url;
+  els.imageViewerImg.alt = part.alt || "assistant image output";
+  els.downloadImageBtn.href = part.url;
+  els.downloadImageBtn.download = buildImageDownloadName({
+    title: part.alt,
+    mimeType: part.mimeType,
+    url: part.url,
+    fallback: "generated-image",
+  });
+
+  if (part.alt) {
+    els.imageViewerCaption.textContent = part.alt;
+    els.imageViewerCaption.classList.remove("hidden");
+  }
+
+  if (part.originalUrl && part.originalUrl !== part.url) {
+    els.openOriginalImageBtn.href = part.originalUrl;
+    els.openOriginalImageBtn.classList.remove("hidden");
+  }
+
+  openImageViewer();
+}
+
+async function openSourcePreview(source) {
+  const doc = await getDocumentFromStateOrApi(source.document_id);
+  resetPreviewDrawer();
+  if (els.previewEyebrow) {
+    els.previewEyebrow.textContent = "引用文件";
+  }
+  els.previewTitle.textContent = doc.source_name || source.source_name || "文件预览";
 
   const pageLabel = source.locator_label
     || (Number.isInteger(source.page_no) ? `Page ${Number(source.page_no)}` : null);
@@ -1150,9 +1375,7 @@ async function openSourcePreview(source) {
   ].filter(Boolean);
 
   for (const line of metaLines) {
-    const div = document.createElement("div");
-    div.textContent = line;
-    els.previewMeta.appendChild(div);
+    appendPreviewMetaLine(line);
   }
 
   if (source.snippet) {
@@ -1166,12 +1389,15 @@ async function openSourcePreview(source) {
   const filePreviewUrl = buildDocumentFileUrl(doc.document_id);
   const normalizedType = String(doc.content_type || "").toLowerCase();
   if (["png", "jpg", "jpeg", "webp"].includes(normalizedType)) {
-    const previewLink = document.createElement("a");
-    previewLink.href = filePreviewUrl;
-    previewLink.target = "_blank";
-    previewLink.rel = "noopener";
-    previewLink.textContent = "打开原图";
-    els.previewMeta.appendChild(previewLink);
+    appendPreviewMetaLink({
+      href: filePreviewUrl,
+      text: "打开原图",
+    });
+    setPreviewDownloadButton({
+      url: filePreviewUrl,
+      fileName: doc.source_name || `image.${normalizedType}`,
+      label: "下载图片",
+    });
 
     const image = document.createElement("img");
     image.src = filePreviewUrl;
@@ -1184,14 +1410,12 @@ async function openSourcePreview(source) {
       "以下文本仅在模型不支持视觉输入时，作为 OCR/文本回退内容使用：",
       doc.content || "(no extracted text)",
     ].join("\n\n");
-    els.previewContent.textContent = previewHint;
+    showPreviewContent(previewHint);
   } else if (normalizedType === "pdf") {
-    const previewLink = document.createElement("a");
-    previewLink.href = filePreviewUrl;
-    previewLink.target = "_blank";
-    previewLink.rel = "noopener";
-    previewLink.textContent = "打开原文件预览";
-    els.previewMeta.appendChild(previewLink);
+    appendPreviewMetaLink({
+      href: filePreviewUrl,
+      text: "打开原文件预览",
+    });
 
     const frame = document.createElement("iframe");
     frame.src = filePreviewUrl;
@@ -1204,17 +1428,15 @@ async function openSourcePreview(source) {
       "以下文本主要用于检索与不支持原生 PDF/视觉输入时的回退：",
       doc.content || "",
     ].join("\n");
-    els.previewContent.textContent = previewHint;
+    showPreviewContent(previewHint);
   } else {
-    els.previewContent.textContent = doc.content || "";
+    showPreviewContent(doc.content || "");
   }
-  els.previewDrawer.classList.remove("hidden");
-  els.previewDrawer.setAttribute("aria-hidden", "false");
+  openPreviewDrawer();
 }
 
 function closePreviewDrawer() {
-  els.previewMedia.innerHTML = "";
-  els.previewMedia.classList.add("hidden");
+  resetPreviewDrawer();
   els.previewDrawer.classList.add("hidden");
   els.previewDrawer.setAttribute("aria-hidden", "true");
 }
@@ -1815,8 +2037,10 @@ function renderAssistantContent(container, contentParts, fallbackText = "") {
       const link = document.createElement("a");
       link.className = "message-part-image-link";
       link.href = part.url;
-      link.target = "_blank";
-      link.rel = "noopener";
+      link.addEventListener("click", (event) => {
+        event.preventDefault();
+        openAssistantImagePreview(part);
+      });
 
       const image = document.createElement("img");
       image.className = "message-part-image-frame";
@@ -1927,6 +2151,7 @@ function normalizeContentParts(parts) {
         return {
           type: "image",
           url,
+          originalUrl: normalizeRenderableImageUrl(item?.original_url),
           alt: String(item?.alt || "").trim(),
           mimeType: String(item?.mime_type || "").trim(),
         };

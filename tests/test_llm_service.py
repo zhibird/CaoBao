@@ -360,6 +360,7 @@ def test_llm_service_preserves_image_output_parts(monkeypatch) -> None:
     assert answer.content_parts[0].text == "Here is the generated chart."
     assert answer.content_parts[1].type == "image"
     assert answer.content_parts[1].url == "data:image/png;base64,AAAA"
+    assert answer.content_parts[1].original_url is None
 
 
 def test_llm_service_extracts_markdown_data_image_from_text_response(monkeypatch) -> None:
@@ -394,6 +395,7 @@ def test_llm_service_extracts_markdown_data_image_from_text_response(monkeypatch
     assert answer.content_parts[0].type == "image"
     assert answer.content_parts[0].mime_type == "image/jpeg"
     assert answer.content_parts[0].url == "data:image/jpeg;base64,/9j/AAAA"
+    assert answer.content_parts[0].original_url is None
     assert answer.content_parts[0].alt == "Generated Image"
 
 
@@ -451,4 +453,5 @@ def test_llm_service_inlines_remote_image_output_urls(monkeypatch) -> None:
     assert len(answer.content_parts) == 2
     assert answer.content_parts[1].type == "image"
     assert answer.content_parts[1].url == expected_data_url
+    assert answer.content_parts[1].original_url == "https://cdn.example.com/generated/chart.png?signature=test"
     assert answer.content_parts[1].mime_type == "image/png"
