@@ -1429,6 +1429,24 @@ async function openSourcePreview(source) {
       doc.content || "",
     ].join("\n");
     showPreviewContent(previewHint);
+  } else if (["docx", "xlsx"].includes(normalizedType)) {
+    appendPreviewMetaLink({
+      href: filePreviewUrl,
+      text: "打开原文件",
+    });
+    setPreviewDownloadButton({
+      url: filePreviewUrl,
+      fileName: doc.source_name || `attachment.${normalizedType}`,
+      label: "下载原文件",
+    });
+
+    const previewHint = [
+      normalizedType === "docx"
+        ? "以下内容为从 Word 提取的文本，供检索与问答使用："
+        : "以下内容为从 Excel 提取的结构化文本，供检索与问答使用：",
+      doc.content || "",
+    ].join("\n\n");
+    showPreviewContent(previewHint);
   } else {
     showPreviewContent(doc.content || "");
   }
@@ -1646,7 +1664,7 @@ async function handleImportFromComposer() {
   await importDocumentWithContent({
     sourceName,
     content,
-    contentType: inferContentType(sourceName),
+    contentType: inferTextContentType(sourceName),
   });
   hideImportComposer();
 }
@@ -1741,7 +1759,7 @@ async function uploadDocumentFile(file) {
     showToast("正在上传中，请稍候…", true);
     return;
   }
-  inferContentType(file.name);
+  inferUploadContentType(file.name);
   if (!ensureIdentity()) {
     openAuthModal();
     showToast("请先登录账户", true);
@@ -2303,9 +2321,9 @@ function formatStatusLabel(status) {
   }
 }
 
-function inferContentType(sourceName) {
+function inferTextContentType(sourceName) {
   const normalized = String(sourceName || "").trim().toLowerCase();
-  const candidates = ["txt", "md", "pdf", "png", "jpg", "jpeg", "webp"];
+  const candidates = ["txt", "md"];
   for (const ext of candidates) {
     if (normalized.endsWith(`.${ext}`)) {
       return ext;
@@ -2314,7 +2332,21 @@ function inferContentType(sourceName) {
   if (!normalized) {
     return "md";
   }
-  throw new Error("当前仅支持 .txt/.md/.pdf/.png/.jpg/.jpeg/.webp 文件。");
+  throw new Error("粘贴导入仅支持 .txt/.md 文件名。");
+}
+
+function inferUploadContentType(sourceName) {
+  const normalized = String(sourceName || "").trim().toLowerCase();
+  const candidates = ["txt", "md", "pdf", "docx", "xlsx", "png", "jpg", "jpeg", "webp"];
+  for (const ext of candidates) {
+    if (normalized.endsWith(`.${ext}`)) {
+      return ext;
+    }
+  }
+  if (!normalized) {
+    return "md";
+  }
+  throw new Error("当前仅支持 .txt/.md/.pdf/.docx/.xlsx/.png/.jpg/.jpeg/.webp 文件。");
 }
 
 async function apiRequest(path, options = {}) {

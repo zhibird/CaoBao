@@ -1,4 +1,5 @@
 import time
+import zipfile
 from io import BytesIO
 from uuid import uuid4
 
@@ -28,6 +29,110 @@ def _build_pdf_bytes() -> bytes:
 def _build_png_bytes() -> bytes:
     output = BytesIO()
     Image.new("RGB", (2, 2), color=(255, 255, 255)).save(output, format="PNG")
+    return output.getvalue()
+
+
+def _build_docx_bytes() -> bytes:
+    output = BytesIO()
+    with zipfile.ZipFile(output, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(
+            "[Content_Types].xml",
+            """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+</Types>""",
+        )
+        archive.writestr(
+            "_rels/.rels",
+            """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>""",
+        )
+        archive.writestr(
+            "word/document.xml",
+            """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p><w:r><w:t>Quarterly revenue increased.</w:t></w:r></w:p>
+    <w:p><w:r><w:t>Action item: review APAC pipeline.</w:t></w:r></w:p>
+  </w:body>
+</w:document>""",
+        )
+    return output.getvalue()
+
+
+def _build_xlsx_bytes() -> bytes:
+    output = BytesIO()
+    with zipfile.ZipFile(output, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(
+            "[Content_Types].xml",
+            """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>
+</Types>""",
+        )
+        archive.writestr(
+            "_rels/.rels",
+            """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>""",
+        )
+        archive.writestr(
+            "xl/workbook.xml",
+            """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+          xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets>
+    <sheet name="Metrics" sheetId="1" r:id="rId1"/>
+  </sheets>
+</workbook>""",
+        )
+        archive.writestr(
+            "xl/_rels/workbook.xml.rels",
+            """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/>
+</Relationships>""",
+        )
+        archive.writestr(
+            "xl/sharedStrings.xml",
+            """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="4" uniqueCount="4">
+  <si><t>Region</t></si>
+  <si><t>Revenue</t></si>
+  <si><t>APAC</t></si>
+  <si><t>EMEA</t></si>
+</sst>""",
+        )
+        archive.writestr(
+            "xl/worksheets/sheet1.xml",
+            """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData>
+    <row r="1">
+      <c r="A1" t="s"><v>0</v></c>
+      <c r="B1" t="s"><v>1</v></c>
+    </row>
+    <row r="2">
+      <c r="A2" t="s"><v>2</v></c>
+      <c r="B2"><v>128</v></c>
+    </row>
+    <row r="3">
+      <c r="A3" t="s"><v>3</v></c>
+      <c r="B3"><v>96</v></c>
+    </row>
+  </sheetData>
+</worksheet>""",
+        )
     return output.getvalue()
 
 
@@ -296,3 +401,111 @@ def test_document_upload_supports_pdf_and_image(client) -> None:
         document_id=image_doc["document_id"],
     )
     assert image_status == "ready"
+
+
+def test_document_upload_supports_word_and_excel(client) -> None:
+    suffix = uuid4().hex[:8]
+    team_id = f"team_upload_office_{suffix}"
+
+    create_team = client.post(
+        "/api/v1/teams",
+        json={
+            "team_id": team_id,
+            "name": "Office Upload Team",
+            "description": "for office upload test",
+        },
+    )
+    assert create_team.status_code == 201
+
+    docx_upload = client.post(
+        "/api/v1/documents/upload",
+        data={
+            "team_id": team_id,
+            "auto_index": "true",
+        },
+        files={
+            "file": (
+                "brief.docx",
+                _build_docx_bytes(),
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ),
+        },
+    )
+    assert docx_upload.status_code == 201
+    docx_doc = docx_upload.json()
+    assert docx_doc["content_type"] == "docx"
+    assert (
+        docx_doc["mime_type"]
+        == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+
+    docx_status = _wait_document_terminal_status(
+        client,
+        team_id=team_id,
+        document_id=docx_doc["document_id"],
+    )
+    assert docx_status == "ready"
+
+    docx_latest = client.get(
+        f"/api/v1/documents/{docx_doc['document_id']}",
+        params={"team_id": team_id},
+    )
+    assert docx_latest.status_code == 200
+    assert "Quarterly revenue increased." in docx_latest.json()["content"]
+    assert "Action item: review APAC pipeline." in docx_latest.json()["content"]
+
+    docx_file = client.get(
+        f"/api/v1/documents/{docx_doc['document_id']}/file",
+        params={"team_id": team_id},
+    )
+    assert docx_file.status_code == 200
+    assert (
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        in docx_file.headers.get("content-type", "")
+    )
+
+    xlsx_upload = client.post(
+        "/api/v1/documents/upload",
+        data={
+            "team_id": team_id,
+            "auto_index": "true",
+        },
+        files={
+            "file": (
+                "metrics.xlsx",
+                _build_xlsx_bytes(),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ),
+        },
+    )
+    assert xlsx_upload.status_code == 201
+    xlsx_doc = xlsx_upload.json()
+    assert xlsx_doc["content_type"] == "xlsx"
+    assert xlsx_doc["mime_type"] == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+    xlsx_status = _wait_document_terminal_status(
+        client,
+        team_id=team_id,
+        document_id=xlsx_doc["document_id"],
+    )
+    assert xlsx_status == "ready"
+
+    xlsx_latest = client.get(
+        f"/api/v1/documents/{xlsx_doc['document_id']}",
+        params={"team_id": team_id},
+    )
+    assert xlsx_latest.status_code == 200
+    content = xlsx_latest.json()["content"]
+    assert "Sheet: Metrics" in content
+    assert "Row 2: A: APAC | B: 128" in content
+    assert "Row 3: A: EMEA | B: 96" in content
+
+    xlsx_file = client.get(
+        f"/api/v1/documents/{xlsx_doc['document_id']}/file",
+        params={"team_id": team_id},
+    )
+    assert xlsx_file.status_code == 200
+    assert (
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        in xlsx_file.headers.get("content-type", "")
+    )

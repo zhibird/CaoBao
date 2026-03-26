@@ -3,7 +3,10 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import posixpath
 import re
+import xml.etree.ElementTree as ET
+import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from io import BytesIO
@@ -52,12 +55,14 @@ class PipelineError:
 
 
 class DocumentService:
-    _ALLOWED_TYPES = {"txt", "md", "pdf", "png", "jpg", "jpeg", "webp"}
+    _ALLOWED_TYPES = {"txt", "md", "pdf", "png", "jpg", "jpeg", "webp", "docx", "xlsx"}
     _IMAGE_TYPES = {"png", "jpg", "jpeg", "webp"}
     _MIME_BY_TYPE = {
         "txt": "text/plain",
         "md": "text/markdown",
         "pdf": "application/pdf",
+        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "png": "image/png",
         "jpg": "image/jpeg",
         "jpeg": "image/jpeg",
@@ -67,11 +72,17 @@ class DocumentService:
         "txt": {"text/plain"},
         "md": {"text/markdown", "text/plain"},
         "pdf": {"application/pdf"},
+        "docx": {"application/vnd.openxmlformats-officedocument.wordprocessingml.document"},
+        "xlsx": {"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
         "png": {"image/png"},
         "jpg": {"image/jpeg", "image/jpg"},
         "jpeg": {"image/jpeg", "image/jpg"},
         "webp": {"image/webp"},
     }
+    _WORDPROCESSING_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+    _SPREADSHEET_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    _OFFICE_DOC_REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+    _PACKAGE_REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
 
     def __init__(self, db: Session) -> None:
         self.db = db
@@ -517,6 +528,10 @@ class DocumentService:
             return self._parse_text_file(document=document, file_bytes=file_bytes)
         if document.content_type == "pdf":
             return self._parse_pdf_file(document=document, file_bytes=file_bytes)
+        if document.content_type == "docx":
+            return self._parse_docx_file(document=document, file_bytes=file_bytes)
+        if document.content_type == "xlsx":
+            return self._parse_xlsx_file(document=document, file_bytes=file_bytes)
         if document.content_type in {"png", "jpg", "jpeg", "webp"}:
             return self._parse_image_file(document=document, file_bytes=file_bytes)
         raise DomainValidationError("UNSUPPORTED_FILE_TYPE: unsupported document type.")
@@ -569,6 +584,110 @@ class DocumentService:
             ]
         meta = {"mime_type": "application/pdf", "ocr_used": False}
         return ParseResult(text=text, sections=sections, page_count=page_count, meta=meta)
+
+    def _parse_docx_file(self, *, document: Document, file_bytes: bytes) -> ParseResult:
+        with self._open_zip_archive(file_bytes=file_bytes, content_type="docx") as archive:
+            sections: list[ChunkSection] = []
+            part_names = ["word/document.xml"]
+            part_names.extend(
+                sorted(
+                    name
+                    for name in archive.namelist()
+                    if re.fullmatch(r"word/header\d+\.xml", name) or re.fullmatch(r"word/footer\d+\.xml", name)
+                )
+            )
+            part_names.extend(name for name in ("word/footnotes.xml", "word/endnotes.xml") if name in archive.namelist())
+
+            for part_name in part_names:
+                root = self._load_xml_from_archive(archive=archive, entry_name=part_name)
+                if root is None:
+                    continue
+                for paragraph_text in self._extract_docx_paragraphs(root):
+                    sections.append(
+                        ChunkSection(
+                            text=paragraph_text,
+                            locator_label=f"Paragraph {len(sections) + 1}",
+                            block_type="paragraph",
+                        )
+                    )
+
+        if not sections:
+            fallback_text = f"Word attachment: {document.source_name}"
+            sections = [
+                ChunkSection(
+                    text=fallback_text,
+                    locator_label="Paragraph 1",
+                    block_type="paragraph",
+                )
+            ]
+            text = fallback_text
+        else:
+            text = "\n\n".join(section.text for section in sections).strip()
+
+        return ParseResult(
+            text=text,
+            sections=sections,
+            page_count=None,
+            meta={
+                "mime_type": document.mime_type,
+                "paragraph_count": len(sections),
+            },
+        )
+
+    def _parse_xlsx_file(self, *, document: Document, file_bytes: bytes) -> ParseResult:
+        with self._open_zip_archive(file_bytes=file_bytes, content_type="xlsx") as archive:
+            shared_strings = self._load_xlsx_shared_strings(archive)
+            sheet_entries = self._load_xlsx_sheet_entries(archive)
+            sheet_names = [sheet_name for sheet_name, _ in sheet_entries]
+            sections: list[ChunkSection] = []
+            merged_lines: list[str] = []
+            row_count = 0
+
+            for sheet_name, entry_name in sheet_entries:
+                root = self._load_xml_from_archive(archive=archive, entry_name=entry_name)
+                if root is None:
+                    continue
+                row_entries = self._extract_xlsx_rows(root=root, shared_strings=shared_strings)
+                if not row_entries:
+                    continue
+                if merged_lines:
+                    merged_lines.append("")
+                merged_lines.append(f"Sheet: {sheet_name}")
+                for row_number, row_text in row_entries:
+                    row_count += 1
+                    merged_lines.append(f"Row {row_number}: {row_text}")
+                    sections.append(
+                        ChunkSection(
+                            text=f"Sheet: {sheet_name}\nRow {row_number}: {row_text}",
+                            locator_label=f"Sheet {sheet_name} Row {row_number}",
+                            block_type="table_row",
+                        )
+                    )
+
+        if not sections:
+            fallback_text = f"Excel attachment: {document.source_name}"
+            sections = [
+                ChunkSection(
+                    text=fallback_text,
+                    locator_label="Sheet 1 Row 1",
+                    block_type="table_row",
+                )
+            ]
+            text = fallback_text
+        else:
+            text = "\n".join(merged_lines).strip()
+
+        return ParseResult(
+            text=text,
+            sections=sections,
+            page_count=None,
+            meta={
+                "mime_type": document.mime_type,
+                "sheet_count": len(sheet_names),
+                "row_count": row_count,
+                "sheet_names": sheet_names,
+            },
+        )
 
     def _parse_image_file(self, *, document: Document, file_bytes: bytes) -> ParseResult:
         width = None
@@ -632,7 +751,9 @@ class DocumentService:
             raise DomainValidationError("UNSUPPORTED_FILE_TYPE: file name is required.")
         suffix = Path(normalized).suffix.lower().lstrip(".")
         if suffix not in self._ALLOWED_TYPES:
-            raise DomainValidationError("UNSUPPORTED_FILE_TYPE: only txt/md/pdf/png/jpg/jpeg/webp are supported.")
+            raise DomainValidationError(
+                "UNSUPPORTED_FILE_TYPE: only txt/md/pdf/docx/xlsx/png/jpg/jpeg/webp are supported."
+            )
         return suffix
 
     def _sniff_mime(self, *, content_type: str, file_bytes: bytes) -> str:
@@ -650,6 +771,18 @@ class DocumentService:
                 raise DomainValidationError("UNSUPPORTED_FILE_TYPE: file bytes are not a valid PDF signature.")
             return "application/pdf"
 
+        if content_type == "docx":
+            with self._open_zip_archive(file_bytes=file_bytes, content_type=content_type) as archive:
+                if "word/document.xml" not in set(archive.namelist()):
+                    raise DomainValidationError("UNSUPPORTED_FILE_TYPE: file bytes are not a valid DOCX package.")
+            return self._MIME_BY_TYPE[content_type]
+
+        if content_type == "xlsx":
+            with self._open_zip_archive(file_bytes=file_bytes, content_type=content_type) as archive:
+                if "xl/workbook.xml" not in set(archive.namelist()):
+                    raise DomainValidationError("UNSUPPORTED_FILE_TYPE: file bytes are not a valid XLSX package.")
+            return self._MIME_BY_TYPE[content_type]
+
         if content_type == "png":
             if file_bytes[:8] != b"\x89PNG\r\n\x1a\n":
                 raise DomainValidationError("UNSUPPORTED_FILE_TYPE: file bytes are not a valid PNG signature.")
@@ -666,6 +799,188 @@ class DocumentService:
             return "image/webp"
 
         raise DomainValidationError("UNSUPPORTED_FILE_TYPE: unsupported file type.")
+
+    def _open_zip_archive(self, *, file_bytes: bytes, content_type: str) -> zipfile.ZipFile:
+        stream = BytesIO(file_bytes)
+        if not zipfile.is_zipfile(stream):
+            raise DomainValidationError(
+                f"UNSUPPORTED_FILE_TYPE: file bytes are not a valid {content_type.upper()} archive."
+            )
+        stream.seek(0)
+        try:
+            return zipfile.ZipFile(stream)
+        except zipfile.BadZipFile as exc:
+            raise DomainValidationError(
+                f"UNSUPPORTED_FILE_TYPE: file bytes are not a valid {content_type.upper()} archive."
+            ) from exc
+
+    def _load_xml_from_archive(
+        self,
+        *,
+        archive: zipfile.ZipFile,
+        entry_name: str,
+    ) -> ET.Element | None:
+        try:
+            payload = archive.read(entry_name)
+        except KeyError:
+            return None
+        try:
+            return ET.fromstring(payload)
+        except ET.ParseError as exc:
+            raise DomainValidationError(f"PARSE_FAILED: invalid XML content in '{entry_name}'.") from exc
+
+    def _extract_docx_paragraphs(self, root: ET.Element) -> list[str]:
+        paragraph_tag = f"{{{self._WORDPROCESSING_NS}}}p"
+        paragraphs: list[str] = []
+        for paragraph in root.iter(paragraph_tag):
+            text = self._flatten_docx_paragraph(paragraph)
+            if text:
+                paragraphs.append(text)
+        return paragraphs
+
+    def _flatten_docx_paragraph(self, paragraph: ET.Element) -> str:
+        text_tag = f"{{{self._WORDPROCESSING_NS}}}t"
+        tab_tag = f"{{{self._WORDPROCESSING_NS}}}tab"
+        break_tags = {
+            f"{{{self._WORDPROCESSING_NS}}}br",
+            f"{{{self._WORDPROCESSING_NS}}}cr",
+        }
+        parts: list[str] = []
+        for node in paragraph.iter():
+            if node.tag == text_tag:
+                parts.append(node.text or "")
+            elif node.tag == tab_tag:
+                parts.append("\t")
+            elif node.tag in break_tags:
+                parts.append("\n")
+        text = "".join(parts).replace("\xa0", " ").strip()
+        normalized_lines = [line.strip() for line in text.splitlines() if line.strip()]
+        if normalized_lines:
+            return "\n".join(normalized_lines)
+        return text
+
+    def _load_xlsx_shared_strings(self, archive: zipfile.ZipFile) -> list[str]:
+        root = self._load_xml_from_archive(archive=archive, entry_name="xl/sharedStrings.xml")
+        if root is None:
+            return []
+        item_tag = f"{{{self._SPREADSHEET_NS}}}si"
+        return [self._flatten_spreadsheet_text(item) for item in root.findall(item_tag)]
+
+    def _load_xlsx_sheet_entries(self, archive: zipfile.ZipFile) -> list[tuple[str, str]]:
+        workbook_root = self._load_xml_from_archive(archive=archive, entry_name="xl/workbook.xml")
+        if workbook_root is None:
+            raise DomainValidationError("PARSE_FAILED: workbook definition is missing.")
+
+        rels_root = self._load_xml_from_archive(archive=archive, entry_name="xl/_rels/workbook.xml.rels")
+        if rels_root is None:
+            raise DomainValidationError("PARSE_FAILED: workbook relationships are missing.")
+
+        relationship_tag = f"{{{self._PACKAGE_REL_NS}}}Relationship"
+        relationships: dict[str, str] = {}
+        for relation in rels_root.findall(relationship_tag):
+            relation_id = relation.attrib.get("Id", "").strip()
+            target = relation.attrib.get("Target", "").strip()
+            if relation_id and target:
+                relationships[relation_id] = target
+
+        sheet_tag = f"{{{self._SPREADSHEET_NS}}}sheet"
+        relation_attr = f"{{{self._OFFICE_DOC_REL_NS}}}id"
+        sheets: list[tuple[str, str]] = []
+        for index, sheet in enumerate(workbook_root.findall(f".//{sheet_tag}"), start=1):
+            sheet_name = sheet.attrib.get("name", f"Sheet{index}").strip() or f"Sheet{index}"
+            relation_id = sheet.attrib.get(relation_attr, "").strip()
+            target = relationships.get(relation_id, "")
+            if not target:
+                continue
+            sheets.append((sheet_name, self._resolve_office_entry_path(base_dir="xl", target=target)))
+        return sheets
+
+    def _resolve_office_entry_path(self, *, base_dir: str, target: str) -> str:
+        normalized = target.replace("\\", "/").strip()
+        if not normalized:
+            return ""
+        if normalized.startswith("/"):
+            return normalized.lstrip("/")
+        return posixpath.normpath(posixpath.join(base_dir, normalized))
+
+    def _extract_xlsx_rows(
+        self,
+        *,
+        root: ET.Element,
+        shared_strings: list[str],
+    ) -> list[tuple[int, str]]:
+        row_tag = f"{{{self._SPREADSHEET_NS}}}row"
+        cell_tag = f"{{{self._SPREADSHEET_NS}}}c"
+        rows: list[tuple[int, str]] = []
+        for fallback_row_number, row in enumerate(root.iter(row_tag), start=1):
+            row_number_text = row.attrib.get("r", "").strip()
+            try:
+                row_number = int(row_number_text)
+            except ValueError:
+                row_number = fallback_row_number
+
+            cell_values: list[str] = []
+            for cell in row.findall(cell_tag):
+                cell_ref = cell.attrib.get("r", "").strip()
+                column_label = re.sub(r"\d+", "", cell_ref) or f"C{len(cell_values) + 1}"
+                value = self._extract_xlsx_cell_value(cell, shared_strings)
+                if value:
+                    cell_values.append(f"{column_label}: {value}")
+
+            if cell_values:
+                rows.append((row_number, " | ".join(cell_values)))
+        return rows
+
+    def _extract_xlsx_cell_value(self, cell: ET.Element, shared_strings: list[str]) -> str:
+        value_tag = f"{{{self._SPREADSHEET_NS}}}v"
+        formula_tag = f"{{{self._SPREADSHEET_NS}}}f"
+        inline_string_tag = f"{{{self._SPREADSHEET_NS}}}is"
+        cell_type = cell.attrib.get("t", "n").strip()
+        value_node = cell.find(value_tag)
+        formula_node = cell.find(formula_tag)
+        inline_string_node = cell.find(inline_string_tag)
+        raw_value = (value_node.text or "").strip() if value_node is not None and value_node.text else ""
+
+        if cell_type == "inlineStr":
+            return self._flatten_spreadsheet_text(inline_string_node)
+
+        if cell_type == "s":
+            if not raw_value:
+                return ""
+            try:
+                index = int(raw_value)
+            except ValueError:
+                return ""
+            if 0 <= index < len(shared_strings):
+                return shared_strings[index]
+            return ""
+
+        if cell_type == "b":
+            if raw_value == "1":
+                return "TRUE"
+            if raw_value == "0":
+                return "FALSE"
+            return raw_value
+
+        if cell_type in {"str", "e"}:
+            if raw_value:
+                return raw_value
+            if formula_node is not None and formula_node.text:
+                return formula_node.text.strip()
+            return ""
+
+        if raw_value:
+            return raw_value
+
+        if formula_node is not None and formula_node.text:
+            return f"={formula_node.text.strip()}"
+        return ""
+
+    def _flatten_spreadsheet_text(self, node: ET.Element | None) -> str:
+        if node is None:
+            return ""
+        text_tag = f"{{{self._SPREADSHEET_NS}}}t"
+        return "".join(text.text or "" for text in node.iter(text_tag)).strip()
 
     def _validate_declared_mime(
         self,

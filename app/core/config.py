@@ -9,7 +9,7 @@ ROOT_ENV_FILE = PROJECT_ROOT / ".env"
 
 class Settings(BaseSettings):
     app_name: str = "CaiBao"
-    app_version: str = "0.11.2"
+    app_version: str = "0.12.0"
     app_env: str = "dev"
     api_prefix: str = "/api/v1"
     database_url: str = "sqlite:///./CaiBao.db"
