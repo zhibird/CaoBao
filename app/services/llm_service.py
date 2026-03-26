@@ -372,8 +372,15 @@ class LLMService:
             "content type",
             "input_image",
             "image_url",
+            "expected a string",
+            "must be a string",
+            "got an array",
+            "got array",
+            "invalid type for",
         ]
-        return any(keyword in normalized for keyword in keywords)
+        if any(keyword in normalized for keyword in keywords):
+            return True
+        return "messages[" in normalized and "content" in normalized
 
     def _parse_llm_answer(self, body: dict[str, object]) -> tuple[LLMAnswer, str | None]:
         try:

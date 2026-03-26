@@ -507,6 +507,142 @@ def test_chat_ask_prefers_multimodal_image_input_when_image_is_selected(client, 
     assert str(user_message["content"][1]["image_url"]["url"]).startswith("data:image/png;base64,")
 
 
+def test_chat_ask_falls_back_when_provider_rejects_multimodal_array_content(client, monkeypatch) -> None:
+    suffix = uuid4().hex[:8]
+    team_id = f"team_ask_image_retry_{suffix}"
+    user_id = f"u_ask_image_retry_{suffix}"
+
+    create_team = client.post(
+        "/api/v1/teams",
+        json={
+            "team_id": team_id,
+            "name": "Image Retry Team",
+            "description": "for multimodal retry fallback",
+        },
+    )
+    assert create_team.status_code == 201
+
+    create_user = client.post(
+        "/api/v1/users",
+        json={
+            "user_id": user_id,
+            "team_id": team_id,
+            "display_name": "Retry Operator",
+            "role": "member",
+        },
+    )
+    assert create_user.status_code == 201
+
+    create_conversation = client.post(
+        "/api/v1/conversations",
+        json={
+            "team_id": team_id,
+            "user_id": user_id,
+            "title": "Retry Session",
+        },
+    )
+    assert create_conversation.status_code == 201
+    conversation_id = create_conversation.json()["conversation_id"]
+
+    upsert_model = client.post(
+        "/api/v1/llm/models",
+        json={
+            "team_id": team_id,
+            "user_id": user_id,
+            "model_name": "gpt-4.1-mini",
+            "base_url": "https://api.openai.com/v1",
+            "api_key": "sk-test",
+        },
+    )
+    assert upsert_model.status_code == 200
+
+    upload_response = client.post(
+        "/api/v1/documents/upload",
+        data={
+            "team_id": team_id,
+            "user_id": user_id,
+            "conversation_id": conversation_id,
+            "auto_index": "true",
+        },
+        files={
+            "file": ("receipt.png", _build_png_bytes(), "image/png"),
+        },
+    )
+    assert upload_response.status_code == 201
+    document_id = upload_response.json()["document_id"]
+    _wait_document_ready(
+        client,
+        team_id=team_id,
+        conversation_id=conversation_id,
+        document_id=document_id,
+    )
+
+    captured_payloads: list[dict[str, object]] = []
+    call_count = {"count": 0}
+
+    class _FakeResponse:
+        def __init__(self, body: dict[str, object], status_code: int = 200) -> None:
+            self._body = body
+            self.status_code = status_code
+
+        def raise_for_status(self) -> None:
+            if self.status_code >= 400:
+                request = httpx.Request("POST", "https://api.openai.com/v1/chat/completions")
+                response = httpx.Response(self.status_code, request=request, json=self._body)
+                raise httpx.HTTPStatusError("request failed", request=request, response=response)
+
+        def json(self) -> dict[str, object]:
+            return self._body
+
+    def _fake_post(url, headers, json, timeout):  # noqa: ANN001
+        captured_payloads.append(json)
+        call_count["count"] += 1
+        if call_count["count"] == 1:
+            return _FakeResponse(
+                {
+                    "error": {
+                        "message": "Invalid type for 'messages[1].content': expected a string, but got an array instead."
+                    }
+                },
+                status_code=400,
+            )
+        return _FakeResponse(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": "fallback-after-array-error",
+                        }
+                    }
+                ]
+            }
+        )
+
+    monkeypatch.setattr("app.services.llm_service.httpx.post", _fake_post)
+
+    ask_response = client.post(
+        "/api/v1/chat/ask",
+        json={
+            "user_id": user_id,
+            "team_id": team_id,
+            "conversation_id": conversation_id,
+            "question": "Read the attached image.",
+            "selected_document_ids": [document_id],
+            "top_k": 3,
+            "model": "gpt-4.1-mini",
+        },
+    )
+    assert ask_response.status_code == 200
+    assert ask_response.json()["answer"] == "fallback-after-array-error"
+    assert len(captured_payloads) == 2
+    assert isinstance(captured_payloads[0]["messages"][1]["content"], list)  # type: ignore[index]
+    second_user_content = captured_payloads[1]["messages"][1]["content"]  # type: ignore[index]
+    assert isinstance(second_user_content, str)
+    assert "Question:" in second_user_content
+    assert "Context:" in second_user_content
+    assert "Image attachment: receipt.png" in second_user_content
+
+
 def test_chat_ask_returns_image_content_parts_and_history_payload(client, monkeypatch) -> None:
     suffix = uuid4().hex[:8]
     team_id = f"team_output_image_{suffix}"
