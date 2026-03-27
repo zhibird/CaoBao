@@ -76,21 +76,53 @@ class ChatHistoryService:
         if user_id is not None:
             stmt = stmt.where(ChatHistory.user_id == user_id)
         if conversation_id is not None:
-            conversation = self.db.get(Conversation, conversation_id)
-            if conversation is None:
-                raise EntityNotFoundError(f"Conversation '{conversation_id}' does not exist.")
-            if conversation.team_id != team_id:
-                raise DomainValidationError(
-                    f"Conversation '{conversation_id}' does not belong to team '{team_id}'."
-                )
-            if user_id is not None and conversation.user_id != user_id:
-                raise DomainValidationError(
-                    f"Conversation '{conversation_id}' does not belong to user '{user_id}'."
-                )
+            self._ensure_conversation_access(
+                team_id=team_id,
+                user_id=user_id,
+                conversation_id=conversation_id,
+            )
             stmt = stmt.where(ChatHistory.conversation_id == conversation_id)
 
         stmt = stmt.order_by(ChatHistory.created_at.desc(), ChatHistory.message_id.desc()).limit(limit)
         return list(self.db.scalars(stmt).all())
+
+    def list_messages_for_context(
+        self,
+        *,
+        team_id: str,
+        user_id: str,
+        conversation_id: str | None,
+        limit: int,
+        before_message_id: str | None = None,
+    ) -> list[ChatHistory]:
+        if conversation_id is None or limit < 1:
+            return []
+
+        self._ensure_conversation_access(
+            team_id=team_id,
+            user_id=user_id,
+            conversation_id=conversation_id,
+        )
+
+        stmt = select(ChatHistory).where(
+            ChatHistory.team_id == team_id,
+            ChatHistory.user_id == user_id,
+            ChatHistory.conversation_id == conversation_id,
+        )
+
+        if before_message_id is not None:
+            boundary_message = self.get_message(
+                message_id=before_message_id,
+                team_id=team_id,
+                user_id=user_id,
+                conversation_id=conversation_id,
+            )
+            stmt = stmt.where(ChatHistory.created_at < boundary_message.created_at)
+
+        stmt = stmt.order_by(ChatHistory.created_at.desc(), ChatHistory.message_id.desc()).limit(limit)
+        items = list(self.db.scalars(stmt).all())
+        items.reverse()
+        return items
 
     def get_message(
         self,
@@ -165,7 +197,74 @@ class ChatHistoryService:
         self.db.refresh(message)
         return message
 
+    def get_latest_message(
+        self,
+        *,
+        team_id: str,
+        user_id: str,
+        conversation_id: str | None,
+    ) -> ChatHistory | None:
+        self._ensure_team_exists(team_id)
+
+        stmt = select(ChatHistory).where(
+            ChatHistory.team_id == team_id,
+            ChatHistory.user_id == user_id,
+        )
+        if conversation_id is None:
+            stmt = stmt.where(ChatHistory.conversation_id.is_(None))
+        else:
+            self._ensure_conversation_access(
+                team_id=team_id,
+                user_id=user_id,
+                conversation_id=conversation_id,
+            )
+            stmt = stmt.where(ChatHistory.conversation_id == conversation_id)
+
+        stmt = stmt.order_by(ChatHistory.created_at.desc(), ChatHistory.message_id.desc()).limit(1)
+        return self.db.scalars(stmt).first()
+
+    def ensure_latest_message(
+        self,
+        *,
+        message_id: str,
+        team_id: str,
+        user_id: str,
+    ) -> ChatHistory:
+        message = self.get_message(
+            message_id=message_id,
+            team_id=team_id,
+            user_id=user_id,
+        )
+        latest_message = self.get_latest_message(
+            team_id=team_id,
+            user_id=user_id,
+            conversation_id=message.conversation_id,
+        )
+        if latest_message is None or latest_message.message_id != message.message_id:
+            raise DomainValidationError("Only the latest message in a conversation can be edited or regenerated.")
+        return message
+
     def _ensure_team_exists(self, team_id: str) -> None:
         team = self.db.get(Team, team_id)
         if team is None:
             raise EntityNotFoundError(f"Team '{team_id}' does not exist.")
+
+    def _ensure_conversation_access(
+        self,
+        *,
+        team_id: str,
+        user_id: str | None,
+        conversation_id: str,
+    ) -> Conversation:
+        conversation = self.db.get(Conversation, conversation_id)
+        if conversation is None:
+            raise EntityNotFoundError(f"Conversation '{conversation_id}' does not exist.")
+        if conversation.team_id != team_id:
+            raise DomainValidationError(
+                f"Conversation '{conversation_id}' does not belong to team '{team_id}'."
+            )
+        if user_id is not None and conversation.user_id != user_id:
+            raise DomainValidationError(
+                f"Conversation '{conversation_id}' does not belong to user '{user_id}'."
+            )
+        return conversation

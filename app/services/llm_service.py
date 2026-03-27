@@ -42,6 +42,7 @@ class LLMService:
     _MAX_COMPLETION_SEGMENTS = 4
     _IMAGE_GENERATION_TIMEOUT_SECONDS = 90.0
     _MARKDOWN_IMAGE_RE = re.compile(r"!\[(?P<alt>[^\]]*)\]\((?P<url>[^)\s]+)\)")
+    _HTML_TITLE_RE = re.compile(r"<title[^>]*>(?P<title>.*?)</title>", re.IGNORECASE | re.DOTALL)
     _IMAGE_MIME_BY_SUFFIX = {
         ".gif": "image/gif",
         ".jpeg": "image/jpeg",
@@ -62,6 +63,7 @@ class LLMService:
         api_key: str | None = None,
         force_mock: bool = False,
         image_attachments: list[VisionAttachment] | None = None,
+        conversation_messages: list[dict[str, object]] | None = None,
     ) -> LLMAnswer:
         if force_mock:
             return self._mock_answer(question=question, hits=hits)
@@ -77,6 +79,7 @@ class LLMService:
             base_url=runtime[0],
             api_key=runtime[1],
             image_attachments=image_attachments,
+            conversation_messages=conversation_messages,
         )
 
     def answer_chat(
@@ -88,6 +91,7 @@ class LLMService:
         force_mock: bool = False,
         image_attachments: list[VisionAttachment] | None = None,
         fallback_text_context: str | None = None,
+        conversation_messages: list[dict[str, object]] | None = None,
     ) -> LLMAnswer:
         """General chat answer without retrieval context."""
         if force_mock:
@@ -104,6 +108,7 @@ class LLMService:
             api_key=runtime[1],
             image_attachments=image_attachments,
             fallback_text_context=fallback_text_context,
+            conversation_messages=conversation_messages,
         )
 
     def _mock_answer(self, question: str, hits: list[dict[str, object]]) -> LLMAnswer:
@@ -133,12 +138,13 @@ class LLMService:
         base_url: str = "",
         api_key: str = "",
         image_attachments: list[VisionAttachment] | None = None,
+        conversation_messages: list[dict[str, object]] | None = None,
     ) -> LLMAnswer:
         context = self._build_context(hits)
 
         system_prompt = (
-            "You are CaiBao, an enterprise assistant. Answer strictly based on the provided context. "
-            "If context is insufficient, say so explicitly."
+            "You are CaiBao, an enterprise assistant. Use prior conversation only to resolve references and user intent. "
+            "Answer strictly based on the provided context for factual claims. If context is insufficient, say so explicitly."
         )
         if image_attachments:
             system_prompt += " Attached images are primary evidence when relevant. Use context as supporting material."
@@ -152,6 +158,7 @@ class LLMService:
                 base_url=base_url,
                 api_key=api_key,
                 image_attachments=image_attachments,
+                conversation_messages=conversation_messages,
             )
         except DomainValidationError as exc:
             if image_attachments and self._should_retry_without_images(str(exc)):
@@ -162,6 +169,7 @@ class LLMService:
                     base_url=base_url,
                     api_key=api_key,
                     image_attachments=None,
+                    conversation_messages=conversation_messages,
                 )
             raise
 
@@ -173,6 +181,7 @@ class LLMService:
         api_key: str = "",
         image_attachments: list[VisionAttachment] | None = None,
         fallback_text_context: str | None = None,
+        conversation_messages: list[dict[str, object]] | None = None,
     ) -> LLMAnswer:
         system_prompt = "You are CaiBao, a helpful enterprise assistant."
         try:
@@ -183,6 +192,7 @@ class LLMService:
                 base_url=base_url,
                 api_key=api_key,
                 image_attachments=image_attachments,
+                conversation_messages=conversation_messages,
             )
         except DomainValidationError as exc:
             if image_attachments and self._should_retry_without_images(str(exc)):
@@ -197,6 +207,7 @@ class LLMService:
                     base_url=base_url,
                     api_key=api_key,
                     image_attachments=None,
+                    conversation_messages=conversation_messages,
                 )
             raise
 
@@ -218,18 +229,103 @@ class LLMService:
         base_url: str,
         api_key: str,
         image_attachments: list[VisionAttachment] | None,
+        conversation_messages: list[dict[str, object]] | None,
     ) -> LLMAnswer:
-        user_content = self._build_user_content(
+        normalized_history = self._normalize_conversation_messages(conversation_messages)
+        history_mode = self._resolve_history_mode()
+        if not normalized_history or history_mode == "native":
+            return self._request_chat_answer_once(
+                model=model,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                base_url=base_url,
+                api_key=api_key,
+                image_attachments=image_attachments,
+                conversation_messages=normalized_history,
+                history_mode="native",
+            )
+        if history_mode == "compat":
+            return self._request_chat_answer_once(
+                model=model,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                base_url=base_url,
+                api_key=api_key,
+                image_attachments=image_attachments,
+                conversation_messages=normalized_history,
+                history_mode="compat",
+            )
+
+        try:
+            return self._request_chat_answer_once(
+                model=model,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                base_url=base_url,
+                api_key=api_key,
+                image_attachments=image_attachments,
+                conversation_messages=normalized_history,
+                history_mode="native",
+            )
+        except DomainValidationError as exc:
+            if not self._should_retry_with_history_compat(str(exc)):
+                raise
+            return self._request_chat_answer_once(
+                model=model,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                base_url=base_url,
+                api_key=api_key,
+                image_attachments=image_attachments,
+                conversation_messages=normalized_history,
+                history_mode="compat",
+            )
+
+    def _request_chat_answer_once(
+        self,
+        *,
+        model: str | None,
+        system_prompt: str,
+        user_prompt: str,
+        base_url: str,
+        api_key: str,
+        image_attachments: list[VisionAttachment] | None,
+        conversation_messages: list[dict[str, object]],
+        history_mode: str,
+    ) -> LLMAnswer:
+        messages = self._build_initial_messages(
+            system_prompt=system_prompt,
             user_prompt=user_prompt,
             image_attachments=image_attachments,
+            conversation_messages=conversation_messages,
+            history_mode=history_mode,
         )
-        messages: list[dict[str, object]] = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_content},
-        ]
+        request_timeout = self._resolve_request_timeout(
+            user_prompt=self._resolve_timeout_prompt(
+                user_prompt=user_prompt,
+                conversation_messages=conversation_messages,
+                history_mode=history_mode,
+            )
+        )
+        return self._run_chat_completion_loop(
+            model=model,
+            messages=messages,
+            base_url=base_url,
+            api_key=api_key,
+            request_timeout=request_timeout,
+        )
+
+    def _run_chat_completion_loop(
+        self,
+        *,
+        model: str | None,
+        messages: list[dict[str, object]],
+        base_url: str,
+        api_key: str,
+        request_timeout: float,
+    ) -> LLMAnswer:
         answer_parts: list[str] = []
         content_parts: list[AssistantContentPart] = []
-        request_timeout = self._resolve_request_timeout(user_prompt=user_prompt)
 
         for _ in range(self._MAX_COMPLETION_SEGMENTS):
             payload = self._build_payload(model=model, messages=messages)
@@ -269,6 +365,57 @@ class LLMService:
             content_parts=tuple(self._coalesce_content_parts(content_parts)),
         )
 
+    def _build_initial_messages(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        image_attachments: list[VisionAttachment] | None,
+        conversation_messages: list[dict[str, object]],
+        history_mode: str,
+    ) -> list[dict[str, object]]:
+        if history_mode == "compat":
+            compat_user_prompt = self._build_history_compat_user_prompt(
+                user_prompt=user_prompt,
+                conversation_messages=conversation_messages,
+            )
+            return [
+                {"role": "system", "content": system_prompt},
+                {
+                    "role": "user",
+                    "content": self._build_user_content(
+                        user_prompt=compat_user_prompt,
+                        image_attachments=image_attachments,
+                    ),
+                },
+            ]
+
+        return [
+            {"role": "system", "content": system_prompt},
+            *conversation_messages,
+            {
+                "role": "user",
+                "content": self._build_user_content(
+                    user_prompt=user_prompt,
+                    image_attachments=image_attachments,
+                ),
+            },
+        ]
+
+    def _resolve_timeout_prompt(
+        self,
+        *,
+        user_prompt: str,
+        conversation_messages: list[dict[str, object]],
+        history_mode: str,
+    ) -> str:
+        if history_mode != "compat":
+            return user_prompt
+        return self._build_history_compat_user_prompt(
+            user_prompt=user_prompt,
+            conversation_messages=conversation_messages,
+        )
+
     def _build_user_content(
         self,
         *,
@@ -296,6 +443,67 @@ class LLMService:
         if not normalized_context:
             return message
         return f"{message}\n\nAttachment text fallback:\n{normalized_context}"
+
+    def _normalize_conversation_messages(
+        self,
+        conversation_messages: list[dict[str, object]] | None,
+    ) -> list[dict[str, object]]:
+        normalized_messages: list[dict[str, object]] = []
+        for item in conversation_messages or []:
+            if not isinstance(item, dict):
+                continue
+            role = str(item.get("role", "")).strip().lower()
+            content = item.get("content")
+            if role not in {"user", "assistant"}:
+                continue
+            if not isinstance(content, str):
+                continue
+            normalized_content = content.strip()
+            if not normalized_content:
+                continue
+            normalized_messages.append({"role": role, "content": normalized_content})
+        return normalized_messages
+
+    def _build_history_compat_user_prompt(
+        self,
+        *,
+        user_prompt: str,
+        conversation_messages: list[dict[str, object]],
+    ) -> str:
+        if not conversation_messages:
+            return user_prompt
+
+        lines = ["Conversation history:"]
+        for item in conversation_messages:
+            role = "User" if item["role"] == "user" else "Assistant"
+            lines.append(f"{role}: {item['content']}")
+        lines.append("")
+        lines.append("Current user request:")
+        lines.append(user_prompt)
+        return "\n".join(lines)
+
+    def _resolve_history_mode(self) -> str:
+        normalized = str(self.settings.llm_history_mode or "").strip().lower()
+        if normalized in {"native", "compat", "auto"}:
+            return normalized
+        return "auto"
+
+    def _should_retry_with_history_compat(self, error_message: str) -> bool:
+        normalized = error_message.lower()
+        no_retry_keywords = [
+            "api key",
+            "authentication",
+            "unauthorized",
+            "forbidden",
+            "permission denied",
+            "insufficient quota",
+            "quota exceeded",
+            "billing",
+            "rate limit",
+        ]
+        if any(keyword in normalized for keyword in no_retry_keywords):
+            return False
+        return True
 
     def _post_chat_completion(
         self,
@@ -357,8 +565,24 @@ class LLMService:
 
         text = response.text.strip()
         if text:
+            if self._looks_like_html_document(text):
+                title = self._extract_html_title(text)
+                if title:
+                    return f"Upstream provider returned an HTML error page: {title} (HTTP {response.status_code})."
+                return f"Upstream provider returned an HTML error page (HTTP {response.status_code})."
             return text
         return f"HTTP {response.status_code}"
+
+    def _looks_like_html_document(self, text: str) -> bool:
+        normalized = text.lstrip().lower()
+        return normalized.startswith("<!doctype html") or normalized.startswith("<html")
+
+    def _extract_html_title(self, text: str) -> str | None:
+        match = self._HTML_TITLE_RE.search(text)
+        if not match:
+            return None
+        title = re.sub(r"\s+", " ", match.group("title")).strip()
+        return title or None
 
     def _should_retry_without_images(self, error_message: str) -> bool:
         normalized = error_message.lower()

@@ -4,6 +4,7 @@ import base64
 import httpx
 
 from app.core.config import Settings
+from app.core.exceptions import DomainValidationError
 from app.services.llm_service import LLMService, VisionAttachment
 
 
@@ -69,6 +70,119 @@ def test_llm_service_default_uses_env_runtime_when_credentials_exist(monkeypatch
         "temperature": settings.llm_temperature,
         "max_tokens": settings.llm_max_tokens,
     }
+
+
+def test_llm_service_includes_conversation_history_before_current_user(monkeypatch) -> None:
+    captured_payload: dict[str, object] = {}
+
+    def _fake_post(url, headers, json, timeout):  # noqa: ANN001
+        captured_payload["url"] = url
+        captured_payload["headers"] = headers
+        captured_payload["json"] = json
+        captured_payload["timeout"] = timeout
+        return _FakeResponse(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": "memory-aware-answer",
+                        }
+                    }
+                ]
+            }
+        )
+
+    monkeypatch.setattr("app.services.llm_service.httpx.post", _fake_post)
+
+    settings = Settings(
+        llm_provider="mock",
+        llm_base_url="https://api.openai.com/v1",
+        llm_api_key="sk-test",
+        llm_model="gpt-4.1-mini",
+    )
+    service = LLMService(settings=settings)
+
+    answer = service.answer_chat(
+        "What project are we discussing?",
+        conversation_messages=[
+            {"role": "user", "content": "Remember that the project codename is Apollo."},
+            {"role": "assistant", "content": "Noted. The project codename is Apollo."},
+        ],
+    )
+
+    assert answer.answer == "memory-aware-answer"
+    assert captured_payload["json"]["messages"] == [  # type: ignore[index]
+        {"role": "system", "content": "You are CaiBao, a helpful enterprise assistant."},
+        {"role": "user", "content": "Remember that the project codename is Apollo."},
+        {"role": "assistant", "content": "Noted. The project codename is Apollo."},
+        {"role": "user", "content": "What project are we discussing?"},
+    ]
+
+
+def test_llm_service_auto_falls_back_to_compat_history_mode(monkeypatch) -> None:
+    captured_payloads: list[dict[str, object]] = []
+    call_count = {"count": 0}
+
+    def _fake_post(url, headers, json, timeout):  # noqa: ANN001
+        captured_payloads.append(json)
+        call_count["count"] += 1
+        if call_count["count"] == 1:
+            return _FakeResponse(
+                {"error": {"message": "openai_error"}},
+                status_code=429,
+            )
+        return _FakeResponse(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": "compat-answer",
+                        }
+                    }
+                ]
+            }
+        )
+
+    monkeypatch.setattr("app.services.llm_service.httpx.post", _fake_post)
+
+    settings = Settings(
+        llm_provider="mock",
+        llm_base_url="https://api.openai.com/v1",
+        llm_api_key="sk-test",
+        llm_model="gpt-4.1-mini",
+        llm_history_mode="auto",
+    )
+    service = LLMService(settings=settings)
+
+    answer = service.answer_chat(
+        "What project are we discussing?",
+        conversation_messages=[
+            {"role": "user", "content": "Remember that the project codename is Apollo."},
+            {"role": "assistant", "content": "Noted. The project codename is Apollo."},
+        ],
+    )
+
+    assert answer.answer == "compat-answer"
+    assert len(captured_payloads) == 2
+    assert captured_payloads[0]["messages"] == [  # type: ignore[index]
+        {"role": "system", "content": "You are CaiBao, a helpful enterprise assistant."},
+        {"role": "user", "content": "Remember that the project codename is Apollo."},
+        {"role": "assistant", "content": "Noted. The project codename is Apollo."},
+        {"role": "user", "content": "What project are we discussing?"},
+    ]
+    assert captured_payloads[1]["messages"] == [  # type: ignore[index]
+        {"role": "system", "content": "You are CaiBao, a helpful enterprise assistant."},
+        {
+            "role": "user",
+            "content": (
+                "Conversation history:\n"
+                "User: Remember that the project codename is Apollo.\n"
+                "Assistant: Noted. The project codename is Apollo.\n\n"
+                "Current user request:\n"
+                "What project are we discussing?"
+            ),
+        },
+    ]
 
 
 def test_llm_service_uses_longer_timeout_for_image_generation_prompt(monkeypatch) -> None:
@@ -455,3 +569,44 @@ def test_llm_service_inlines_remote_image_output_urls(monkeypatch) -> None:
     assert answer.content_parts[1].url == expected_data_url
     assert answer.content_parts[1].original_url == "https://cdn.example.com/generated/chart.png?signature=test"
     assert answer.content_parts[1].mime_type == "image/png"
+
+
+def test_llm_service_summarizes_html_error_pages(monkeypatch) -> None:
+    class _HtmlErrorResponse:
+        status_code = 502
+        text = "<!DOCTYPE html><html><head><title>502 Bad Gateway</title></head><body>gateway</body></html>"
+
+        def raise_for_status(self) -> None:
+            request = httpx.Request("POST", "https://api.openai.com/v1/chat/completions")
+            response = httpx.Response(
+                502,
+                request=request,
+                text=self.text,
+                headers={"content-type": "text/html"},
+            )
+            raise httpx.HTTPStatusError("request failed", request=request, response=response)
+
+        def json(self) -> dict[str, object]:
+            raise ValueError("not json")
+
+    def _fake_post(url, headers, json, timeout):  # noqa: ANN001, ARG001
+        return _HtmlErrorResponse()
+
+    monkeypatch.setattr("app.services.llm_service.httpx.post", _fake_post)
+
+    settings = Settings(
+        llm_provider="mock",
+        llm_base_url="https://api.openai.com/v1",
+        llm_api_key="sk-test",
+        llm_model="gpt-4.1-mini",
+    )
+    service = LLMService(settings=settings)
+
+    try:
+        service.answer_chat("hello")
+        raise AssertionError("expected DomainValidationError")
+    except DomainValidationError as exc:
+        message = str(exc)
+        assert "Upstream provider returned an HTML error page" in message
+        assert "502 Bad Gateway" in message
+        assert "<html" not in message.lower()

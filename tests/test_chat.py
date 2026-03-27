@@ -855,6 +855,81 @@ def test_chat_ask_extracts_markdown_image_text_into_content_parts(client, monkey
     ]
 
 
+def test_chat_ask_includes_recent_conversation_history_in_llm_payload(client, monkeypatch) -> None:
+    suffix = uuid4().hex[:8]
+    team_id, user_id, conversation_id = _create_team_user_and_conversation(client, suffix)
+
+    first_ask = client.post(
+        "/api/v1/chat/ask",
+        json={
+            "user_id": user_id,
+            "team_id": team_id,
+            "conversation_id": conversation_id,
+            "question": "Remember that the project codename is Apollo.",
+        },
+    )
+    assert first_ask.status_code == 200
+
+    upsert_model = client.post(
+        "/api/v1/llm/models",
+        json={
+            "team_id": team_id,
+            "user_id": user_id,
+            "model_name": "gpt-4.1-mini",
+            "base_url": "https://api.openai.com/v1",
+            "api_key": "sk-test",
+        },
+    )
+    assert upsert_model.status_code == 200
+
+    captured_payload: dict[str, object] = {}
+
+    class _FakeResponse:
+        def raise_for_status(self) -> None:
+            return
+
+        def json(self) -> dict[str, object]:
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": "memory-answer",
+                        }
+                    }
+                ]
+            }
+
+    def _fake_post(url, headers, json, timeout):  # noqa: ANN001
+        captured_payload["url"] = url
+        captured_payload["headers"] = headers
+        captured_payload["json"] = json
+        captured_payload["timeout"] = timeout
+        return _FakeResponse()
+
+    monkeypatch.setattr("app.services.llm_service.httpx.post", _fake_post)
+
+    second_ask = client.post(
+        "/api/v1/chat/ask",
+        json={
+            "user_id": user_id,
+            "team_id": team_id,
+            "conversation_id": conversation_id,
+            "question": "What is the project codename?",
+            "model": "gpt-4.1-mini",
+        },
+    )
+    assert second_ask.status_code == 200
+    assert second_ask.json()["answer"] == "memory-answer"
+
+    messages = captured_payload["json"]["messages"]  # type: ignore[index]
+    assert messages[1] == {"role": "user", "content": "Remember that the project codename is Apollo."}
+    assert messages[2] == {
+        "role": "assistant",
+        "content": "[Mock Chat] Remember that the project codename is Apollo.",
+    }
+    assert messages[3] == {"role": "user", "content": "What is the project codename?"}
+
+
 def test_chat_action_create_incident(client) -> None:
     suffix = uuid4().hex[:8]
     team_id = f"team_action_{suffix}"
@@ -1191,3 +1266,68 @@ def test_chat_history_edit_user_message(client) -> None:
     item_after = history_after.json()["items"][0]
     assert item_after["message_id"] == message_id
     assert item_after["request_text"] == "new text"
+
+
+def test_chat_history_edit_requires_latest_message(client) -> None:
+    suffix = uuid4().hex[:8]
+    team_id, user_id, conversation_id = _create_team_user_and_conversation(client, suffix)
+
+    first_ask = client.post(
+        "/api/v1/chat/ask",
+        json={
+            "user_id": user_id,
+            "team_id": team_id,
+            "conversation_id": conversation_id,
+            "question": "first question",
+        },
+    )
+    assert first_ask.status_code == 200
+
+    second_ask = client.post(
+        "/api/v1/chat/ask",
+        json={
+            "user_id": user_id,
+            "team_id": team_id,
+            "conversation_id": conversation_id,
+            "question": "second question",
+        },
+    )
+    assert second_ask.status_code == 200
+
+    history_response = client.get(
+        "/api/v1/chat/history",
+        params={
+            "team_id": team_id,
+            "user_id": user_id,
+            "conversation_id": conversation_id,
+            "limit": 20,
+        },
+    )
+    assert history_response.status_code == 200
+    items = history_response.json()["items"]
+    assert len(items) == 2
+
+    latest_item = items[0]
+    older_item = items[1]
+
+    stale_edit = client.put(
+        f"/api/v1/chat/history/{older_item['message_id']}",
+        json={
+            "team_id": team_id,
+            "user_id": user_id,
+            "request_text": "updated first question",
+        },
+    )
+    assert stale_edit.status_code == 400
+    assert stale_edit.json()["detail"] == "Only the latest message in a conversation can be edited or regenerated."
+
+    latest_edit = client.put(
+        f"/api/v1/chat/history/{latest_item['message_id']}",
+        json={
+            "team_id": team_id,
+            "user_id": user_id,
+            "request_text": "updated second question",
+        },
+    )
+    assert latest_edit.status_code == 200
+    assert latest_edit.json()["request_text"] == "updated second question"

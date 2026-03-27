@@ -1,6 +1,7 @@
 from app.schemas.chat import ChatAskRequest, ChatAskResponse, ChatContentPart, ChatSource
 from app.schemas.retrieval import RetrievalHit
 from app.models.document import Document
+from app.services.chat_history_service import ChatHistoryService
 from app.services.document_service import DocumentService
 from app.services.llm_model_service import LLMModelService
 from app.services.llm_service import AssistantContentPart, LLMAnswer, LLMService, VisionAttachment
@@ -12,23 +13,31 @@ class RagChatService:
     def __init__(
         self,
         user_service: UserService,
+        chat_history_service: ChatHistoryService,
         document_service: DocumentService,
         retrieval_service: RetrievalService,
         llm_service: LLMService,
         llm_model_service: LLMModelService,
     ) -> None:
         self.user_service = user_service
+        self.chat_history_service = chat_history_service
         self.document_service = document_service
         self.retrieval_service = retrieval_service
         self.llm_service = llm_service
         self.llm_model_service = llm_model_service
 
-    def ask(self, payload: ChatAskRequest) -> ChatAskResponse:
+    def ask(self, payload: ChatAskRequest, *, before_message_id: str | None = None) -> ChatAskResponse:
         self.user_service.ensure_user_in_team(
             user_id=payload.user_id,
             team_id=payload.team_id,
         )
         selected_document_ids = self._resolve_selected_document_ids(payload)
+        conversation_messages = self._build_conversation_messages(
+            team_id=payload.team_id,
+            user_id=payload.user_id,
+            conversation_id=payload.conversation_id,
+            before_message_id=before_message_id,
+        )
         scope_documents = self.document_service.get_documents_in_scope(
             team_id=payload.team_id,
             conversation_id=payload.conversation_id,
@@ -80,6 +89,7 @@ class RagChatService:
                 force_mock=force_mock,
                 image_attachments=image_attachments,
                 fallback_text_context=fallback_text_context,
+                conversation_messages=conversation_messages,
             )
             return ChatAskResponse.from_result(
                 user_id=payload.user_id,
@@ -113,6 +123,7 @@ class RagChatService:
             api_key=runtime_model.api_key if runtime_model is not None else None,
             force_mock=force_mock,
             image_attachments=image_attachments,
+            conversation_messages=conversation_messages,
         )
 
         hits = [RetrievalHit.model_validate(item) for item in raw_hits]
@@ -183,6 +194,40 @@ class RagChatService:
         if not parts:
             return None
         return "\n\n".join(parts)
+
+    def _build_conversation_messages(
+        self,
+        *,
+        team_id: str,
+        user_id: str,
+        conversation_id: str | None,
+        before_message_id: str | None,
+    ) -> list[dict[str, object]]:
+        history_turns = max(0, int(self.llm_service.settings.llm_history_turns))
+        if conversation_id is None or history_turns < 1:
+            return []
+
+        history_items = self.chat_history_service.list_messages_for_context(
+            team_id=team_id,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            limit=history_turns,
+            before_message_id=before_message_id,
+        )
+
+        messages: list[dict[str, object]] = []
+        for item in history_items:
+            channel = str(getattr(item, "channel", "")).strip().lower()
+            if channel not in {"ask", "echo"}:
+                continue
+
+            request_text = str(getattr(item, "request_text", "")).strip()
+            response_text = str(getattr(item, "response_text", "")).strip()
+            if request_text:
+                messages.append({"role": "user", "content": request_text})
+            if response_text:
+                messages.append({"role": "assistant", "content": response_text})
+        return messages
 
     def _build_content_parts(self, answer: LLMAnswer) -> list[ChatContentPart]:
         items: list[ChatContentPart] = []

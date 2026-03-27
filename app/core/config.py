@@ -1,5 +1,8 @@
+import os
+import sys
 from functools import lru_cache
 from pathlib import Path
+from urllib.parse import quote
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -7,12 +10,35 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ROOT_ENV_FILE = PROJECT_ROOT / ".env"
 
 
+def _default_runtime_root() -> Path:
+    if os.name == "nt":
+        local_appdata = os.environ.get("LOCALAPPDATA")
+        if local_appdata:
+            return Path(local_appdata) / "CaiBao"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "CaiBao"
+    xdg_data_home = os.environ.get("XDG_DATA_HOME")
+    if xdg_data_home:
+        return Path(xdg_data_home) / "CaiBao"
+    return Path.home() / ".local" / "share" / "CaiBao"
+
+
+def _sqlite_url_for_path(path: Path) -> str:
+    resolved = path.expanduser().resolve()
+    return f"sqlite:///{quote(resolved.as_posix(), safe='/:')}"
+
+
+DEFAULT_RUNTIME_ROOT = _default_runtime_root()
+DEFAULT_DATABASE_URL = _sqlite_url_for_path(DEFAULT_RUNTIME_ROOT / "CaiBao.db")
+DEFAULT_UPLOAD_ROOT_DIR = str(DEFAULT_RUNTIME_ROOT / "uploads")
+
+
 class Settings(BaseSettings):
     app_name: str = "CaiBao"
-    app_version: str = "0.12.2"
+    app_version: str = "0.13.0"
     app_env: str = "dev"
     api_prefix: str = "/api/v1"
-    database_url: str = "sqlite:///./CaiBao.db"
+    database_url: str = DEFAULT_DATABASE_URL
     dev_admin_enabled: bool = True
     dev_admin_account_id: str = "dev_admin"
     dev_admin_display_name: str = "Developer Admin"
@@ -25,6 +51,8 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.2
     llm_max_tokens: int = 2048
     llm_timeout_seconds: float = 30.0
+    llm_history_turns: int = 6
+    llm_history_mode: str = "auto"
 
     embedding_provider: str = "mock"
     embedding_base_url: str = "https://api.openai.com/v1"
@@ -33,7 +61,7 @@ class Settings(BaseSettings):
     embedding_mock_dim: int = 256
     embedding_batch_size: int = 32
     embedding_timeout_seconds: float = 30.0
-    upload_root_dir: str = "data/uploads"
+    upload_root_dir: str = DEFAULT_UPLOAD_ROOT_DIR
     upload_max_file_size_mb: int = 20
 
     model_config = SettingsConfigDict(

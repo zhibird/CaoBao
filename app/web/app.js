@@ -1066,12 +1066,14 @@ function renderCurrentConversationMessages() {
   }
 
   const ordered = [...state.history].reverse();
+  const latestMessageId = state.history[0]?.message_id || "";
   for (const item of ordered) {
+    const allowLatestEdit = item.message_id === latestMessageId && item.channel !== "action";
     appendMessage("user", item.request_text || "", {
       createdAt: item.created_at,
       messageId: item.message_id,
       channel: item.channel,
-      editable: item.channel !== "action",
+      editable: allowLatestEdit,
       deletable: true,
     });
 
@@ -1085,6 +1087,7 @@ function renderCurrentConversationMessages() {
       messageId: item.message_id,
       requestText: item.request_text || "",
       channel: item.channel,
+      regenerable: allowLatestEdit,
     });
   }
   refreshWorkspaceUi();
@@ -2432,7 +2435,7 @@ function appendMessage(role, content, options = {}) {
       copyMessageText(extractCopyText(content, contentParts)).catch((error) => showToast(error.message, true));
     }));
 
-    if (options.messageId && options.requestText) {
+    if (options.regenerable && options.messageId && options.requestText) {
       actionRail.appendChild(createMessageActionButton("重新生成", "↻", () => {
         regenerateAssistantMessage(options.messageId, options.requestText, options.channel).catch((error) => {
           showToast(error.message, true);

@@ -139,7 +139,7 @@ def edit_chat_history_message(
     chat_history_service: ChatHistoryService = Depends(get_chat_history_service),
 ) -> ChatHistoryItem:
     try:
-        message = chat_history_service.get_message(
+        message = chat_history_service.ensure_latest_message(
             message_id=message_id,
             team_id=payload.team_id,
             user_id=payload.user_id,
@@ -187,7 +187,10 @@ def edit_chat_history_message(
                 model=model,
                 embedding_model=embedding_model,
             )
-            ask_response = rag_chat_service.ask(ask_payload)
+            ask_response = rag_chat_service.ask(
+                ask_payload,
+                before_message_id=message.message_id,
+            )
 
             request_text = ask_payload.question
             response_text = ask_response.answer

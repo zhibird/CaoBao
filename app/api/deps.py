@@ -107,6 +107,7 @@ def get_chat_service(user_service: UserService = Depends(get_user_service)) -> C
 
 def get_rag_chat_service(
     user_service: UserService = Depends(get_user_service),
+    chat_history_service: ChatHistoryService = Depends(get_chat_history_service),
     document_service: DocumentService = Depends(get_document_service),
     retrieval_service: RetrievalService = Depends(get_retrieval_service),
     llm_service: LLMService = Depends(get_llm_service),
@@ -114,6 +115,7 @@ def get_rag_chat_service(
 ) -> RagChatService:
     return RagChatService(
         user_service=user_service,
+        chat_history_service=chat_history_service,
         document_service=document_service,
         retrieval_service=retrieval_service,
         llm_service=llm_service,
