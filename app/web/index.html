@@ -4,27 +4,54 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CaiBao Chat</title>
-  <link rel="stylesheet" href="/web/styles.css?v=0.12.1" />
+  <link rel="stylesheet" href="/web/styles.css?v=0.12.2&build=20260327-1" />
 </head>
 <body>
   <div class="bg-orb orb-a" aria-hidden="true"></div>
   <div class="bg-orb orb-b" aria-hidden="true"></div>
+  <div class="bg-orb orb-c" aria-hidden="true"></div>
   <div class="noise" aria-hidden="true"></div>
 
   <div class="shell">
     <aside class="sidebar">
-      <div class="sidebar-top">
+      <section class="brand-panel">
         <div class="product-badge-row">
           <div class="product-badge">CaiBao</div>
           <a class="admin-link" href="/web/admin.html" target="_blank" rel="noopener">Admin</a>
         </div>
+        <div class="brand-copy">
+          <p class="brand-kicker">Knowledge Workspace</p>
+          <h2 class="brand-title">把资料、对话与引用放进一个桌面</h2>
+          <p class="brand-desc">适合做资料问答、写方案、总结要点，也能随时追溯来源和预览原文件。</p>
+        </div>
+        <div class="sidebar-stats">
+          <article class="sidebar-stat">
+            <span>会话</span>
+            <strong id="conversationCountValue">0</strong>
+          </article>
+          <article class="sidebar-stat">
+            <span>文件</span>
+            <strong id="documentCountValue">0</strong>
+          </article>
+          <article class="sidebar-stat">
+            <span>可检索</span>
+            <strong id="readyDocumentCountValue">0</strong>
+          </article>
+        </div>
         <button id="newSessionBtn" class="primary-btn" type="button">+ 新会话</button>
+      </section>
 
-        <p class="section-title">会话列表</p>
-        <ul id="historyList" class="history-list"></ul>
+      <div class="sidebar-top">
+        <section class="sidebar-block">
+          <div class="sidebar-block-head">
+            <p id="historySectionTitle" class="section-title">会话列表</p>
+            <span class="section-chip">最近</span>
+          </div>
+          <ul id="historyList" class="history-list"></ul>
+        </section>
 
         <details class="sidebar-section" open>
-          <summary class="section-summary">本会话文件</summary>
+          <summary id="documentSectionTitle" class="section-summary">本会话文件</summary>
           <ul id="documentList" class="document-list"></ul>
         </details>
       </div>
@@ -40,39 +67,81 @@
 
     <main class="main-pane">
       <header class="main-topbar">
-        <div class="picker-group">
-          <label for="modelSelect">模型</label>
-          <select id="modelSelect" aria-label="选择模型"></select>
+        <div class="workspace-intro">
+          <div id="workspaceEyebrow" class="workspace-eyebrow">Document-native AI Workspace</div>
+          <h1 class="workspace-title">资料驱动的 AI 工作台</h1>
+          <p id="workspaceDescription" class="workspace-description">导入资料、限定检索范围、生成答案与方案，并保留引用来源。</p>
         </div>
+        <div class="topbar-controls">
+          <div class="picker-group">
+            <label for="modelSelect">模型</label>
+            <select id="modelSelect" aria-label="选择模型"></select>
+          </div>
 
-        <div class="picker-group">
-          <label for="embeddingSelect">向量模型</label>
-          <select id="embeddingSelect" aria-label="选择向量模型"></select>
+          <div class="picker-group">
+            <label for="embeddingSelect">向量模型</label>
+            <select id="embeddingSelect" aria-label="选择向量模型"></select>
+          </div>
+
+          <button id="refreshAllBtn" class="ghost-btn" type="button">刷新数据</button>
         </div>
-
-        <button id="refreshAllBtn" class="ghost-btn" type="button">刷新数据</button>
       </header>
 
       <section class="conversation">
-        <h1 id="heroTitle">有什么我能帮你的？</h1>
-        <div id="scenarioCards" class="scenario-cards">
-          <button class="scenario-card" type="button" data-scene="summary">
-            <strong>总结资料</strong>
-            <span>快速提炼重点、风险和行动项</span>
-          </button>
-          <button class="scenario-card" type="button" data-scene="plan">
-            <strong>写方案</strong>
-            <span>生成目标、里程碑、资源和验收标准</span>
-          </button>
-          <button class="scenario-card" type="button" data-scene="qa">
-            <strong>知识问答</strong>
-            <span>基于本会话文件进行问答</span>
-          </button>
+        <div class="conversation-glow" aria-hidden="true"></div>
+        <div class="conversation-inner">
+          <section id="heroPanel" class="hero-panel">
+            <div class="hero-copy">
+              <div class="hero-kicker">CaiBao Workspace</div>
+              <h2 id="heroTitle">把问题、资料和行动建议放在同一个工作台里</h2>
+              <p id="heroSubtitle" class="hero-subtitle">上传文档后即可做总结、问答或方案生成，回答会自动附带来源卡片。</p>
+            </div>
+
+            <div class="hero-metrics">
+              <article class="hero-metric">
+                <span>账户</span>
+                <strong id="heroAccount">未登录</strong>
+                <small id="heroAccountHint">点击左下角登录或切换账户</small>
+              </article>
+              <article class="hero-metric">
+                <span>当前模型</span>
+                <strong id="heroModel">default</strong>
+                <small id="heroEmbedding">向量：default</small>
+              </article>
+              <article class="hero-metric">
+                <span>资料范围</span>
+                <strong id="heroScope">0 个文件</strong>
+                <small id="heroScopeHint">上传资料后即可按文件范围检索</small>
+              </article>
+            </div>
+
+            <div id="scenarioCards" class="scenario-cards">
+              <button class="scenario-card" type="button" data-scene="summary">
+                <strong>总结资料</strong>
+                <span>快速提炼重点、风险和行动项</span>
+              </button>
+              <button class="scenario-card" type="button" data-scene="plan">
+                <strong>写方案</strong>
+                <span>生成目标、里程碑、资源和验收标准</span>
+              </button>
+              <button class="scenario-card" type="button" data-scene="qa">
+                <strong>知识问答</strong>
+                <span>基于本会话文件进行问答</span>
+              </button>
+            </div>
+          </section>
+
+          <div id="messageList" class="message-list"></div>
         </div>
-        <div id="messageList" class="message-list"></div>
       </section>
 
       <section class="composer-zone">
+        <div class="composer-status-row">
+          <div id="composerPresence" class="composer-status-pill">尚未登录</div>
+          <div id="composerScope" class="composer-status-pill">资料范围 · 0 个文件</div>
+          <div id="composerModel" class="composer-status-pill">模型 · default / default</div>
+        </div>
+
         <div id="attachmentStrip" class="attachment-strip"></div>
 
         <div id="attachMenu" class="attach-menu hidden" role="menu" aria-label="添加附件">
@@ -99,7 +168,13 @@
 
         <div class="composer">
           <button id="toggleImportBtn" class="icon-btn" type="button" title="添加附件">+</button>
-          <textarea id="messageInput" rows="1" placeholder="输入你的问题，Enter 发送，Shift+Enter 换行"></textarea>
+          <div class="composer-input-shell">
+            <textarea id="messageInput" rows="1" placeholder="输入你的问题，Enter 发送，Shift+Enter 换行"></textarea>
+            <div class="composer-footnote">
+              <span id="composerHint">支持拖拽上传、粘贴文本和双击附件预览</span>
+              <span class="composer-shortcut">Enter 发送 / Shift+Enter 换行</span>
+            </div>
+          </div>
           <button id="sendBtn" class="send-btn" type="button">发送</button>
         </div>
       </section>
@@ -172,6 +247,6 @@
 
   <div id="toast" class="toast hidden"></div>
 
-  <script src="/web/app.js?v=0.12.1" defer></script>
+  <script src="/web/app.js?v=0.12.2&build=20260327-1" defer></script>
 </body>
 </html>

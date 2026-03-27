@@ -7,6 +7,7 @@ const MOCK_EMBEDDING_ID = "mock";
 const ADD_EMBEDDING_OPTION = "__add_embedding_model__";
 const DOCUMENT_STATUS_POLL_INTERVAL_MS = 2000;
 const DOCUMENT_STATUS_POLL_TIMEOUT_MS = 120000;
+const DEFAULT_CONVERSATION_TITLE = "新会话";
 
 const STORAGE_KEYS = {
   teamId: "caibao.teamId",
@@ -39,6 +40,7 @@ const state = {
 
 const els = {};
 let toastTimer = null;
+let pendingAssistantRow = null;
 
 document.addEventListener("DOMContentLoaded", () => {
   bindElements();
@@ -48,6 +50,8 @@ document.addEventListener("DOMContentLoaded", () => {
   initModelOptions();
   initEmbeddingOptions();
   renderAttachmentStrip();
+  syncSendButtonState();
+  refreshWorkspaceUi();
 
   if (state.teamId && state.userId) {
     loadAllData().catch((error) => showToast(error.message, true));
@@ -57,19 +61,40 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 function bindElements() {
+  els.shell = document.querySelector(".shell");
+  els.conversation = document.querySelector(".conversation");
   els.historyList = document.getElementById("historyList");
   els.documentList = document.getElementById("documentList");
+  els.historySectionTitle = document.getElementById("historySectionTitle");
+  els.documentSectionTitle = document.getElementById("documentSectionTitle");
+  els.conversationCountValue = document.getElementById("conversationCountValue");
+  els.documentCountValue = document.getElementById("documentCountValue");
+  els.readyDocumentCountValue = document.getElementById("readyDocumentCountValue");
   els.profileBtn = document.getElementById("profileBtn");
   els.profileName = document.getElementById("profileName");
   els.profileTeam = document.getElementById("profileTeam");
   els.avatarText = document.getElementById("avatarText");
+  els.workspaceEyebrow = document.getElementById("workspaceEyebrow");
+  els.workspaceDescription = document.getElementById("workspaceDescription");
+  els.heroPanel = document.getElementById("heroPanel");
   els.modelSelect = document.getElementById("modelSelect");
   els.embeddingSelect = document.getElementById("embeddingSelect");
   els.refreshAllBtn = document.getElementById("refreshAllBtn");
   els.heroTitle = document.getElementById("heroTitle");
+  els.heroSubtitle = document.getElementById("heroSubtitle");
+  els.heroAccount = document.getElementById("heroAccount");
+  els.heroAccountHint = document.getElementById("heroAccountHint");
+  els.heroModel = document.getElementById("heroModel");
+  els.heroEmbedding = document.getElementById("heroEmbedding");
+  els.heroScope = document.getElementById("heroScope");
+  els.heroScopeHint = document.getElementById("heroScopeHint");
   els.scenarioCards = document.getElementById("scenarioCards");
   els.messageList = document.getElementById("messageList");
   els.composerZone = document.querySelector(".composer-zone");
+  els.composerPresence = document.getElementById("composerPresence");
+  els.composerScope = document.getElementById("composerScope");
+  els.composerModel = document.getElementById("composerModel");
+  els.composerHint = document.getElementById("composerHint");
   els.newSessionBtn = document.getElementById("newSessionBtn");
   els.toggleImportBtn = document.getElementById("toggleImportBtn");
   els.attachMenu = document.getElementById("attachMenu");
@@ -218,6 +243,20 @@ function hydrateState() {
   state.conversationId = localStorage.getItem(STORAGE_KEYS.conversationId) || "";
   state.selectedModel = loadSelectedModelFromStorage();
   state.selectedEmbedding = loadSelectedEmbeddingFromStorage();
+
+  // Backfill old localStorage shape so older sessions do not appear half-logged-in.
+  if (state.teamId && !state.userId) {
+    state.userId = state.teamId;
+  }
+  if (!state.displayName && state.teamName) {
+    state.displayName = state.teamName;
+  }
+  if (!state.teamName && state.displayName) {
+    state.teamName = state.displayName;
+  }
+  if (state.teamId || state.userId || state.displayName || state.teamName) {
+    persistIdentity();
+  }
 }
 
 function persistIdentity() {
@@ -269,6 +308,175 @@ function updateIdentityCard() {
   els.avatarText.textContent = name.slice(0, 1) || "未";
   els.accountIdInput.value = accountId || "";
   els.accountNameInput.value = accountId ? name : "";
+  refreshWorkspaceUi();
+}
+
+function getActiveConversation() {
+  return state.conversations.find((item) => item.conversation_id === state.conversationId) || null;
+}
+
+function getReadyDocumentCount() {
+  return state.documents.filter((doc) => normalizeStatus(doc.status) === "ready").length;
+}
+
+function getProcessingDocumentCount() {
+  return state.documents.filter((doc) => {
+    const status = normalizeStatus(doc.status);
+    return !["ready", "failed", "deleted"].includes(status);
+  }).length;
+}
+
+function formatModelDisplayName(model) {
+  return formatModelOptionLabel(model || DEFAULT_MODEL_ID).replace(" (.env)", "");
+}
+
+function formatEmbeddingDisplayName(model) {
+  return formatEmbeddingOptionLabel(model || DEFAULT_EMBEDDING_ID).replace(" (.env)", "");
+}
+
+function getDocumentScopeSummary() {
+  const readyCount = getReadyDocumentCount();
+  const processingCount = getProcessingDocumentCount();
+  const explicitSelected = getExplicitSelectedDocumentIds();
+
+  if (!readyCount) {
+    if (state.documents.length) {
+      return {
+        label: "等待文件就绪",
+        hint: processingCount
+          ? `${processingCount} 个文件仍在处理中，完成后会自动参与检索`
+          : "当前没有可检索的 ready 文件，请检查处理状态",
+      };
+    }
+    return {
+      label: "0 个文件",
+      hint: "上传资料后即可按文件范围检索、问答和总结",
+    };
+  }
+
+  if (explicitSelected.length) {
+    return {
+      label: `${explicitSelected.length} 个指定文件`,
+      hint: "本轮只检索选中的 ready 文件，范围更精确",
+    };
+  }
+
+  return {
+    label: `${readyCount} 个 ready 文件`,
+    hint: processingCount
+      ? `默认检索全部 ready 文件，另有 ${processingCount} 个文件正在处理中`
+      : "默认检索本会话全部 ready 文件，也可以手动缩小范围",
+  };
+}
+
+function refreshWorkspaceUi() {
+  const loggedIn = ensureIdentity();
+  const activeConversation = getActiveConversation();
+  const readyCount = getReadyDocumentCount();
+  const scope = getDocumentScopeSummary();
+  const activeTitle = activeConversation?.title || DEFAULT_CONVERSATION_TITLE;
+
+  if (els.historySectionTitle) {
+    els.historySectionTitle.textContent = state.conversations.length
+      ? `会话列表 · ${state.conversations.length}`
+      : "会话列表";
+  }
+  if (els.documentSectionTitle) {
+    els.documentSectionTitle.textContent = state.documents.length
+      ? `本会话文件 · ${state.documents.length}`
+      : "本会话文件";
+  }
+  if (els.conversationCountValue) {
+    els.conversationCountValue.textContent = String(state.conversations.length);
+  }
+  if (els.documentCountValue) {
+    els.documentCountValue.textContent = String(state.documents.length);
+  }
+  if (els.readyDocumentCountValue) {
+    els.readyDocumentCountValue.textContent = String(readyCount);
+  }
+
+  if (els.workspaceEyebrow) {
+    els.workspaceEyebrow.textContent = loggedIn
+      ? `当前账户 · ${state.teamId}`
+      : "Document-native AI Workspace";
+  }
+  if (els.workspaceDescription) {
+    if (!loggedIn) {
+      els.workspaceDescription.textContent = "登录后可导入文档、限定检索范围、查看引用来源并生成方案。";
+    } else {
+      const desc = [activeTitle];
+      if (state.history.length) {
+        desc.push(`${state.history.length} 轮对话`);
+      }
+      desc.push(scope.label);
+      els.workspaceDescription.textContent = desc.join(" · ");
+    }
+  }
+
+  if (els.heroTitle) {
+    if (!loggedIn) {
+      els.heroTitle.textContent = "登录后开始你的资料工作流";
+    } else if (!state.documents.length) {
+      els.heroTitle.textContent = "先把资料放进来，再开始提问";
+    } else if (!readyCount) {
+      els.heroTitle.textContent = "资料处理中，稍后就能直接检索";
+    } else {
+      els.heroTitle.textContent = "把问题、资料和行动建议放在同一个工作台里";
+    }
+  }
+  if (els.heroSubtitle) {
+    if (!loggedIn) {
+      els.heroSubtitle.textContent = "CaiBao 支持文件导入、引用溯源、图片预览和多模型切换。";
+    } else {
+      els.heroSubtitle.textContent = scope.hint;
+    }
+  }
+  if (els.heroAccount) {
+    els.heroAccount.textContent = state.displayName || state.teamName || "未登录";
+  }
+  if (els.heroAccountHint) {
+    els.heroAccountHint.textContent = loggedIn
+      ? `account: ${state.teamId}`
+      : "点击左下角登录或切换账户";
+  }
+  if (els.heroModel) {
+    els.heroModel.textContent = formatModelDisplayName(state.selectedModel);
+  }
+  if (els.heroEmbedding) {
+    els.heroEmbedding.textContent = `向量：${formatEmbeddingDisplayName(state.selectedEmbedding)}`;
+  }
+  if (els.heroScope) {
+    els.heroScope.textContent = scope.label;
+  }
+  if (els.heroScopeHint) {
+    els.heroScopeHint.textContent = scope.hint;
+  }
+
+  if (els.composerPresence) {
+    els.composerPresence.textContent = state.sending
+      ? "CaiBao 正在整理回答"
+      : (loggedIn ? `账户 · ${state.displayName || state.teamId}` : "尚未登录");
+  }
+  if (els.composerScope) {
+    els.composerScope.textContent = `资料范围 · ${scope.label}`;
+  }
+  if (els.composerModel) {
+    els.composerModel.textContent = `模型 · ${formatModelDisplayName(state.selectedModel)} / ${formatEmbeddingDisplayName(state.selectedEmbedding)}`;
+  }
+  if (els.composerHint) {
+    if (state.importing) {
+      els.composerHint.textContent = "正在处理新资料，完成后会自动加入本会话检索范围。";
+    } else if (!readyCount) {
+      els.composerHint.textContent = "支持拖拽上传、粘贴文本和双击附件预览。";
+    } else {
+      els.composerHint.textContent = "回答会附带来源卡片，双击附件可快速预览原文。";
+    }
+  }
+
+  if (els.shell) {
+    els.shell.classList.toggle("has-history", Boolean(state.history.length || pendingAssistantRow));
+  }
 }
 
 function initModelOptions() {
@@ -291,6 +499,7 @@ function initModelOptions() {
   state.selectedModel = allModels.includes(state.selectedModel) ? state.selectedModel : DEFAULT_MODEL_ID;
   els.modelSelect.value = state.selectedModel;
   persistSelectedModel();
+  refreshWorkspaceUi();
 }
 
 function initEmbeddingOptions() {
@@ -313,6 +522,7 @@ function initEmbeddingOptions() {
   state.selectedEmbedding = allModels.includes(state.selectedEmbedding) ? state.selectedEmbedding : DEFAULT_EMBEDDING_ID;
   els.embeddingSelect.value = state.selectedEmbedding;
   persistSelectedEmbedding();
+  refreshWorkspaceUi();
 }
 
 function formatModelOptionLabel(model) {
@@ -558,6 +768,7 @@ async function loadAllData() {
   await loadConversations();
   await ensureActiveConversation();
   await Promise.all([loadHistory(), loadDocuments()]);
+  refreshWorkspaceUi();
 }
 
 async function loadModelConfigs() {
@@ -621,12 +832,16 @@ function renderConversationList() {
   els.historyList.innerHTML = "";
   if (!state.conversations.length) {
     appendEmpty(els.historyList, "暂无会话");
+    refreshWorkspaceUi();
     return;
   }
 
   for (const item of state.conversations) {
     const li = document.createElement("li");
+    li.className = "history-item";
+    li.tabIndex = 0;
     li.classList.toggle("active", item.conversation_id === state.conversationId);
+    li.classList.toggle("pinned", Boolean(item.is_pinned));
 
     const row = document.createElement("div");
     row.className = "history-row";
@@ -638,7 +853,8 @@ function renderConversationList() {
     title.type = "button";
     title.className = "doc-card-action";
     title.textContent = item.title || "新会话";
-    title.addEventListener("click", () => {
+    title.addEventListener("click", (event) => {
+      event.stopPropagation();
       switchConversation(item.conversation_id).catch((error) => showToast(error.message, true));
     });
     titleWrap.appendChild(title);
@@ -684,11 +900,35 @@ function renderConversationList() {
 
     const meta = document.createElement("div");
     meta.className = "history-meta";
-    meta.textContent = `${item.status || "active"} · ${formatTime(item.created_at)}`;
+    const metaParts = [];
+    if (item.conversation_id === state.conversationId) {
+      metaParts.push("当前会话");
+    }
+    metaParts.push(item.status || "active", formatTime(item.created_at));
+    meta.textContent = metaParts.join(" · ");
     li.appendChild(meta);
+
+    li.addEventListener("click", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) {
+        return;
+      }
+      if (target.closest(".history-menu")) {
+        return;
+      }
+      switchConversation(item.conversation_id).catch((error) => showToast(error.message, true));
+    });
+    li.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") {
+        return;
+      }
+      event.preventDefault();
+      switchConversation(item.conversation_id).catch((error) => showToast(error.message, true));
+    });
 
     els.historyList.appendChild(li);
   }
+  refreshWorkspaceUi();
 }
 
 function createHistoryActionButton(label, onClick, danger = false) {
@@ -821,6 +1061,7 @@ async function loadHistory() {
 function renderCurrentConversationMessages() {
   clearConversation();
   if (!state.history.length) {
+    refreshWorkspaceUi();
     return;
   }
 
@@ -846,6 +1087,7 @@ function renderCurrentConversationMessages() {
       channel: item.channel,
     });
   }
+  refreshWorkspaceUi();
 }
 
 async function deleteHistoryMessage(messageId) {
@@ -990,11 +1232,13 @@ function renderDocuments() {
 
   if (!state.documents.length) {
     appendEmpty(els.documentList, "还没有导入文件");
+    refreshWorkspaceUi();
     return;
   }
 
   for (const doc of state.documents) {
     const li = document.createElement("li");
+    li.className = `document-item ${normalizeStatus(doc.status)}`;
 
     const head = document.createElement("div");
     head.className = "doc-card-head";
@@ -1004,22 +1248,17 @@ function renderDocuments() {
     titleBtn.className = "doc-card-action";
     titleBtn.textContent = doc.source_name;
     titleBtn.addEventListener("click", () => {
-      openSourcePreview({
-        document_id: doc.document_id,
-        source_name: doc.source_name,
-        chunk_index: null,
-        snippet: null,
-      }).catch((error) => showToast(error.message, true));
+      openDocumentPreview(doc).catch((error) => showToast(error.message, true));
     });
 
-    const status = document.createElement("span");
-    status.className = `doc-status ${normalizeStatus(doc.status)}`;
-    status.textContent = formatStatusLabel(doc.status);
-    head.append(titleBtn, status);
+    const statusBadge = document.createElement("span");
+    statusBadge.className = `doc-status ${normalizeStatus(doc.status)}`;
+    statusBadge.textContent = formatStatusLabel(doc.status);
+    head.append(titleBtn, statusBadge);
 
     const meta = document.createElement("div");
     meta.className = "doc-meta";
-    meta.textContent = `${doc.content_type} · ${formatTime(doc.created_at)}`;
+    meta.textContent = `${formatContentTypeLabel(doc.content_type)} · ${formatBytes(doc.size_bytes)} · ${formatTime(doc.created_at)}`;
 
     const actions = document.createElement("div");
     actions.className = "doc-card-actions";
@@ -1029,12 +1268,7 @@ function renderDocuments() {
     previewBtn.className = "doc-card-action";
     previewBtn.textContent = "预览";
     previewBtn.addEventListener("click", () => {
-      openSourcePreview({
-        document_id: doc.document_id,
-        source_name: doc.source_name,
-        chunk_index: null,
-        snippet: null,
-      }).catch((error) => showToast(error.message, true));
+      openDocumentPreview(doc).catch((error) => showToast(error.message, true));
     });
 
     const deleteBtn = document.createElement("button");
@@ -1046,9 +1280,25 @@ function renderDocuments() {
     });
 
     actions.append(previewBtn, deleteBtn);
-    li.append(head, meta, actions);
+    li.append(head, meta);
+
+    const normalizedStatus = normalizeStatus(doc.status);
+    if (normalizedStatus === "failed" && (doc.error_message || doc.error_code)) {
+      const note = document.createElement("div");
+      note.className = "doc-note error";
+      note.textContent = doc.error_message || doc.error_code;
+      li.appendChild(note);
+    } else if (normalizedStatus !== "ready" && normalizedStatus !== "deleted") {
+      const note = document.createElement("div");
+      note.className = "doc-note";
+      note.textContent = "处理中，完成后会自动加入检索范围。";
+      li.appendChild(note);
+    }
+
+    li.appendChild(actions);
     els.documentList.appendChild(li);
   }
+  refreshWorkspaceUi();
 }
 
 function renderAttachmentStrip() {
@@ -1056,6 +1306,7 @@ function renderAttachmentStrip() {
 
   if (!state.documents.length) {
     els.attachmentStrip.classList.add("hidden");
+    refreshWorkspaceUi();
     return;
   }
 
@@ -1063,10 +1314,16 @@ function renderAttachmentStrip() {
 
   const helper = document.createElement("div");
   helper.className = "attachment-helper";
+  const readyCount = getReadyDocumentCount();
+  const processingCount = getProcessingDocumentCount();
   if (state.selectedDocumentIds.length) {
     helper.textContent = `本轮已选 ${state.selectedDocumentIds.length} 个文件，发送时只检索这些文件。`;
+  } else if (!readyCount) {
+    helper.textContent = processingCount
+      ? `当前有 ${processingCount} 个文件处理中。双击附件可预览，完成后会自动可检索。`
+      : "当前还没有 ready 文件。上传资料后即可问答或生成总结。";
   } else {
-    helper.textContent = "默认自动使用本会话全部 ready 文件。点选附件可切换为本轮精确范围。";
+    helper.textContent = `默认检索本会话全部 ${readyCount} 个 ready 文件。单击附件切换范围，双击可预览。`;
   }
   els.attachmentStrip.appendChild(helper);
 
@@ -1080,7 +1337,28 @@ function renderAttachmentStrip() {
     const mainBtn = document.createElement("button");
     mainBtn.type = "button";
     mainBtn.className = "doc-chip-main";
-    mainBtn.addEventListener("click", () => handleChipClick(doc));
+    mainBtn.title = normalizeStatus(doc.status) === "ready"
+      ? `单击选择，双击预览 ${doc.source_name}`
+      : `双击预览 ${doc.source_name}`;
+
+    let clickTimer = null;
+    mainBtn.addEventListener("click", () => {
+      if (clickTimer !== null) {
+        window.clearTimeout(clickTimer);
+      }
+      clickTimer = window.setTimeout(() => {
+        clickTimer = null;
+        handleChipClick(doc);
+      }, 220);
+    });
+    mainBtn.addEventListener("dblclick", (event) => {
+      event.preventDefault();
+      if (clickTimer !== null) {
+        window.clearTimeout(clickTimer);
+        clickTimer = null;
+      }
+      openDocumentPreview(doc).catch((error) => showToast(error.message, true));
+    });
 
     const name = document.createElement("span");
     name.className = "doc-chip-name";
@@ -1107,19 +1385,24 @@ function renderAttachmentStrip() {
   }
 
   els.attachmentStrip.appendChild(list);
+  refreshWorkspaceUi();
 }
 
 function handleChipClick(doc) {
   if (normalizeStatus(doc.status) !== "ready") {
-    openSourcePreview({
-      document_id: doc.document_id,
-      source_name: doc.source_name,
-      chunk_index: null,
-      snippet: null,
-    }).catch((error) => showToast(error.message, true));
+    openDocumentPreview(doc).catch((error) => showToast(error.message, true));
     return;
   }
   toggleDocumentSelection(doc.document_id);
+}
+
+function openDocumentPreview(doc) {
+  return openSourcePreview({
+    document_id: doc.document_id,
+    source_name: doc.source_name,
+    chunk_index: null,
+    snippet: null,
+  });
 }
 
 function toggleDocumentSelection(documentId) {
@@ -1367,8 +1650,8 @@ async function openSourcePreview(source) {
     || (Number.isInteger(source.page_no) ? `Page ${Number(source.page_no)}` : null);
   const metaLines = [
     `状态：${formatStatusLabel(doc.status)}`,
-    `类型：${doc.content_type}${doc.mime_type ? ` (${doc.mime_type})` : ""}`,
-    Number.isFinite(Number(doc.size_bytes)) ? `大小：${Math.max(0, Number(doc.size_bytes))} bytes` : null,
+    `类型：${formatContentTypeLabel(doc.content_type)}${doc.mime_type ? ` (${doc.mime_type})` : ""}`,
+    Number.isFinite(Number(doc.size_bytes)) ? `大小：${formatBytes(doc.size_bytes)}` : null,
     Number.isInteger(doc.page_count) ? `页数：${doc.page_count}` : null,
     pageLabel || (source.chunk_index === null || source.chunk_index === undefined ? null : `定位：第 ${Number(source.chunk_index) + 1} 段`),
     doc.error_message ? `错误：${doc.error_message}` : null,
@@ -1507,6 +1790,42 @@ async function ensureConversationReady() {
   await ensureActiveConversation();
 }
 
+function syncSendButtonState() {
+  if (!els.sendBtn) {
+    return;
+  }
+  els.sendBtn.disabled = state.sending;
+  els.sendBtn.textContent = state.sending ? "生成中..." : "发送";
+  els.sendBtn.classList.toggle("loading", state.sending);
+  refreshWorkspaceUi();
+}
+
+async function maybeAutoTitleConversation(question) {
+  const activeConversation = getActiveConversation();
+  if (!activeConversation || !state.conversationId) {
+    return;
+  }
+
+  const currentTitle = String(activeConversation.title || "").trim();
+  if (currentTitle && currentTitle !== DEFAULT_CONVERSATION_TITLE) {
+    return;
+  }
+
+  const normalizedTitle = truncate(String(question || "").replace(/\s+/g, " ").trim(), 22);
+  if (!normalizedTitle || normalizedTitle === currentTitle) {
+    return;
+  }
+
+  await apiRequest(`/conversations/${encodeURIComponent(state.conversationId)}`, {
+    method: "PATCH",
+    body: {
+      team_id: state.teamId,
+      user_id: state.userId,
+      title: normalizedTitle,
+    },
+  });
+}
+
 async function handleSend() {
   const question = els.messageInput.value.trim();
   if (!question || state.sending) {
@@ -1521,9 +1840,14 @@ async function handleSend() {
 
   await ensureConversationReady();
   state.sending = true;
-  els.sendBtn.disabled = true;
+  syncSendButtonState();
 
   appendMessage("user", question);
+  appendPendingAssistantMessage(
+    getExplicitSelectedDocumentIds().length
+      ? "正在基于选中文件检索并生成回答…"
+      : "正在结合本会话资料整理回答…"
+  );
   els.messageInput.value = "";
   autoGrowTextarea();
 
@@ -1546,27 +1870,26 @@ async function handleSend() {
       payload.selected_document_ids = selectedDocumentIds;
     }
 
-    const response = await apiRequest("/chat/ask", {
+    await apiRequest("/chat/ask", {
       method: "POST",
       body: payload,
     });
-
-    appendMessage("assistant", response.answer || "", {
-      contentParts: normalizeResponseContentParts(response),
-      sources: normalizeResponseSources(response),
-      mode: response.mode || "",
-      model: response.model || state.selectedModel,
-    });
-
-    await loadHistory();
+    removePendingAssistantMessage();
+    await Promise.all([
+      loadHistory(),
+      maybeAutoTitleConversation(question).catch(() => null),
+    ]);
+    await loadConversations();
   } catch (error) {
+    removePendingAssistantMessage();
     const message = String(error.message || "发送失败");
     const fallbackResult = await tryEchoFallback(question, message);
     if (fallbackResult) {
-      appendMessage("assistant", fallbackResult.answer, {
-        model: "offline-echo",
-      });
-      await loadHistory();
+      await Promise.all([
+        loadHistory(),
+        maybeAutoTitleConversation(question).catch(() => null),
+      ]);
+      await loadConversations();
       showToast(fallbackResult.notice);
     } else {
       appendMessage("assistant", `请求失败：${message}`);
@@ -1574,7 +1897,7 @@ async function handleSend() {
     }
   } finally {
     state.sending = false;
-    els.sendBtn.disabled = false;
+    syncSendButtonState();
   }
 }
 
@@ -1682,6 +2005,7 @@ async function importDocumentWithContent({ sourceName, content, contentType }) {
   await ensureConversationReady();
   state.importing = true;
   setButtonLoading(els.importBtn, true, "导入中...");
+  refreshWorkspaceUi();
 
   try {
     const doc = await apiRequest("/documents/import", {
@@ -1714,6 +2038,7 @@ async function importDocumentWithContent({ sourceName, content, contentType }) {
   } finally {
     state.importing = false;
     setButtonLoading(els.importBtn, false, "导入");
+    refreshWorkspaceUi();
   }
 }
 
@@ -1769,6 +2094,7 @@ async function uploadDocumentFile(file) {
   await ensureConversationReady();
   state.importing = true;
   setButtonLoading(els.importBtn, true, "上传中...");
+  refreshWorkspaceUi();
 
   try {
     const formData = new FormData();
@@ -1798,6 +2124,7 @@ async function uploadDocumentFile(file) {
   } finally {
     state.importing = false;
     setButtonLoading(els.importBtn, false, "导入");
+    refreshWorkspaceUi();
   }
 }
 
@@ -1901,6 +2228,93 @@ async function pollDocumentsUntilSettled(documentIds) {
   }
 }
 
+function createMessageShell(role, speakerName) {
+  const shell = document.createElement("div");
+  shell.className = "message-shell";
+
+  const avatar = document.createElement("div");
+  avatar.className = `message-avatar ${role}`;
+  avatar.textContent = role === "user"
+    ? (speakerName || "你").slice(0, 1)
+    : "宝";
+
+  const column = document.createElement("div");
+  column.className = "message-column";
+
+  if (role === "user") {
+    shell.append(column, avatar);
+  } else {
+    shell.append(avatar, column);
+  }
+
+  return { shell, column };
+}
+
+function appendPendingAssistantMessage(label = "正在结合资料整理回答…") {
+  removePendingAssistantMessage();
+  setHeroVisible(false);
+
+  const row = document.createElement("div");
+  row.className = "message-row assistant pending";
+
+  const { shell, column } = createMessageShell("assistant", "CaiBao");
+
+  const message = document.createElement("article");
+  message.className = "message assistant pending";
+
+  const head = document.createElement("div");
+  head.className = "message-head";
+
+  const left = document.createElement("span");
+  left.textContent = "CaiBao";
+
+  const right = document.createElement("span");
+  right.textContent = "处理中";
+
+  head.append(left, right);
+
+  const body = document.createElement("div");
+  body.className = "message-body pending-body";
+
+  const indicator = document.createElement("div");
+  indicator.className = "pending-indicator";
+  for (let index = 0; index < 3; index += 1) {
+    const dot = document.createElement("span");
+    dot.className = "pending-dot";
+    indicator.appendChild(dot);
+  }
+
+  const text = document.createElement("div");
+  text.className = "pending-text";
+  text.textContent = label;
+
+  const skeleton = document.createElement("div");
+  skeleton.className = "pending-skeleton";
+  for (let index = 0; index < 2; index += 1) {
+    const line = document.createElement("span");
+    line.className = "pending-line";
+    skeleton.appendChild(line);
+  }
+
+  body.append(indicator, text, skeleton);
+  message.append(head, body);
+  column.appendChild(message);
+  row.appendChild(shell);
+
+  pendingAssistantRow = row;
+  els.messageList.appendChild(row);
+  refreshWorkspaceUi();
+  scrollToBottom();
+}
+
+function removePendingAssistantMessage() {
+  if (pendingAssistantRow?.parentNode) {
+    pendingAssistantRow.parentNode.removeChild(pendingAssistantRow);
+  }
+  pendingAssistantRow = null;
+  refreshWorkspaceUi();
+}
+
 function appendMessage(role, content, options = {}) {
   const contentParts = role === "assistant" ? normalizeContentParts(options.contentParts) : [];
   if (!content && !contentParts.length) {
@@ -1912,6 +2326,9 @@ function appendMessage(role, content, options = {}) {
   const row = document.createElement("div");
   row.className = `message-row ${role}`;
 
+  const speakerName = role === "user" ? (state.displayName || "你") : "CaiBao";
+  const { shell, column } = createMessageShell(role, speakerName);
+
   const message = document.createElement("article");
   message.className = `message ${role}`;
 
@@ -1919,7 +2336,7 @@ function appendMessage(role, content, options = {}) {
   head.className = "message-head";
 
   const left = document.createElement("span");
-  left.textContent = role === "user" ? state.displayName || "你" : "CaiBao";
+  left.textContent = speakerName;
 
   const createdDate = options.createdAt ? new Date(options.createdAt) : new Date();
   const timeText = Number.isNaN(createdDate.valueOf()) ? formatClock(new Date()) : formatClock(createdDate);
@@ -1990,8 +2407,6 @@ function appendMessage(role, content, options = {}) {
     message.appendChild(sourceBox);
   }
 
-  row.appendChild(message);
-
   const actionRail = document.createElement("div");
   actionRail.className = "message-action-rail";
 
@@ -2027,10 +2442,13 @@ function appendMessage(role, content, options = {}) {
   }
 
   if (actionRail.childElementCount > 0) {
-    row.appendChild(actionRail);
+    column.appendChild(actionRail);
   }
 
+  column.prepend(message);
+  row.appendChild(shell);
   els.messageList.appendChild(row);
+  refreshWorkspaceUi();
   scrollToBottom();
 }
 
@@ -2192,13 +2610,19 @@ function normalizeRenderableImageUrl(value) {
 }
 
 function clearConversation() {
+  removePendingAssistantMessage();
   els.messageList.innerHTML = "";
   setHeroVisible(true);
+  refreshWorkspaceUi();
 }
 
 function setHeroVisible(visible) {
-  els.heroTitle.style.display = visible ? "block" : "none";
-  els.scenarioCards.style.display = visible ? "grid" : "none";
+  if (els.heroPanel) {
+    els.heroPanel.classList.toggle("hidden", !visible);
+  }
+  if (els.conversation) {
+    els.conversation.classList.toggle("has-messages", !visible);
+  }
 }
 
 function applyScenarioCard(scene) {
@@ -2275,6 +2699,39 @@ function formatTime(iso) {
     return "--";
   }
   return `${dt.getMonth() + 1}-${dt.getDate()} ${formatClock(dt)}`;
+}
+
+function formatBytes(value) {
+  const size = Number(value);
+  if (!Number.isFinite(size) || size <= 0) {
+    return "0 B";
+  }
+
+  const units = ["B", "KB", "MB", "GB"];
+  let current = size;
+  let unitIndex = 0;
+  while (current >= 1024 && unitIndex < units.length - 1) {
+    current /= 1024;
+    unitIndex += 1;
+  }
+  const digits = current >= 100 || unitIndex === 0 ? 0 : 1;
+  return `${current.toFixed(digits)} ${units[unitIndex]}`;
+}
+
+function formatContentTypeLabel(contentType) {
+  const normalized = String(contentType || "").trim().toLowerCase();
+  const labels = {
+    txt: "TXT 文本",
+    md: "Markdown",
+    pdf: "PDF",
+    docx: "Word",
+    xlsx: "Excel",
+    png: "PNG 图片",
+    jpg: "JPG 图片",
+    jpeg: "JPEG 图片",
+    webp: "WebP 图片",
+  };
+  return labels[normalized] || (normalized ? normalized.toUpperCase() : "未知类型");
 }
 
 function truncate(text, length) {
