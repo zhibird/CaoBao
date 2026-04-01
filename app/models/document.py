@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -19,6 +19,7 @@ class Document(Base):
         Index("ix_documents_team_conversation_created_at", "team_id", "conversation_id", "created_at"),
         Index("ix_documents_team_status_created_at", "team_id", "status", "created_at"),
         Index("ix_documents_team_sha256", "team_id", "sha256"),
+        Index("ix_documents_team_space_visibility_created_at", "team_id", "space_id", "visibility", "created_at"),
     )
 
     document_id: Mapped[str] = mapped_column(String(36), primary_key=True)
@@ -29,6 +30,11 @@ class Document(Base):
     )
     conversation_id: Mapped[str | None] = mapped_column(
         ForeignKey("conversations.conversation_id"),
+        nullable=True,
+        index=True,
+    )
+    space_id: Mapped[str | None] = mapped_column(
+        ForeignKey("project_spaces.space_id"),
         nullable=True,
         index=True,
     )
@@ -44,6 +50,14 @@ class Document(Base):
     error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     meta_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    visibility: Mapped[str] = mapped_column(String(16), nullable=False, default="conversation", index=True)
+    asset_kind: Mapped[str] = mapped_column(String(32), nullable=False, default="attachment", index=True)
+    retrieval_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
+    origin_document_id: Mapped[str | None] = mapped_column(
+        ForeignKey("documents.document_id"),
+        nullable=True,
+        index=True,
+    )
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="uploaded")
     content: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(

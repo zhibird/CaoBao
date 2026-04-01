@@ -22,6 +22,7 @@ def create_conversation(
         item = conversation_service.create(
             team_id=payload.team_id,
             user_id=payload.user_id,
+            space_id=payload.space_id,
             title=payload.title,
         )
     except EntityNotFoundError as exc:
@@ -36,6 +37,7 @@ def create_conversation(
 def list_conversations(
     team_id: str = Query(min_length=1, max_length=64),
     user_id: str = Query(min_length=1, max_length=64),
+    space_id: str | None = Query(default=None, min_length=1, max_length=36),
     limit: int = Query(default=50, ge=1, le=200),
     conversation_service: ConversationService = Depends(get_conversation_service),
 ) -> list[ConversationResponse]:
@@ -43,6 +45,7 @@ def list_conversations(
         conversations = conversation_service.list(
             team_id=team_id,
             user_id=user_id,
+            space_id=space_id,
             limit=limit,
         )
     except EntityNotFoundError as exc:

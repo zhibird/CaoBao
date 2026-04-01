@@ -23,6 +23,7 @@ from app.models.chunk_embedding import ChunkEmbedding
 from app.models.conversation import Conversation
 from app.models.document import Document
 from app.models.document_chunk import DocumentChunk
+from app.models.project_space import ProjectSpace
 from app.models.team import Team
 from app.schemas.document import DocumentImportRequest
 from app.services.chunk_service import ChunkSection, ChunkService
@@ -94,6 +95,11 @@ class DocumentService:
             team_id=payload.team_id,
             conversation_id=payload.conversation_id,
         )
+        space_id = self.resolve_space_id(
+            team_id=payload.team_id,
+            conversation_id=payload.conversation_id,
+            space_id=payload.space_id,
+        )
 
         now = datetime.now(timezone.utc)
         content = payload.content.strip()
@@ -105,12 +111,17 @@ class DocumentService:
             document_id=str(uuid4()),
             team_id=payload.team_id,
             conversation_id=payload.conversation_id,
+            space_id=space_id,
             source_name=payload.source_name,
             content_type=payload.content_type,
             mime_type=self._MIME_BY_TYPE[payload.content_type],
             size_bytes=size_bytes,
             sha256=hashlib.sha256(content.encode("utf-8")).hexdigest(),
             storage_key=f"inline://import/{uuid4()}",
+            visibility="conversation" if payload.conversation_id else "space",
+            asset_kind="attachment" if payload.conversation_id else "knowledge_doc",
+            retrieval_enabled=True,
+            origin_document_id=None,
             status="uploaded",
             content=content,
             created_at=now,
@@ -126,11 +137,17 @@ class DocumentService:
         *,
         team_id: str,
         conversation_id: str | None,
+        space_id: str | None,
         source_name: str,
         declared_mime_type: str | None,
         file_bytes: bytes,
     ) -> Document:
         self._ensure_team_and_conversation(team_id=team_id, conversation_id=conversation_id)
+        effective_space_id = self.resolve_space_id(
+            team_id=team_id,
+            conversation_id=conversation_id,
+            space_id=space_id,
+        )
         if not file_bytes:
             raise DomainValidationError("EMPTY_FILE: uploaded file is empty.")
 
@@ -161,12 +178,17 @@ class DocumentService:
             document_id=document_id,
             team_id=team_id,
             conversation_id=conversation_id,
+            space_id=effective_space_id,
             source_name=source_name,
             content_type=content_type,
             mime_type=mime_type,
             size_bytes=len(file_bytes),
             sha256=hashlib.sha256(file_bytes).hexdigest(),
             storage_key=storage_key,
+            visibility="conversation" if conversation_id else "space",
+            asset_kind="attachment" if conversation_id else "knowledge_doc",
+            retrieval_enabled=True,
+            origin_document_id=None,
             status="uploaded",
             content="",
             created_at=now,
@@ -239,14 +261,26 @@ class DocumentService:
         self,
         team_id: str,
         conversation_id: str | None = None,
+        space_id: str | None = None,
+        visibility: str | None = None,
+        asset_kind: str | None = None,
         status: str | None = None,
+        retrieval_enabled: bool | None = None,
         limit: int = 50,
     ) -> list[Document]:
         stmt = select(Document).where(Document.team_id == team_id)
         if conversation_id is not None:
             stmt = stmt.where(Document.conversation_id == conversation_id)
+        if space_id is not None:
+            stmt = stmt.where(Document.space_id == space_id)
+        if visibility is not None:
+            stmt = stmt.where(Document.visibility == visibility.strip().lower())
+        if asset_kind is not None:
+            stmt = stmt.where(Document.asset_kind == asset_kind.strip().lower())
         if status is not None:
             stmt = stmt.where(Document.status == status.strip().lower())
+        if retrieval_enabled is not None:
+            stmt = stmt.where(Document.retrieval_enabled.is_(retrieval_enabled))
         stmt = stmt.order_by(Document.created_at.desc())
         stmt = stmt.limit(max(1, min(limit, 200)))
         return list(self.db.scalars(stmt).all())
@@ -256,7 +290,10 @@ class DocumentService:
         *,
         team_id: str,
         conversation_id: str | None,
+        space_id: str | None,
         document_ids: list[str] | None = None,
+        include_library: bool = False,
+        include_conclusions: bool = False,
         ready_only: bool = True,
         limit: int = 200,
     ) -> list[Document]:
@@ -267,27 +304,111 @@ class DocumentService:
                     item = self.get_document_in_team(
                         document_id=document_id,
                         team_id=team_id,
-                        conversation_id=conversation_id,
                     )
                 except EntityNotFoundError:
                     continue
                 if ready_only and item.status != "ready":
                     continue
-                ordered.append(item)
+                if conversation_id is not None and item.conversation_id == conversation_id:
+                    ordered.append(item)
+                    continue
+                if include_library and item.visibility in {"space", "global"}:
+                    if item.visibility == "space" and space_id is not None and item.space_id != space_id:
+                        continue
+                    if not item.retrieval_enabled:
+                        continue
+                    if item.asset_kind == "conclusion_note" and not include_conclusions:
+                        continue
+                    ordered.append(item)
+                    continue
+                if conversation_id is None:
+                    ordered.append(item)
+                    continue
             return ordered
 
-        if conversation_id is None:
-            return []
+        items: list[Document] = []
+        if conversation_id is not None:
+            items.extend(
+                self.list_documents(
+                    team_id=team_id,
+                    conversation_id=conversation_id,
+                    status="ready" if ready_only else None,
+                    limit=limit,
+                )
+            )
+        if include_library and space_id is not None:
+            items.extend(
+                self.list_documents(
+                    team_id=team_id,
+                    space_id=space_id,
+                    visibility="space",
+                    status="ready" if ready_only else None,
+                    retrieval_enabled=True,
+                    limit=limit,
+                )
+            )
+        if include_conclusions and space_id is not None:
+            items.extend(
+                self.list_documents(
+                    team_id=team_id,
+                    space_id=space_id,
+                    visibility="space",
+                    asset_kind="conclusion_note",
+                    status="ready" if ready_only else None,
+                    retrieval_enabled=True,
+                    limit=limit,
+                )
+            )
 
-        items = self.list_documents(
-            team_id=team_id,
-            conversation_id=conversation_id,
-            status="ready" if ready_only else None,
-            limit=limit,
-        )
-        if ready_only:
-            return [item for item in items if item.status == "ready"]
-        return items
+        deduped: list[Document] = []
+        seen: set[str] = set()
+        for item in items:
+            if ready_only and item.status != "ready":
+                continue
+            if item.asset_kind == "conclusion_note" and not include_conclusions:
+                continue
+            if item.document_id in seen:
+                continue
+            seen.add(item.document_id)
+            deduped.append(item)
+        return deduped
+
+    def resolve_space_id(
+        self,
+        *,
+        team_id: str,
+        conversation_id: str | None,
+        space_id: str | None,
+        user_id: str | None = None,
+    ) -> str | None:
+        conversation: Conversation | None = None
+        if conversation_id is not None:
+            conversation = self.db.get(Conversation, conversation_id)
+            if conversation is None:
+                raise EntityNotFoundError(f"Conversation '{conversation_id}' does not exist.")
+            if conversation.team_id != team_id:
+                raise EntityNotFoundError(
+                    f"Conversation '{conversation_id}' does not belong to team '{team_id}'."
+                )
+            if user_id is not None and conversation.user_id != user_id:
+                raise DomainValidationError(
+                    f"Conversation '{conversation_id}' does not belong to user '{user_id}'."
+                )
+            if space_id is not None and conversation.space_id and conversation.space_id != space_id:
+                raise DomainValidationError("space_id does not match the conversation's space.")
+
+        target_space_id = space_id or (conversation.space_id if conversation is not None else None)
+        if target_space_id is None:
+            return None
+
+        target_space = self.db.get(ProjectSpace, target_space_id)
+        if target_space is None or target_space.status == "deleted":
+            raise EntityNotFoundError(f"Space '{target_space_id}' does not exist.")
+        if target_space.team_id != team_id:
+            raise DomainValidationError(f"Space '{target_space_id}' does not belong to team '{team_id}'.")
+        if user_id is not None and target_space.owner_user_id != user_id:
+            raise DomainValidationError(f"Space '{target_space_id}' does not belong to user '{user_id}'.")
+        return target_space.space_id
 
     def build_chat_image_attachments(
         self,
@@ -404,6 +525,124 @@ class DocumentService:
             )
         )
         self.db.commit()
+
+    def publish_document_to_library(
+        self,
+        *,
+        team_id: str,
+        document_id: str,
+        conversation_id: str | None,
+        space_id: str | None,
+        source_name: str | None = None,
+    ) -> Document:
+        source_document = self.get_document_in_team(
+            document_id=document_id,
+            team_id=team_id,
+            conversation_id=conversation_id,
+        )
+        if source_document.status != "ready":
+            raise DomainValidationError("Only ready documents can be published to the library.")
+
+        target_space_id = self.resolve_space_id(
+            team_id=team_id,
+            conversation_id=source_document.conversation_id,
+            space_id=space_id,
+        )
+        if target_space_id is None:
+            raise DomainValidationError("space_id is required to publish a library document.")
+
+        now = datetime.now(timezone.utc)
+        new_document_id = str(uuid4())
+        target_source_name = (source_name or source_document.source_name).strip() or source_document.source_name
+        storage_key = self._clone_storage_from_document(
+            source_document=source_document,
+            target_document_id=new_document_id,
+            source_name=target_source_name,
+        )
+
+        published_document = Document(
+            document_id=new_document_id,
+            team_id=team_id,
+            conversation_id=None,
+            space_id=target_space_id,
+            source_name=target_source_name,
+            content_type=source_document.content_type,
+            mime_type=source_document.mime_type,
+            size_bytes=source_document.size_bytes,
+            sha256=source_document.sha256,
+            storage_key=storage_key,
+            preview_key=None,
+            page_count=source_document.page_count,
+            failure_stage=None,
+            error_code=None,
+            error_message=None,
+            meta_json=source_document.meta_json,
+            visibility="space",
+            asset_kind="knowledge_doc",
+            retrieval_enabled=True,
+            origin_document_id=source_document.document_id,
+            status=source_document.status,
+            content=source_document.content,
+            created_at=now,
+            updated_at=now,
+        )
+        self.db.add(published_document)
+        self.db.flush()
+
+        chunk_id_map: dict[str, str] = {}
+        source_chunks = list(
+            self.db.scalars(
+                select(DocumentChunk)
+                .where(DocumentChunk.document_id == source_document.document_id)
+                .order_by(DocumentChunk.chunk_index.asc())
+            ).all()
+        )
+        for source_chunk in source_chunks:
+            new_chunk_id = str(uuid4())
+            chunk_id_map[source_chunk.chunk_id] = new_chunk_id
+            self.db.add(
+                DocumentChunk(
+                    chunk_id=new_chunk_id,
+                    document_id=published_document.document_id,
+                    team_id=source_chunk.team_id,
+                    chunk_index=source_chunk.chunk_index,
+                    content=source_chunk.content,
+                    start_char=source_chunk.start_char,
+                    end_char=source_chunk.end_char,
+                    page_no=source_chunk.page_no,
+                    locator_label=source_chunk.locator_label,
+                    block_type=source_chunk.block_type,
+                    meta_json=source_chunk.meta_json,
+                    created_at=now,
+                )
+            )
+
+        source_embeddings = list(
+            self.db.scalars(
+                select(ChunkEmbedding).where(ChunkEmbedding.document_id == source_document.document_id)
+            ).all()
+        )
+        for source_embedding in source_embeddings:
+            mapped_chunk_id = chunk_id_map.get(source_embedding.chunk_id)
+            if mapped_chunk_id is None:
+                continue
+            self.db.add(
+                ChunkEmbedding(
+                    embedding_id=str(uuid4()),
+                    chunk_id=mapped_chunk_id,
+                    document_id=published_document.document_id,
+                    team_id=source_embedding.team_id,
+                    embedding_model=source_embedding.embedding_model,
+                    vector_json=source_embedding.vector_json,
+                    vector_dim=source_embedding.vector_dim,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+
+        self.db.commit()
+        self.db.refresh(published_document)
+        return published_document
 
     def _parse_phase(self, document: Document) -> tuple[ParseResult | None, PipelineError | None]:
         self._set_status(document, "parsing")
@@ -1023,6 +1262,30 @@ class DocumentService:
         target = self.upload_root / storage_key
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(file_bytes)
+
+    def _clone_storage_from_document(
+        self,
+        *,
+        source_document: Document,
+        target_document_id: str,
+        source_name: str,
+    ) -> str:
+        if source_document.storage_key.startswith("inline://"):
+            return f"inline://publish/{uuid4()}"
+
+        source_path = self.upload_root / source_document.storage_key
+        if not source_path.exists() or not source_path.is_file():
+            raise EntityNotFoundError(
+                f"Original file for document '{source_document.document_id}' was not found."
+            )
+
+        storage_key = self._build_storage_key(
+            team_id=source_document.team_id,
+            document_id=target_document_id,
+            source_name=source_name,
+        )
+        self._write_file(storage_key=storage_key, file_bytes=source_path.read_bytes())
+        return storage_key
 
     def _to_data_url(self, *, mime_type: str, file_bytes: bytes) -> str:
         encoded = base64.b64encode(file_bytes).decode("ascii")

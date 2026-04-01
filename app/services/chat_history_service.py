@@ -33,6 +33,7 @@ class ChatHistoryService:
         if normalized_channel not in {"echo", "ask", "action"}:
             raise DomainValidationError("channel must be one of: echo, ask, action.")
 
+        space_id: str | None = None
         if conversation_id is not None:
             conversation = self.db.get(Conversation, conversation_id)
             if conversation is None:
@@ -41,12 +42,14 @@ class ChatHistoryService:
                 raise DomainValidationError(
                     f"Conversation '{conversation_id}' does not belong to team/user."
                 )
+            space_id = conversation.space_id
 
         message = ChatHistory(
             message_id=str(uuid4()),
             team_id=team_id,
             user_id=user_id,
             conversation_id=conversation_id,
+            space_id=space_id,
             channel=normalized_channel,
             request_text=request_text,
             response_text=response_text,

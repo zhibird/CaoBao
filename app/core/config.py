@@ -63,6 +63,7 @@ class Settings(BaseSettings):
     embedding_timeout_seconds: float = 30.0
     upload_root_dir: str = DEFAULT_UPLOAD_ROOT_DIR
     upload_max_file_size_mb: int = 20
+    db_legacy_init_enabled: bool | None = None
 
     model_config = SettingsConfigDict(
         env_file=str(ROOT_ENV_FILE),

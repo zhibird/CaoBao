@@ -1,5 +1,20 @@
 # Step 12 - 持久知识库 / 记忆卡 / 项目空间设计
 
+## 实现状态注记（2026-03-30）
+
+当前仓库落地进度（用于和本文方案对齐）：
+
+1. Phase 1 已基本落地：`project_spaces`、`space_id` 边界、会话附件发布到知识库、同空间跨会话知识检索。
+2. Phase 2 已落地：新增 `memory_cards + memory_card_embeddings`、记忆卡 CRUD API、`chat/ask` 的 `include_memory` 编排注入。
+3. Phase 3 已落地：新增 `answer_favorites`、`conclusions`、收藏转记忆卡/结论、结论确认与归档链路。
+4. Phase 4 未在本轮实现：自动化沉淀建议、定时治理与版本替换仍按设计稿推进。
+
+说明：
+
+1. 本轮部署基线仍为 SQLite。
+2. 引入 Alembic 进行版本化迁移，不在本轮切换 PostgreSQL。
+3. Phase 3 当前优先提供后端能力与接口验收路径，前端完整交互面板按后续迭代推进。
+
 ## 1. 文档目标
 
 这份设计文档用于回答 7 个能力如何在当前 CaiBao 仓库里落地：

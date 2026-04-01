@@ -53,6 +53,7 @@ async def upload_document(
     team_id: str = Form(min_length=1, max_length=64),
     user_id: str | None = Form(default=None),
     conversation_id: str | None = Form(default=None),
+    space_id: str | None = Form(default=None),
     auto_index: bool = Form(default=True),
     embedding_model: str | None = Form(default=None),
     file: UploadFile = File(...),
@@ -63,6 +64,7 @@ async def upload_document(
         document = document_service.upload_document(
             team_id=team_id,
             conversation_id=conversation_id,
+            space_id=space_id,
             source_name=file.filename or "uploaded.bin",
             declared_mime_type=file.content_type,
             file_bytes=payload,

@@ -10,7 +10,11 @@ COPY requirements.txt ./
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
 COPY app ./app
+COPY alembic ./alembic
+COPY alembic.ini ./alembic.ini
+COPY scripts/docker-entrypoint.sh ./scripts/docker-entrypoint.sh
 COPY .env.example ./.env.example
+RUN chmod +x ./scripts/docker-entrypoint.sh
 
 EXPOSE 8000
 VOLUME ["/data"]
@@ -18,4 +22,4 @@ VOLUME ["/data"]
 # Default to a persistent SQLite file inside the mounted /data volume.
 ENV DATABASE_URL=sqlite:////data/CaiBao.db
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["./scripts/docker-entrypoint.sh"]

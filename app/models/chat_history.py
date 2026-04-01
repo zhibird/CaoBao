@@ -27,6 +27,11 @@ class ChatHistory(Base):
         nullable=True,
         index=True,
     )
+    space_id: Mapped[str | None] = mapped_column(
+        ForeignKey("project_spaces.space_id"),
+        nullable=True,
+        index=True,
+    )
     channel: Mapped[str] = mapped_column(String(16), nullable=False)
     request_text: Mapped[str] = mapped_column(Text, nullable=False)
     response_text: Mapped[str] = mapped_column(Text, nullable=False)

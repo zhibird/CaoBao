@@ -1,9 +1,13 @@
 import hashlib
 from collections.abc import Generator
 from datetime import datetime, timezone
+from pathlib import Path
 
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine
 from sqlalchemy import inspect
+from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import get_settings
@@ -39,20 +43,74 @@ def get_db_session() -> Generator[Session, None, None]:
 
 def init_db() -> None:
     from app.models import (  # noqa: F401
+        answer_favorite,
         chat_history,
         chunk_embedding,
+        conclusion,
         conversation,
         document,
         document_chunk,
         embedding_model_config,
         incident,
         llm_model_config,
+        memory_card,
+        memory_card_embedding,
+        project_space,
         team,
         user,
     )
 
-    Base.metadata.create_all(bind=engine)
-    _ensure_phase1_columns()
+    if _should_run_legacy_init():
+        Base.metadata.create_all(bind=engine)
+        _ensure_phase1_columns()
+        return
+
+    _ensure_schema_is_alembic_head()
+
+
+def _should_run_legacy_init() -> bool:
+    explicit = settings.db_legacy_init_enabled
+    if explicit is not None:
+        enabled = bool(explicit)
+    else:
+        enabled = settings.app_env.strip().lower() != "prod"
+
+    if settings.app_env.strip().lower() == "prod" and enabled:
+        raise RuntimeError(
+            "Legacy DB bootstrap is forbidden in prod. Set DB_LEGACY_INIT_ENABLED=false and run 'alembic upgrade head'."
+        )
+    return enabled
+
+
+def _ensure_schema_is_alembic_head() -> None:
+    current_revision = _get_current_alembic_revision()
+    head_revision = _get_head_alembic_revision()
+    if current_revision != head_revision:
+        raise RuntimeError(
+            "Database schema is not at Alembic head. "
+            f"current={current_revision or '<none>'}, head={head_revision}. "
+            "Run 'alembic upgrade head' before starting the application."
+        )
+
+
+def _get_current_alembic_revision() -> str | None:
+    with engine.begin() as conn:
+        table_names = set(inspect(conn).get_table_names())
+        if "alembic_version" not in table_names:
+            return None
+        result = conn.execute(text("SELECT version_num FROM alembic_version LIMIT 1")).scalar_one_or_none()
+        if result is None:
+            return None
+        return str(result).strip() or None
+
+
+def _get_head_alembic_revision() -> str:
+    alembic_ini = Path(__file__).resolve().parents[2] / "alembic.ini"
+    if not alembic_ini.exists():
+        raise RuntimeError(f"alembic.ini not found at '{alembic_ini}'.")
+    config = Config(str(alembic_ini))
+    script = ScriptDirectory.from_config(config)
+    return script.get_current_head()
 
 
 def _ensure_phase1_columns() -> None:
@@ -68,6 +126,9 @@ def _ensure_phase1_columns() -> None:
         if "pinned_at" not in conversation_cols:
             with engine.begin() as conn:
                 conn.exec_driver_sql("ALTER TABLE conversations ADD COLUMN pinned_at DATETIME")
+        if "space_id" not in conversation_cols:
+            with engine.begin() as conn:
+                conn.exec_driver_sql("ALTER TABLE conversations ADD COLUMN space_id VARCHAR(36)")
 
     if "documents" in table_names:
         document_cols = {item["name"] for item in inspector.get_columns("documents")}
@@ -110,6 +171,21 @@ def _ensure_phase1_columns() -> None:
         if "updated_at" not in document_cols:
             with engine.begin() as conn:
                 conn.exec_driver_sql("ALTER TABLE documents ADD COLUMN updated_at DATETIME")
+        if "space_id" not in document_cols:
+            with engine.begin() as conn:
+                conn.exec_driver_sql("ALTER TABLE documents ADD COLUMN space_id VARCHAR(36)")
+        if "visibility" not in document_cols:
+            with engine.begin() as conn:
+                conn.exec_driver_sql("ALTER TABLE documents ADD COLUMN visibility VARCHAR(16) DEFAULT 'conversation'")
+        if "asset_kind" not in document_cols:
+            with engine.begin() as conn:
+                conn.exec_driver_sql("ALTER TABLE documents ADD COLUMN asset_kind VARCHAR(32) DEFAULT 'attachment'")
+        if "retrieval_enabled" not in document_cols:
+            with engine.begin() as conn:
+                conn.exec_driver_sql("ALTER TABLE documents ADD COLUMN retrieval_enabled BOOLEAN DEFAULT 1")
+        if "origin_document_id" not in document_cols:
+            with engine.begin() as conn:
+                conn.exec_driver_sql("ALTER TABLE documents ADD COLUMN origin_document_id VARCHAR(36)")
 
         with engine.begin() as conn:
             conn.exec_driver_sql(
@@ -222,3 +298,59 @@ def _ensure_phase1_columns() -> None:
         if "conversation_id" not in history_cols:
             with engine.begin() as conn:
                 conn.exec_driver_sql("ALTER TABLE chat_history ADD COLUMN conversation_id VARCHAR(36)")
+        if "space_id" not in history_cols:
+            with engine.begin() as conn:
+                conn.exec_driver_sql("ALTER TABLE chat_history ADD COLUMN space_id VARCHAR(36)")
+
+    if "answer_favorites" in table_names:
+        favorite_cols = {item["name"] for item in inspector.get_columns("answer_favorites")}
+        if "updated_at" not in favorite_cols:
+            with engine.begin() as conn:
+                conn.exec_driver_sql("ALTER TABLE answer_favorites ADD COLUMN updated_at DATETIME")
+        if "is_promoted" not in favorite_cols:
+            with engine.begin() as conn:
+                conn.exec_driver_sql("ALTER TABLE answer_favorites ADD COLUMN is_promoted BOOLEAN DEFAULT 0")
+
+        with engine.begin() as conn:
+            conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_answer_favorites_team_space_user_created_at "
+                "ON answer_favorites(team_id, space_id, user_id, created_at)"
+            )
+            conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_answer_favorites_team_conversation_created_at "
+                "ON answer_favorites(team_id, conversation_id, created_at)"
+            )
+
+            now_iso = datetime.now(timezone.utc).isoformat()
+            conn.exec_driver_sql(
+                """
+                UPDATE answer_favorites
+                SET updated_at = COALESCE(updated_at, created_at, :now_iso)
+                """,
+                {"now_iso": now_iso},
+            )
+
+    if "conclusions" in table_names:
+        conclusion_cols = {item["name"] for item in inspector.get_columns("conclusions")}
+        if "updated_at" not in conclusion_cols:
+            with engine.begin() as conn:
+                conn.exec_driver_sql("ALTER TABLE conclusions ADD COLUMN updated_at DATETIME")
+
+        with engine.begin() as conn:
+            conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_conclusions_team_space_status_updated_at "
+                "ON conclusions(team_id, space_id, status, updated_at)"
+            )
+            conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_conclusions_team_topic_created_at "
+                "ON conclusions(team_id, topic, created_at)"
+            )
+
+            now_iso = datetime.now(timezone.utc).isoformat()
+            conn.exec_driver_sql(
+                """
+                UPDATE conclusions
+                SET updated_at = COALESCE(updated_at, created_at, :now_iso)
+                """,
+                {"now_iso": now_iso},
+            )

@@ -42,10 +42,14 @@ class ChatAskRequest(BaseModel):
     user_id: str = Field(min_length=1, max_length=64)
     team_id: str = Field(min_length=1, max_length=64)
     conversation_id: str | None = Field(default=None, min_length=1, max_length=36)
+    space_id: str | None = Field(default=None, min_length=1, max_length=36)
     question: str = Field(min_length=1, max_length=2000)
     top_k: int = Field(default=5, ge=1, le=20)
     document_id: str | None = Field(default=None, min_length=1, max_length=36)
     selected_document_ids: list[str] | None = None
+    include_memory: bool = True
+    include_conclusions: bool = False
+    include_library: bool = True
     model: str | None = Field(default=None, min_length=1, max_length=128)
     embedding_model: str | None = Field(default=None, min_length=1, max_length=128)
 
@@ -74,6 +78,7 @@ class ChatAskResponse(BaseModel):
     user_id: str
     team_id: str
     conversation_id: str | None = None
+    space_id: str | None = None
     question: str
     answer: str
     content_parts: list[ChatContentPart] = Field(default_factory=list)
@@ -89,6 +94,7 @@ class ChatAskResponse(BaseModel):
         user_id: str,
         team_id: str,
         conversation_id: str | None,
+        space_id: str | None,
         question: str,
         answer: str,
         content_parts: list[ChatContentPart] | None,
@@ -101,6 +107,7 @@ class ChatAskResponse(BaseModel):
             user_id=user_id,
             team_id=team_id,
             conversation_id=conversation_id,
+            space_id=space_id,
             question=question,
             answer=answer,
             content_parts=content_parts or [],
@@ -153,6 +160,7 @@ class ChatHistoryItem(BaseModel):
     team_id: str
     user_id: str
     conversation_id: str | None
+    space_id: str | None
     channel: str
     request_text: str
     response_text: str
@@ -167,6 +175,7 @@ class ChatHistoryItem(BaseModel):
             team_id=record.team_id,
             user_id=record.user_id,
             conversation_id=record.conversation_id,
+            space_id=getattr(record, "space_id", None),
             channel=record.channel,
             request_text=record.request_text,
             response_text=record.response_text,

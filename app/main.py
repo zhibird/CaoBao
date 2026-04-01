@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from app.api.router import api_router
@@ -41,6 +41,13 @@ def create_app() -> FastAPI:
     @app.get("/", include_in_schema=False)
     def serve_frontend() -> FileResponse:
         return FileResponse(web_dir / "index.html")
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    def serve_favicon() -> Response:
+        favicon_path = web_dir / "favicon.ico"
+        if favicon_path.exists():
+            return FileResponse(favicon_path)
+        return Response(status_code=204)
 
     return app
 

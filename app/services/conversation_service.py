@@ -10,22 +10,46 @@ from app.models.chunk_embedding import ChunkEmbedding
 from app.models.conversation import Conversation
 from app.models.document import Document
 from app.models.document_chunk import DocumentChunk
+from app.services.space_service import SpaceService
 from app.services.user_service import UserService
 
 
 class ConversationService:
-    def __init__(self, db: Session, user_service: UserService) -> None:
+    def __init__(
+        self,
+        db: Session,
+        user_service: UserService,
+        space_service: SpaceService,
+    ) -> None:
         self.db = db
         self.user_service = user_service
+        self.space_service = space_service
 
-    def create(self, *, team_id: str, user_id: str, title: str | None = None) -> Conversation:
+    def create(
+        self,
+        *,
+        team_id: str,
+        user_id: str,
+        space_id: str | None = None,
+        title: str | None = None,
+    ) -> Conversation:
         self.user_service.ensure_user_in_team(user_id=user_id, team_id=team_id)
+
+        if space_id is None:
+            target_space = self.space_service.ensure_default_space(team_id=team_id, user_id=user_id)
+        else:
+            target_space = self.space_service.ensure_access(
+                space_id=space_id,
+                team_id=team_id,
+                user_id=user_id,
+            )
 
         conversation = Conversation(
             conversation_id=str(uuid4()),
             team_id=team_id,
             user_id=user_id,
-            title=title.strip() if title else "新会话",
+            space_id=target_space.space_id,
+            title=title.strip() if title else "New Conversation",
             status="active",
             is_pinned=False,
             pinned_at=None,
@@ -41,6 +65,7 @@ class ConversationService:
         *,
         team_id: str,
         user_id: str,
+        space_id: str | None = None,
         limit: int = 50,
     ) -> list[Conversation]:
         self.user_service.ensure_user_in_team(user_id=user_id, team_id=team_id)
@@ -63,6 +88,9 @@ class ConversationService:
             )
             .limit(limit)
         )
+        if space_id is not None:
+            self.space_service.ensure_access(space_id=space_id, team_id=team_id, user_id=user_id)
+            stmt = stmt.where(Conversation.space_id == space_id)
         return list(self.db.scalars(stmt).all())
 
     def ensure_access(self, *, conversation_id: str, team_id: str, user_id: str) -> Conversation:
@@ -74,6 +102,12 @@ class ConversationService:
 
         if conversation.team_id != team_id or conversation.user_id != user_id:
             raise DomainValidationError("Conversation does not belong to the provided team/user.")
+
+        if not conversation.space_id:
+            default_space = self.space_service.ensure_default_space(team_id=team_id, user_id=user_id)
+            conversation.space_id = default_space.space_id
+            self.db.commit()
+            self.db.refresh(conversation)
 
         return conversation
 

@@ -5,6 +5,7 @@ from app.services.chat_history_service import ChatHistoryService
 from app.services.document_service import DocumentService
 from app.services.llm_model_service import LLMModelService
 from app.services.llm_service import AssistantContentPart, LLMAnswer, LLMService, VisionAttachment
+from app.services.memory_service import MemoryService
 from app.services.retrieval_service import RetrievalService
 from app.services.user_service import UserService
 
@@ -16,6 +17,7 @@ class RagChatService:
         chat_history_service: ChatHistoryService,
         document_service: DocumentService,
         retrieval_service: RetrievalService,
+        memory_service: MemoryService,
         llm_service: LLMService,
         llm_model_service: LLMModelService,
     ) -> None:
@@ -23,6 +25,7 @@ class RagChatService:
         self.chat_history_service = chat_history_service
         self.document_service = document_service
         self.retrieval_service = retrieval_service
+        self.memory_service = memory_service
         self.llm_service = llm_service
         self.llm_model_service = llm_model_service
 
@@ -30,6 +33,12 @@ class RagChatService:
         self.user_service.ensure_user_in_team(
             user_id=payload.user_id,
             team_id=payload.team_id,
+        )
+        effective_space_id = self.document_service.resolve_space_id(
+            team_id=payload.team_id,
+            conversation_id=payload.conversation_id,
+            space_id=payload.space_id,
+            user_id=payload.user_id,
         )
         selected_document_ids = self._resolve_selected_document_ids(payload)
         conversation_messages = self._build_conversation_messages(
@@ -41,11 +50,24 @@ class RagChatService:
         scope_documents = self.document_service.get_documents_in_scope(
             team_id=payload.team_id,
             conversation_id=payload.conversation_id,
+            space_id=effective_space_id,
             document_ids=selected_document_ids,
+            include_library=payload.include_library,
+            include_conclusions=payload.include_conclusions,
             ready_only=True,
         )
+        scope_document_ids = [item.document_id for item in scope_documents]
         image_attachments = self._build_image_attachments(scope_documents)
         fallback_text_context = self._build_attachment_text_fallback(scope_documents)
+        memory_messages = self._build_memory_messages(
+            team_id=payload.team_id,
+            user_id=payload.user_id,
+            space_id=effective_space_id,
+            question=payload.question,
+            include_memory=payload.include_memory,
+            embedding_model=payload.embedding_model,
+        )
+        llm_context_messages = [*conversation_messages, *memory_messages]
 
         requested_model = payload.model.strip() if payload.model else None
         force_mock = False
@@ -73,11 +95,9 @@ class RagChatService:
             selected_model = "default"
             runtime_selected_model = None
 
-        should_use_rag = self.retrieval_service.has_indexed_chunks(
+        should_use_rag = bool(scope_document_ids) and self.retrieval_service.has_indexed_chunks(
             team_id=payload.team_id,
-            document_id=payload.document_id,
-            document_ids=selected_document_ids,
-            conversation_id=payload.conversation_id,
+            document_ids=scope_document_ids,
         )
 
         if not should_use_rag:
@@ -89,12 +109,13 @@ class RagChatService:
                 force_mock=force_mock,
                 image_attachments=image_attachments,
                 fallback_text_context=fallback_text_context,
-                conversation_messages=conversation_messages,
+                conversation_messages=llm_context_messages,
             )
             return ChatAskResponse.from_result(
                 user_id=payload.user_id,
                 team_id=payload.team_id,
                 conversation_id=payload.conversation_id,
+                space_id=effective_space_id,
                 question=payload.question,
                 answer=llm_answer.answer,
                 content_parts=self._build_content_parts(llm_answer),
@@ -108,9 +129,7 @@ class RagChatService:
             team_id=payload.team_id,
             query=payload.question,
             top_k=payload.top_k,
-            document_id=payload.document_id,
-            document_ids=selected_document_ids,
-            conversation_id=payload.conversation_id,
+            document_ids=scope_document_ids or None,
             user_id=payload.user_id,
             embedding_model=payload.embedding_model,
         )
@@ -123,7 +142,7 @@ class RagChatService:
             api_key=runtime_model.api_key if runtime_model is not None else None,
             force_mock=force_mock,
             image_attachments=image_attachments,
-            conversation_messages=conversation_messages,
+            conversation_messages=llm_context_messages,
         )
 
         hits = [RetrievalHit.model_validate(item) for item in raw_hits]
@@ -132,6 +151,7 @@ class RagChatService:
             user_id=payload.user_id,
             team_id=payload.team_id,
             conversation_id=payload.conversation_id,
+            space_id=effective_space_id,
             question=payload.question,
             answer=llm_answer.answer,
             content_parts=self._build_content_parts(llm_answer),
@@ -228,6 +248,42 @@ class RagChatService:
             if response_text:
                 messages.append({"role": "assistant", "content": response_text})
         return messages
+
+    def _build_memory_messages(
+        self,
+        *,
+        team_id: str,
+        user_id: str,
+        space_id: str | None,
+        question: str,
+        include_memory: bool,
+        embedding_model: str | None,
+    ) -> list[dict[str, object]]:
+        if not include_memory or space_id is None:
+            return []
+
+        memory_hits = self.memory_service.search_cards_for_chat(
+            team_id=team_id,
+            user_id=user_id,
+            space_id=space_id,
+            query=question,
+            top_k=3,
+            embedding_model=embedding_model,
+        )
+        if not memory_hits:
+            return []
+
+        lines = ["Long-term memory for this workspace (use as constraints/preferences):"]
+        for index, item in enumerate(memory_hits, start=1):
+            title = str(item.get("title", "")).strip() or f"Memory {index}"
+            content = str(item.get("content", "")).strip()
+            if not content:
+                continue
+            lines.append(f"- {title}: {content}")
+        if len(lines) == 1:
+            return []
+
+        return [{"role": "assistant", "content": "\n".join(lines)}]
 
     def _build_content_parts(self, answer: LLMAnswer) -> list[ChatContentPart]:
         items: list[ChatContentPart] = []

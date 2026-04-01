@@ -26,16 +26,57 @@
   - **v0.11.1**：修复模型图片输出的续写污染与远程图片历史失效问题
   - **v0.11.2**：支持点击预览聊天图片，并在预览界面下载图片
 - **v0.12.0**：附件上传新增支持 Word / Excel（`docx` / `xlsx`）
-- **v0.12.1**：修复图片附件问答在部分 OpenAI-compatible 提供方返回 400 的问题
-- **v0.12.2**：升级前端UI，优化交互体验
-- **v0.13.0**：支持同会话上下文记忆，新增 `auto / native / compat` 历史兼容模式，并收紧为仅最新消息可编辑 / 重生成
+  - **v0.12.1**：修复图片附件问答在部分 OpenAI-compatible 提供方返回 400 的问题
+  - **v0.12.2**：升级前端UI，优化交互体验
+- **v0.13.0**：支持同会话上下文记忆
+- **v0.14.0**：新增回答收藏（favorites）与历史结论（conclusions）沉淀能力，支持从收藏转记忆卡/结论
 
-## 隐私与运行数据
+## 部署与迁移（本地/内网）
 
-默认情况下，CaiBao 的运行数据不再写入源码仓库目录：
+当前默认部署仍使用 SQLite，不切换到 PostgreSQL：
 
-- SQLite 数据库默认写入当前用户的本机应用数据目录
-- 上传原文件默认写入当前用户的本机应用数据目录下的 `uploads/`
-- 仓库内的 `data/uploads/`、`tmp/`、数据库备份文件会被 Git 忽略
+- `DATABASE_URL=sqlite:////data/CaiBao.db`
+- Docker volume 持久化目录：`/data`
 
-这意味着别人下载源码仓库时，默认看不到你本机运行产生的团队、用户、会话历史和上传文件。
+### 本地启动
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
+
+### Alembic 迁移（SQLite）
+
+```powershell
+# 升级到最新版本
+python -m alembic upgrade head
+
+# 回滚一步
+python -m alembic downgrade base
+```
+
+### Docker 启动（本地/内网）
+
+```powershell
+docker compose up --build -d
+docker compose logs -f caibao-api
+Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:8000/api/v1/health"
+```
+
+### Phase 2 记忆卡链路验收（后端）
+
+1. 创建记忆卡：`POST /api/v1/memory/cards`
+2. 查看记忆卡：`GET /api/v1/memory/cards?team_id=...&user_id=...&space_id=...`
+3. 发起问答：`POST /api/v1/chat/ask`（默认 `include_memory=true`）
+4. 禁用记忆卡后复测：`PATCH /api/v1/memory/cards/{memory_id}` 将 `status=disabled`，确认不再注入
+
+### Phase 3 收藏与结论链路验收（后端）
+
+1. 创建收藏：`POST /api/v1/favorites/answers`
+2. 查询收藏：`GET /api/v1/favorites/answers?team_id=...&user_id=...&space_id=...`
+3. 收藏转记忆卡：`POST /api/v1/favorites/answers/{favorite_id}/promote-to-memory`
+4. 收藏转结论：`POST /api/v1/favorites/answers/{favorite_id}/promote-to-conclusion`
+5. 查询结论：`GET /api/v1/conclusions?team_id=...&user_id=...&space_id=...`
+6. 结论确认：`POST /api/v1/conclusions/{conclusion_id}/confirm`，并验证 `doc_sync_document_id` 已生成
+7. 结论归档：`POST /api/v1/conclusions/{conclusion_id}/archive`

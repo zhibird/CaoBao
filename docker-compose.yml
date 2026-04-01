@@ -8,6 +8,8 @@ services:
       - "8000:8000"
     environment:
       APP_ENV: prod
+      DB_LEGACY_INIT_ENABLED: "false"
+      PYTHONPATH: /app
       DATABASE_URL: sqlite:////data/CaiBao.db
       LLM_PROVIDER: ${LLM_PROVIDER:-mock}
       LLM_BASE_URL: ${LLM_BASE_URL:-https://api.openai.com/v1}

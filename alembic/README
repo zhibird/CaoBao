@@ -1,0 +1,5 @@
+Single-database migration environment for CaiBao.
+
+Use:
+  python -m alembic upgrade head
+  python -m alembic downgrade -1

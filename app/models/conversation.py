@@ -22,6 +22,11 @@ class Conversation(Base):
         nullable=False,
         index=True,
     )
+    space_id: Mapped[str | None] = mapped_column(
+        ForeignKey("project_spaces.space_id"),
+        nullable=True,
+        index=True,
+    )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="active", index=True)
     is_pinned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)

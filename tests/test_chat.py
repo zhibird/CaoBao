@@ -46,6 +46,28 @@ def _create_team_user_and_conversation(client, suffix: str) -> tuple[str, str, s
     return team_id, user_id, conversation_id
 
 
+def _resolve_conversation_space_id(
+    client,
+    *,
+    team_id: str,
+    user_id: str,
+    conversation_id: str,
+) -> str:
+    list_response = client.get(
+        "/api/v1/conversations",
+        params={
+            "team_id": team_id,
+            "user_id": user_id,
+            "limit": 50,
+        },
+    )
+    assert list_response.status_code == 200
+    for item in list_response.json():
+        if item["conversation_id"] == conversation_id:
+            return item["space_id"]
+    raise AssertionError("conversation space_id not found")
+
+
 def _build_png_bytes() -> bytes:
     output = BytesIO()
     Image.new("RGB", (4, 4), color=(240, 240, 240)).save(output, format="PNG")
@@ -928,6 +950,423 @@ def test_chat_ask_includes_recent_conversation_history_in_llm_payload(client, mo
         "content": "[Mock Chat] Remember that the project codename is Apollo.",
     }
     assert messages[3] == {"role": "user", "content": "What is the project codename?"}
+
+
+def test_chat_ask_injects_memory_when_include_memory_enabled(client, monkeypatch) -> None:
+    suffix = uuid4().hex[:8]
+    team_id, user_id, conversation_id = _create_team_user_and_conversation(client, suffix)
+    space_id = _resolve_conversation_space_id(
+        client,
+        team_id=team_id,
+        user_id=user_id,
+        conversation_id=conversation_id,
+    )
+
+    create_memory = client.post(
+        "/api/v1/memory/cards",
+        json={
+            "team_id": team_id,
+            "user_id": user_id,
+            "space_id": space_id,
+            "title": "Codename Memory",
+            "content": "The project codename is Helios.",
+            "category": "fact",
+            "status": "active",
+        },
+    )
+    assert create_memory.status_code == 201
+
+    upsert_model = client.post(
+        "/api/v1/llm/models",
+        json={
+            "team_id": team_id,
+            "user_id": user_id,
+            "model_name": "gpt-4.1-mini",
+            "base_url": "https://api.openai.com/v1",
+            "api_key": "sk-test",
+        },
+    )
+    assert upsert_model.status_code == 200
+
+    captured_payload_with_memory: dict[str, object] = {}
+    captured_payload_without_memory: dict[str, object] = {}
+
+    class _FakeResponse:
+        def raise_for_status(self) -> None:
+            return
+
+        def json(self) -> dict[str, object]:
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": "memory-aware-answer",
+                        }
+                    }
+                ]
+            }
+
+    def _fake_post_with_memory(url, headers, json, timeout):  # noqa: ANN001
+        captured_payload_with_memory["json"] = json
+        return _FakeResponse()
+
+    monkeypatch.setattr("app.services.llm_service.httpx.post", _fake_post_with_memory)
+    ask_with_memory = client.post(
+        "/api/v1/chat/ask",
+        json={
+            "user_id": user_id,
+            "team_id": team_id,
+            "conversation_id": conversation_id,
+            "question": "What is the codename?",
+            "model": "gpt-4.1-mini",
+            "include_memory": True,
+        },
+    )
+    assert ask_with_memory.status_code == 200
+
+    messages_with_memory = captured_payload_with_memory["json"]["messages"]  # type: ignore[index]
+    assert "Helios" in str(messages_with_memory)
+
+    def _fake_post_without_memory(url, headers, json, timeout):  # noqa: ANN001
+        captured_payload_without_memory["json"] = json
+        return _FakeResponse()
+
+    monkeypatch.setattr("app.services.llm_service.httpx.post", _fake_post_without_memory)
+    ask_without_memory = client.post(
+        "/api/v1/chat/ask",
+        json={
+            "user_id": user_id,
+            "team_id": team_id,
+            "conversation_id": conversation_id,
+            "question": "What is the codename?",
+            "model": "gpt-4.1-mini",
+            "include_memory": False,
+        },
+    )
+    assert ask_without_memory.status_code == 200
+
+    messages_without_memory = captured_payload_without_memory["json"]["messages"]  # type: ignore[index]
+    assert "Helios" not in str(messages_without_memory)
+
+
+def test_chat_ask_skips_disabled_and_expired_memories(client, monkeypatch) -> None:
+    suffix = uuid4().hex[:8]
+    team_id, user_id, conversation_id = _create_team_user_and_conversation(client, suffix)
+    space_id = _resolve_conversation_space_id(
+        client,
+        team_id=team_id,
+        user_id=user_id,
+        conversation_id=conversation_id,
+    )
+
+    entries = [
+        ("Active Memory", "Only this active memory should be used.", "active"),
+        ("Disabled Memory", "This disabled memory must not be used.", "disabled"),
+        ("Expired Memory", "This expired memory must not be used.", "expired"),
+    ]
+    for title, content, status in entries:
+        response = client.post(
+            "/api/v1/memory/cards",
+            json={
+                "team_id": team_id,
+                "user_id": user_id,
+                "space_id": space_id,
+                "title": title,
+                "content": content,
+                "category": "fact",
+                "status": status,
+            },
+        )
+        assert response.status_code == 201
+
+    upsert_model = client.post(
+        "/api/v1/llm/models",
+        json={
+            "team_id": team_id,
+            "user_id": user_id,
+            "model_name": "gpt-4.1-mini",
+            "base_url": "https://api.openai.com/v1",
+            "api_key": "sk-test",
+        },
+    )
+    assert upsert_model.status_code == 200
+
+    captured_payload: dict[str, object] = {}
+
+    class _FakeResponse:
+        def raise_for_status(self) -> None:
+            return
+
+        def json(self) -> dict[str, object]:
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": "filtered-memory-answer",
+                        }
+                    }
+                ]
+            }
+
+    def _fake_post(url, headers, json, timeout):  # noqa: ANN001
+        captured_payload["json"] = json
+        return _FakeResponse()
+
+    monkeypatch.setattr("app.services.llm_service.httpx.post", _fake_post)
+    ask_response = client.post(
+        "/api/v1/chat/ask",
+        json={
+            "user_id": user_id,
+            "team_id": team_id,
+            "conversation_id": conversation_id,
+            "question": "Summarize memory state.",
+            "model": "gpt-4.1-mini",
+            "include_memory": True,
+        },
+    )
+    assert ask_response.status_code == 200
+
+    messages = captured_payload["json"]["messages"]  # type: ignore[index]
+    serialized = str(messages)
+    assert "Only this active memory should be used." in serialized
+    assert "This disabled memory must not be used." not in serialized
+    assert "This expired memory must not be used." not in serialized
+
+
+def test_chat_ask_rejects_cross_user_conversation_access(client) -> None:
+    suffix = uuid4().hex[:8]
+    team_id = f"team_cross_user_{suffix}"
+    owner_user_id = f"user_owner_{suffix}"
+    intruder_user_id = f"user_intruder_{suffix}"
+
+    create_team = client.post(
+        "/api/v1/teams",
+        json={
+            "team_id": team_id,
+            "name": "Cross User Team",
+            "description": "for access boundary",
+        },
+    )
+    assert create_team.status_code == 201
+
+    create_owner = client.post(
+        "/api/v1/users",
+        json={
+            "user_id": owner_user_id,
+            "team_id": team_id,
+            "display_name": "Owner",
+            "role": "member",
+        },
+    )
+    assert create_owner.status_code == 201
+
+    create_intruder = client.post(
+        "/api/v1/users",
+        json={
+            "user_id": intruder_user_id,
+            "team_id": team_id,
+            "display_name": "Intruder",
+            "role": "member",
+        },
+    )
+    assert create_intruder.status_code == 201
+
+    create_conversation = client.post(
+        "/api/v1/conversations",
+        json={
+            "team_id": team_id,
+            "user_id": owner_user_id,
+            "title": "Owner Conversation",
+        },
+    )
+    assert create_conversation.status_code == 201
+    conversation_id = create_conversation.json()["conversation_id"]
+
+    ask_response = client.post(
+        "/api/v1/chat/ask",
+        json={
+            "user_id": intruder_user_id,
+            "team_id": team_id,
+            "conversation_id": conversation_id,
+            "question": "Can I read this conversation?",
+        },
+    )
+    assert ask_response.status_code == 400
+    assert "does not belong to user" in ask_response.json()["detail"]
+
+
+def test_chat_ask_include_conclusions_switch_controls_conclusion_retrieval(client) -> None:
+    suffix = uuid4().hex[:8]
+    team_id, user_id, conversation_id = _create_team_user_and_conversation(client, suffix)
+    space_id = _resolve_conversation_space_id(
+        client,
+        team_id=team_id,
+        user_id=user_id,
+        conversation_id=conversation_id,
+    )
+
+    create_conclusion = client.post(
+        "/api/v1/conclusions",
+        json={
+            "team_id": team_id,
+            "user_id": user_id,
+            "space_id": space_id,
+            "title": "Rollback Rule",
+            "topic": "release",
+            "content": "When canary error rate exceeds 5%, rollback immediately to the previous stable build.",
+            "status": "draft",
+        },
+    )
+    assert create_conclusion.status_code == 201
+    conclusion_id = create_conclusion.json()["conclusion_id"]
+
+    confirm_response = client.post(
+        f"/api/v1/conclusions/{conclusion_id}/confirm",
+        json={
+            "team_id": team_id,
+            "user_id": user_id,
+            "target_status": "confirmed",
+        },
+    )
+    assert confirm_response.status_code == 200
+    assert confirm_response.json()["doc_sync_document_id"]
+
+    ask_without_conclusions = client.post(
+        "/api/v1/chat/ask",
+        json={
+            "user_id": user_id,
+            "team_id": team_id,
+            "conversation_id": conversation_id,
+            "question": "What should we do when canary error rate exceeds 5%?",
+            "include_library": False,
+            "include_conclusions": False,
+            "top_k": 3,
+        },
+    )
+    assert ask_without_conclusions.status_code == 200
+    assert ask_without_conclusions.json()["mode"] == "chat"
+    assert ask_without_conclusions.json()["hits"] == []
+
+    ask_with_conclusions = client.post(
+        "/api/v1/chat/ask",
+        json={
+            "user_id": user_id,
+            "team_id": team_id,
+            "conversation_id": conversation_id,
+            "question": "What should we do when canary error rate exceeds 5%?",
+            "include_library": False,
+            "include_conclusions": True,
+            "top_k": 3,
+        },
+    )
+    assert ask_with_conclusions.status_code == 200
+    body = ask_with_conclusions.json()
+    assert body["mode"] == "rag"
+    assert len(body["hits"]) >= 1
+    assert any(str(source.get("source_name", "")).startswith("conclusion-") for source in body["sources"])
+
+
+def test_chat_ask_include_conclusions_respects_space_boundary(client) -> None:
+    suffix = uuid4().hex[:8]
+    team_id = f"team_conclusion_space_{suffix}"
+    user_id = f"user_conclusion_space_{suffix}"
+
+    create_team = client.post(
+        "/api/v1/teams",
+        json={
+            "team_id": team_id,
+            "name": "Conclusion Space Team",
+            "description": "for conclusion isolation",
+        },
+    )
+    assert create_team.status_code == 201
+
+    create_user = client.post(
+        "/api/v1/users",
+        json={
+            "user_id": user_id,
+            "team_id": team_id,
+            "display_name": "Conclusion User",
+            "role": "member",
+        },
+    )
+    assert create_user.status_code == 201
+
+    create_space_a = client.post(
+        "/api/v1/spaces",
+        json={
+            "team_id": team_id,
+            "user_id": user_id,
+            "name": "Space A",
+        },
+    )
+    assert create_space_a.status_code == 201
+    space_a = create_space_a.json()["space_id"]
+
+    create_space_b = client.post(
+        "/api/v1/spaces",
+        json={
+            "team_id": team_id,
+            "user_id": user_id,
+            "name": "Space B",
+        },
+    )
+    assert create_space_b.status_code == 201
+    space_b = create_space_b.json()["space_id"]
+
+    create_conversation_a = client.post(
+        "/api/v1/conversations",
+        json={
+            "team_id": team_id,
+            "user_id": user_id,
+            "space_id": space_a,
+            "title": "Conversation A",
+        },
+    )
+    assert create_conversation_a.status_code == 201
+    conversation_a = create_conversation_a.json()["conversation_id"]
+
+    create_conclusion = client.post(
+        "/api/v1/conclusions",
+        json={
+            "team_id": team_id,
+            "user_id": user_id,
+            "space_id": space_b,
+            "title": "Space B Rule",
+            "topic": "ops",
+            "content": "Deploy window for Space B starts at 01:00 UTC.",
+        },
+    )
+    assert create_conclusion.status_code == 201
+    conclusion_id = create_conclusion.json()["conclusion_id"]
+
+    confirm_response = client.post(
+        f"/api/v1/conclusions/{conclusion_id}/confirm",
+        json={
+            "team_id": team_id,
+            "user_id": user_id,
+            "target_status": "confirmed",
+        },
+    )
+    assert confirm_response.status_code == 200
+
+    ask_response = client.post(
+        "/api/v1/chat/ask",
+        json={
+            "user_id": user_id,
+            "team_id": team_id,
+            "conversation_id": conversation_a,
+            "question": "When does the deploy window start?",
+            "include_library": False,
+            "include_conclusions": True,
+            "top_k": 3,
+        },
+    )
+    assert ask_response.status_code == 200
+    body = ask_response.json()
+    assert body["mode"] == "chat"
+    assert body["hits"] == []
+    assert body["sources"] == []
 
 
 def test_chat_action_create_incident(client) -> None:
