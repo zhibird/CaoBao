@@ -47,6 +47,7 @@ class ChatAskRequest(BaseModel):
     top_k: int = Field(default=5, ge=1, le=20)
     document_id: str | None = Field(default=None, min_length=1, max_length=36)
     selected_document_ids: list[str] | None = None
+    use_document_scope: bool | None = None
     include_memory: bool = True
     include_conclusions: bool = False
     include_library: bool = True
@@ -218,6 +219,10 @@ class ChatHistoryEditRequest(BaseModel):
     top_k: int | None = Field(default=None, ge=1, le=20)
     document_id: str | None = Field(default=None, min_length=1, max_length=36)
     selected_document_ids: list[str] | None = None
+    use_document_scope: bool | None = None
+    include_memory: bool | None = None
+    include_conclusions: bool | None = None
+    include_library: bool | None = None
     model: str | None = Field(default=None, min_length=1, max_length=128)
     embedding_model: str | None = Field(default=None, min_length=1, max_length=128)
 

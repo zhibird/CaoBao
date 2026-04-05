@@ -1,4 +1,4 @@
-﻿const API_PREFIX = "/api/v1";
+const API_PREFIX = "/api/v1";
 const DEFAULT_MODEL_ID = "default";
 const NONE_MODEL_ID = "none";
 const ADD_MODEL_OPTION = "__add_model__";
@@ -8,6 +8,8 @@ const ADD_EMBEDDING_OPTION = "__add_embedding_model__";
 const DOCUMENT_STATUS_POLL_INTERVAL_MS = 2000;
 const DOCUMENT_STATUS_POLL_TIMEOUT_MS = 120000;
 const DEFAULT_CONVERSATION_TITLE = "新会话";
+const CHAT_MODE_CHAT = "chat";
+const CHAT_MODE_DOCS = "docs";
 
 const STORAGE_KEYS = {
   teamId: "caibao.teamId",
@@ -33,6 +35,7 @@ const state = {
   history: [],
   documents: [],
   selectedDocumentIds: [],
+  chatMode: CHAT_MODE_CHAT,
   sending: false,
   importing: false,
   dragCounter: 0,
@@ -95,6 +98,9 @@ function bindElements() {
   els.composerScope = document.getElementById("composerScope");
   els.composerModel = document.getElementById("composerModel");
   els.composerHint = document.getElementById("composerHint");
+  els.chatOnlyBtn = document.getElementById("chatOnlyBtn");
+  els.docAssistBtn = document.getElementById("docAssistBtn");
+  els.chatModeHint = document.getElementById("chatModeHint");
   els.newSessionBtn = document.getElementById("newSessionBtn");
   els.toggleImportBtn = document.getElementById("toggleImportBtn");
   els.attachMenu = document.getElementById("attachMenu");
@@ -186,6 +192,12 @@ function bindEvents() {
     }
   });
   els.messageInput.addEventListener("input", autoGrowTextarea);
+  if (els.chatOnlyBtn) {
+    els.chatOnlyBtn.addEventListener("click", () => setChatMode(CHAT_MODE_CHAT));
+  }
+  if (els.docAssistBtn) {
+    els.docAssistBtn.addEventListener("click", () => setChatMode(CHAT_MODE_DOCS));
+  }
 
   els.previewBackdrop.addEventListener("click", closePreviewDrawer);
   els.closePreviewBtn.addEventListener("click", closePreviewDrawer);
@@ -334,6 +346,43 @@ function formatEmbeddingDisplayName(model) {
   return formatEmbeddingOptionLabel(model || DEFAULT_EMBEDDING_ID).replace(" (.env)", "");
 }
 
+function getChatModeHint(readyCount, processingCount) {
+  if (!ensureIdentity()) {
+    return "登录后默认直接聊天；有 ready 文件时可显式切换到资料增强。";
+  }
+  if (!readyCount) {
+    return processingCount
+      ? "当前默认直接聊天；文件就绪后，你可以再显式开启资料增强。"
+      : "当前默认直接聊天；需要依据时，再上传资料并显式开启资料增强。";
+  }
+  if (state.chatMode === CHAT_MODE_DOCS) {
+    return state.selectedDocumentIds.length
+      ? `资料增强已开启：当前仅检索 ${state.selectedDocumentIds.length} 个选中文件。`
+      : `资料增强已开启：当前会检索本会话全部 ${readyCount} 个 ready 文件。`;
+  }
+  return `当前是直接聊天模式；已有 ${readyCount} 个 ready 文件，切换到“资料增强”后才会使用。`;
+}
+
+function setChatMode(mode, { silent = false } = {}) {
+  const wantsDocs = mode === CHAT_MODE_DOCS;
+  const readyCount = getReadyDocumentCount();
+
+  if (wantsDocs && !readyCount) {
+    state.chatMode = CHAT_MODE_CHAT;
+    if (!silent) {
+      showToast("当前还没有可用资料，先上传并等待文件处理完成。", true);
+    }
+    renderAttachmentStrip();
+    return;
+  }
+
+  state.chatMode = wantsDocs ? CHAT_MODE_DOCS : CHAT_MODE_CHAT;
+  if (!wantsDocs) {
+    state.selectedDocumentIds = [];
+  }
+  renderAttachmentStrip();
+}
+
 function getDocumentScopeSummary() {
   const readyCount = getReadyDocumentCount();
   const processingCount = getProcessingDocumentCount();
@@ -344,13 +393,13 @@ function getDocumentScopeSummary() {
       return {
         label: "等待文件就绪",
         hint: processingCount
-          ? `${processingCount} 个文件仍在处理中，完成后会自动参与检索`
-          : "当前没有可检索的 ready 文件，请检查处理状态",
+          ? `${processingCount} 个文件仍在处理中，你现在也可以直接聊天，完成后会自动参与检索`
+          : "当前没有可检索的 ready 文件，但仍可直接聊天，请检查处理状态",
       };
     }
     return {
       label: "0 个文件",
-      hint: "上传资料后即可按文件范围检索、问答和总结",
+      hint: "当前还没添加资料，也可以直接聊天；上传后可按文件范围检索、问答和总结",
     };
   }
 
@@ -363,18 +412,22 @@ function getDocumentScopeSummary() {
 
   return {
     label: `${readyCount} 个 ready 文件`,
-    hint: processingCount
-      ? `默认检索全部 ready 文件，另有 ${processingCount} 个文件正在处理中`
-      : "默认检索本会话全部 ready 文件，也可以手动缩小范围",
+    hint: state.chatMode === CHAT_MODE_DOCS
+      ? (processingCount
+        ? `资料增强已开启：默认检索全部 ready 文件，另有 ${processingCount} 个文件正在处理中`
+        : "资料增强已开启：默认检索本会话全部 ready 文件，也可以手动缩小范围")
+      : (processingCount
+        ? `当前是直接聊天模式；已有 ${readyCount} 个 ready 文件可随时开启资料增强，另有 ${processingCount} 个文件正在处理中`
+        : `当前是直接聊天模式；已有 ${readyCount} 个 ready 文件，切换到“资料增强”后才会使用`),
   };
 }
 
 function refreshWorkspaceUi() {
   const loggedIn = ensureIdentity();
   const activeConversation = getActiveConversation();
-  const readyCount = getReadyDocumentCount();
   const scope = getDocumentScopeSummary();
   const activeTitle = activeConversation?.title || DEFAULT_CONVERSATION_TITLE;
+  const readyCount = getReadyDocumentCount();
 
   if (els.historySectionTitle) {
     els.historySectionTitle.textContent = state.conversations.length
@@ -399,11 +452,11 @@ function refreshWorkspaceUi() {
   if (els.workspaceEyebrow) {
     els.workspaceEyebrow.textContent = loggedIn
       ? `当前账户 · ${state.teamId}`
-      : "Document-native AI Workspace";
+      : "Personal AI Assistant";
   }
   if (els.workspaceDescription) {
     if (!loggedIn) {
-      els.workspaceDescription.textContent = "登录后可导入文档、限定检索范围、查看引用来源并生成方案。";
+      els.workspaceDescription.textContent = "登录后即可直接聊天；需要时再导入文档、限定检索范围和查看引用来源。";
     } else {
       const desc = [activeTitle];
       if (state.history.length) {
@@ -416,18 +469,18 @@ function refreshWorkspaceUi() {
 
   if (els.heroTitle) {
     if (!loggedIn) {
-      els.heroTitle.textContent = "登录后开始你的资料工作流";
+      els.heroTitle.textContent = "登录后直接开始聊天，需要时再补充资料";
     } else if (!state.documents.length) {
-      els.heroTitle.textContent = "先把资料放进来，再开始提问";
+      els.heroTitle.textContent = "直接开始聊天，需要时再补充资料";
     } else if (!readyCount) {
-      els.heroTitle.textContent = "资料处理中，稍后就能直接检索";
+      els.heroTitle.textContent = "现在就能继续聊，资料处理完成后会自动增强回答";
     } else {
-      els.heroTitle.textContent = "把问题、资料和行动建议放在同一个工作台里";
+      els.heroTitle.textContent = "直接聊，或让资料为回答补充依据";
     }
   }
   if (els.heroSubtitle) {
     if (!loggedIn) {
-      els.heroSubtitle.textContent = "CaiBao 支持文件导入、引用溯源、图片预览和多模型切换。";
+      els.heroSubtitle.textContent = "CaiBao 支持直接对话、文件导入、引用溯源、图片预览和多模型切换。";
     } else {
       els.heroSubtitle.textContent = scope.hint;
     }
@@ -468,10 +521,25 @@ function refreshWorkspaceUi() {
     if (state.importing) {
       els.composerHint.textContent = "正在处理新资料，完成后会自动加入本会话检索范围。";
     } else if (!readyCount) {
-      els.composerHint.textContent = "支持拖拽上传、粘贴文本和双击附件预览。";
+      els.composerHint.textContent = "支持直接聊天、拖拽上传、粘贴文本和双击附件预览。";
     } else {
       els.composerHint.textContent = "回答会附带来源卡片，双击附件可快速预览原文。";
     }
+  }
+  if (els.chatOnlyBtn) {
+    const isChatMode = state.chatMode === CHAT_MODE_CHAT;
+    els.chatOnlyBtn.classList.toggle("active", isChatMode);
+    els.chatOnlyBtn.setAttribute("aria-pressed", String(isChatMode));
+  }
+  if (els.docAssistBtn) {
+    const isDocsMode = state.chatMode === CHAT_MODE_DOCS;
+    const docsAvailable = readyCount > 0;
+    els.docAssistBtn.classList.toggle("active", isDocsMode);
+    els.docAssistBtn.setAttribute("aria-pressed", String(isDocsMode));
+    els.docAssistBtn.disabled = !docsAvailable;
+  }
+  if (els.chatModeHint) {
+    els.chatModeHint.textContent = getChatModeHint(readyCount, getProcessingDocumentCount());
   }
 
   if (els.shell) {
@@ -705,6 +773,7 @@ async function handleSaveAuth() {
     state.displayName = accountName;
     state.conversationId = "";
     state.selectedDocumentIds = [];
+    state.chatMode = CHAT_MODE_CHAT;
     persistIdentity();
     persistConversation();
     state.selectedModel = loadSelectedModelFromStorage();
@@ -961,6 +1030,7 @@ async function createAndSwitchConversation() {
   const created = await createConversation("新会话");
   state.conversationId = created.conversation_id;
   state.selectedDocumentIds = [];
+  state.chatMode = CHAT_MODE_CHAT;
   persistConversation();
   await loadConversations();
   clearConversation();
@@ -974,6 +1044,7 @@ async function switchConversation(conversationId) {
   }
   state.conversationId = conversationId;
   state.selectedDocumentIds = [];
+  state.chatMode = CHAT_MODE_CHAT;
   persistConversation();
   renderConversationList();
   clearConversation();
@@ -1212,6 +1283,7 @@ async function loadDocuments() {
   if (!state.conversationId) {
     state.documents = [];
     state.selectedDocumentIds = [];
+    state.chatMode = CHAT_MODE_CHAT;
     renderDocuments();
     renderAttachmentStrip();
     return;
@@ -1226,6 +1298,9 @@ async function loadDocuments() {
   state.selectedDocumentIds = state.selectedDocumentIds.filter((documentId) => {
     return state.documents.some((doc) => doc.document_id === documentId && normalizeStatus(doc.status) === "ready");
   });
+  if (!getReadyDocumentCount()) {
+    state.chatMode = CHAT_MODE_CHAT;
+  }
   renderDocuments();
   renderAttachmentStrip();
 }
@@ -1319,14 +1394,16 @@ function renderAttachmentStrip() {
   helper.className = "attachment-helper";
   const readyCount = getReadyDocumentCount();
   const processingCount = getProcessingDocumentCount();
-  if (state.selectedDocumentIds.length) {
-    helper.textContent = `本轮已选 ${state.selectedDocumentIds.length} 个文件，发送时只检索这些文件。`;
+  if (state.chatMode === CHAT_MODE_DOCS && state.selectedDocumentIds.length) {
+    helper.textContent = `资料增强已开启：本轮已选 ${state.selectedDocumentIds.length} 个文件，发送时只检索这些文件。`;
   } else if (!readyCount) {
     helper.textContent = processingCount
-      ? `当前有 ${processingCount} 个文件处理中。双击附件可预览，完成后会自动可检索。`
-      : "当前还没有 ready 文件。上传资料后即可问答或生成总结。";
+      ? `当前有 ${processingCount} 个文件处理中。你现在也可以先直接聊天，完成后会自动可检索。`
+      : "当前还没有 ready 文件。你也可以先直接聊天，上传资料后再增强回答。";
+  } else if (state.chatMode === CHAT_MODE_DOCS) {
+    helper.textContent = `资料增强已开启：默认检索本会话全部 ${readyCount} 个 ready 文件。单击附件切换范围，双击可预览。`;
   } else {
-    helper.textContent = `默认检索本会话全部 ${readyCount} 个 ready 文件。单击附件切换范围，双击可预览。`;
+    helper.textContent = `当前是直接聊天模式。这些文件暂不参与回答；切换到“资料增强”后才会检索。`;
   }
   els.attachmentStrip.appendChild(helper);
 
@@ -1413,6 +1490,7 @@ function toggleDocumentSelection(documentId) {
     state.selectedDocumentIds = state.selectedDocumentIds.filter((item) => item !== documentId);
   } else {
     state.selectedDocumentIds = [...state.selectedDocumentIds, documentId];
+    state.chatMode = CHAT_MODE_DOCS;
   }
   renderAttachmentStrip();
 }
@@ -1846,11 +1924,12 @@ async function handleSend() {
   syncSendButtonState();
 
   appendMessage("user", question);
-  appendPendingAssistantMessage(
-    getExplicitSelectedDocumentIds().length
+  const pendingLabel = state.chatMode === CHAT_MODE_DOCS
+    ? (getExplicitSelectedDocumentIds().length
       ? "正在基于选中文件检索并生成回答…"
-      : "正在结合本会话资料整理回答…"
-  );
+      : "正在结合本会话资料增强回答…")
+    : "正在思考并生成回答…";
+  appendPendingAssistantMessage(pendingLabel);
   els.messageInput.value = "";
   autoGrowTextarea();
 
@@ -1861,6 +1940,9 @@ async function handleSend() {
       conversation_id: state.conversationId,
       question,
       top_k: 5,
+      use_document_scope: state.chatMode === CHAT_MODE_DOCS,
+      include_memory: false,
+      include_library: false,
       embedding_model: state.selectedEmbedding || DEFAULT_EMBEDDING_ID,
     };
 
@@ -1869,7 +1951,7 @@ async function handleSend() {
     }
 
     const selectedDocumentIds = getExplicitSelectedDocumentIds();
-    if (selectedDocumentIds.length) {
+    if (state.chatMode === CHAT_MODE_DOCS && selectedDocumentIds.length) {
       payload.selected_document_ids = selectedDocumentIds;
     }
 
@@ -2253,7 +2335,7 @@ function createMessageShell(role, speakerName) {
   return { shell, column };
 }
 
-function appendPendingAssistantMessage(label = "正在结合资料整理回答…") {
+function appendPendingAssistantMessage(label = "正在思考并生成回答…") {
   removePendingAssistantMessage();
   setHeroVisible(false);
 
@@ -2630,15 +2712,22 @@ function setHeroVisible(visible) {
 
 function applyScenarioCard(scene) {
   const templates = {
-    summary: "请帮我总结以下资料，输出：1）关键信息 2）风险点 3）下一步行动建议。",
+    direct: "我们先直接聊聊这个问题：请帮我梳理思路、给出关键判断，并列出下一步建议。",
     plan: "请基于这个目标帮我写方案，包含：背景、目标、里程碑、资源投入、风险与验收标准。",
-    qa: "请做知识问答：先给结论，再列出依据来源和不确定项。",
+    qa: "如果当前会话有资料，请优先结合资料回答；如果没有，请先基于通用知识给出结论，并标出还需要补充的信息。",
   };
 
   const prompt = templates[scene];
   if (!prompt) {
     return;
   }
+
+  if (scene === "qa") {
+    setChatMode(CHAT_MODE_DOCS, { silent: true });
+  } else {
+    setChatMode(CHAT_MODE_CHAT, { silent: true });
+  }
+
   els.messageInput.value = prompt;
   autoGrowTextarea();
   els.messageInput.focus();

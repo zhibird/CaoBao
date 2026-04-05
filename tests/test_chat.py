@@ -1770,3 +1770,198 @@ def test_chat_history_edit_requires_latest_message(client) -> None:
     )
     assert latest_edit.status_code == 200
     assert latest_edit.json()["request_text"] == "updated second question"
+
+def test_chat_ask_respects_use_document_scope_false_with_ready_conversation_files(client) -> None:
+    suffix = uuid4().hex[:8]
+    team_id, user_id, conversation_id = _create_team_user_and_conversation(client, suffix)
+
+    import_response = client.post(
+        "/api/v1/documents/import",
+        json={
+            "team_id": team_id,
+            "conversation_id": conversation_id,
+            "source_name": "brief.md",
+            "content_type": "md",
+            "content": "# Launch Brief\n\nRollback approval is required before any production rollback.",
+        },
+    )
+    assert import_response.status_code == 201
+    document_id = import_response.json()["document_id"]
+
+    chunk_response = client.post(
+        f"/api/v1/documents/{document_id}/chunk",
+        json={
+            "team_id": team_id,
+            "conversation_id": conversation_id,
+            "max_chars": 80,
+            "overlap": 10,
+        },
+    )
+    assert chunk_response.status_code == 200
+
+    index_response = client.post(
+        "/api/v1/retrieval/index",
+        json={
+            "team_id": team_id,
+            "conversation_id": conversation_id,
+            "document_id": document_id,
+        },
+    )
+    assert index_response.status_code == 200
+
+    ask_response = client.post(
+        "/api/v1/chat/ask",
+        json={
+            "user_id": user_id,
+            "team_id": team_id,
+            "conversation_id": conversation_id,
+            "question": "What does the brief say about rollback?",
+            "selected_document_ids": [document_id],
+            "use_document_scope": False,
+            "include_memory": False,
+            "include_library": False,
+            "top_k": 3,
+        },
+    )
+    assert ask_response.status_code == 200
+    body = ask_response.json()
+    assert body["mode"] == "chat"
+    assert body["hits"] == []
+    assert body["sources"] == []
+
+
+def test_chat_history_edit_preserves_use_document_scope_false(client) -> None:
+    suffix = uuid4().hex[:8]
+    team_id, user_id, conversation_id = _create_team_user_and_conversation(client, suffix)
+
+    import_response = client.post(
+        "/api/v1/documents/import",
+        json={
+            "team_id": team_id,
+            "conversation_id": conversation_id,
+            "source_name": "brief.md",
+            "content_type": "md",
+            "content": "# Launch Brief\n\nRollback approval is required before any production rollback.",
+        },
+    )
+    assert import_response.status_code == 201
+    document_id = import_response.json()["document_id"]
+
+    chunk_response = client.post(
+        f"/api/v1/documents/{document_id}/chunk",
+        json={
+            "team_id": team_id,
+            "conversation_id": conversation_id,
+            "max_chars": 80,
+            "overlap": 10,
+        },
+    )
+    assert chunk_response.status_code == 200
+
+    index_response = client.post(
+        "/api/v1/retrieval/index",
+        json={
+            "team_id": team_id,
+            "conversation_id": conversation_id,
+            "document_id": document_id,
+        },
+    )
+    assert index_response.status_code == 200
+
+    ask_response = client.post(
+        "/api/v1/chat/ask",
+        json={
+            "user_id": user_id,
+            "team_id": team_id,
+            "conversation_id": conversation_id,
+            "question": "What does the brief say about rollback?",
+            "selected_document_ids": [document_id],
+            "use_document_scope": False,
+            "include_memory": False,
+            "include_library": False,
+            "top_k": 3,
+        },
+    )
+    assert ask_response.status_code == 200
+    assert ask_response.json()["mode"] == "chat"
+
+    history_response = client.get(
+        "/api/v1/chat/history",
+        params={
+            "team_id": team_id,
+            "user_id": user_id,
+            "conversation_id": conversation_id,
+            "limit": 20,
+        },
+    )
+    assert history_response.status_code == 200
+    message_id = history_response.json()["items"][0]["message_id"]
+
+    edit_response = client.put(
+        f"/api/v1/chat/history/{message_id}",
+        json={
+            "team_id": team_id,
+            "user_id": user_id,
+            "request_text": "Rewrite the rollback answer.",
+        },
+    )
+    assert edit_response.status_code == 200
+    edited = edit_response.json()
+    assert edited["request_payload"]["use_document_scope"] is False
+    assert edited["request_payload"]["include_memory"] is False
+    assert edited["request_payload"]["include_library"] is False
+    assert edited["response_payload"]["mode"] == "chat"
+
+def test_chat_ask_defaults_to_chat_mode_without_use_document_scope_flag(client) -> None:
+    suffix = uuid4().hex[:8]
+    team_id, user_id, conversation_id = _create_team_user_and_conversation(client, suffix)
+
+    import_response = client.post(
+        "/api/v1/documents/import",
+        json={
+            "team_id": team_id,
+            "conversation_id": conversation_id,
+            "source_name": "brief.md",
+            "content_type": "md",
+            "content": "# Launch Brief\n\nRollback approval is required before any production rollback.",
+        },
+    )
+    assert import_response.status_code == 201
+    document_id = import_response.json()["document_id"]
+
+    chunk_response = client.post(
+        f"/api/v1/documents/{document_id}/chunk",
+        json={
+            "team_id": team_id,
+            "conversation_id": conversation_id,
+            "max_chars": 80,
+            "overlap": 10,
+        },
+    )
+    assert chunk_response.status_code == 200
+
+    index_response = client.post(
+        "/api/v1/retrieval/index",
+        json={
+            "team_id": team_id,
+            "conversation_id": conversation_id,
+            "document_id": document_id,
+        },
+    )
+    assert index_response.status_code == 200
+
+    ask_response = client.post(
+        "/api/v1/chat/ask",
+        json={
+            "user_id": user_id,
+            "team_id": team_id,
+            "conversation_id": conversation_id,
+            "question": "What does the brief say about rollback?",
+            "top_k": 3,
+        },
+    )
+    assert ask_response.status_code == 200
+    body = ask_response.json()
+    assert body["mode"] == "chat"
+    assert body["hits"] == []
+    assert body["sources"] == []

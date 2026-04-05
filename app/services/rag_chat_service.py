@@ -34,27 +34,35 @@ class RagChatService:
             user_id=payload.user_id,
             team_id=payload.team_id,
         )
+        if isinstance(payload.use_document_scope, bool):
+            use_document_scope = payload.use_document_scope
+        else:
+            use_document_scope = bool(payload.document_id or payload.selected_document_ids)
         effective_space_id = self.document_service.resolve_space_id(
             team_id=payload.team_id,
             conversation_id=payload.conversation_id,
             space_id=payload.space_id,
             user_id=payload.user_id,
         )
-        selected_document_ids = self._resolve_selected_document_ids(payload)
+        selected_document_ids = self._resolve_selected_document_ids(payload) if use_document_scope else None
         conversation_messages = self._build_conversation_messages(
             team_id=payload.team_id,
             user_id=payload.user_id,
             conversation_id=payload.conversation_id,
             before_message_id=before_message_id,
         )
-        scope_documents = self.document_service.get_documents_in_scope(
-            team_id=payload.team_id,
-            conversation_id=payload.conversation_id,
-            space_id=effective_space_id,
-            document_ids=selected_document_ids,
-            include_library=payload.include_library,
-            include_conclusions=payload.include_conclusions,
-            ready_only=True,
+        scope_documents = (
+            self.document_service.get_documents_in_scope(
+                team_id=payload.team_id,
+                conversation_id=payload.conversation_id,
+                space_id=effective_space_id,
+                document_ids=selected_document_ids,
+                include_library=payload.include_library,
+                include_conclusions=payload.include_conclusions,
+                ready_only=True,
+            )
+            if use_document_scope
+            else []
         )
         scope_document_ids = [item.document_id for item in scope_documents]
         image_attachments = self._build_image_attachments(scope_documents)
@@ -95,7 +103,7 @@ class RagChatService:
             selected_model = "default"
             runtime_selected_model = None
 
-        should_use_rag = bool(scope_document_ids) and self.retrieval_service.has_indexed_chunks(
+        should_use_rag = use_document_scope and bool(scope_document_ids) and self.retrieval_service.has_indexed_chunks(
             team_id=payload.team_id,
             document_ids=scope_document_ids,
         )

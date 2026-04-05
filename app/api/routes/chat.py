@@ -170,6 +170,28 @@ def edit_chat_history_message(
                 payload.selected_document_ids,
                 previous_payload,
             )
+            use_document_scope = _resolve_use_document_scope(
+                payload.use_document_scope,
+                previous_payload,
+            )
+            include_memory = _resolve_bool(
+                payload.include_memory,
+                previous_payload,
+                "include_memory",
+                default=True,
+            )
+            include_conclusions = _resolve_bool(
+                payload.include_conclusions,
+                previous_payload,
+                "include_conclusions",
+                default=False,
+            )
+            include_library = _resolve_bool(
+                payload.include_library,
+                previous_payload,
+                "include_library",
+                default=True,
+            )
             model = _resolve_optional_string(payload.model, previous_payload.get("model"))
             embedding_model = _resolve_optional_string(
                 payload.embedding_model,
@@ -184,6 +206,10 @@ def edit_chat_history_message(
                 top_k=top_k,
                 document_id=document_id,
                 selected_document_ids=selected_document_ids,
+                use_document_scope=use_document_scope,
+                include_memory=include_memory,
+                include_conclusions=include_conclusions,
+                include_library=include_library,
                 model=model,
                 embedding_model=embedding_model,
             )
@@ -291,3 +317,47 @@ def _resolve_selected_document_ids(
         if normalized and normalized not in deduped:
             deduped.append(normalized)
     return deduped or None
+
+
+def _resolve_use_document_scope(
+    current: bool | None,
+    previous_payload: dict[str, Any],
+) -> bool:
+    if isinstance(current, bool):
+        return current
+
+    previous = previous_payload.get("use_document_scope")
+    if isinstance(previous, bool):
+        return previous
+
+    previous_selected = previous_payload.get("selected_document_ids")
+    if isinstance(previous_selected, list) and any(str(item).strip() for item in previous_selected):
+        return True
+
+    previous_document_id = previous_payload.get("document_id")
+    if isinstance(previous_document_id, str) and previous_document_id.strip():
+        return True
+
+    if previous_payload.get("include_library") is True:
+        return True
+    if previous_payload.get("include_conclusions") is True:
+        return True
+
+    return False
+
+
+def _resolve_bool(
+    current: bool | None,
+    previous_payload: dict[str, Any],
+    key: str,
+    *,
+    default: bool,
+) -> bool:
+    if isinstance(current, bool):
+        return current
+
+    previous = previous_payload.get(key)
+    if isinstance(previous, bool):
+        return previous
+
+    return default
