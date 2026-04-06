@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import DomainValidationError, EntityNotFoundError
+from app.models.chat_history import ChatHistory
 from app.models.conclusion import Conclusion
 from app.models.document import Document
 from app.schemas.conclusion import (
@@ -44,6 +45,11 @@ class ConclusionService:
     def create(self, payload: ConclusionCreate) -> Conclusion:
         self.space_service.ensure_access(
             space_id=payload.space_id,
+            team_id=payload.team_id,
+            user_id=payload.user_id,
+        )
+        self._validate_source_message(
+            source_message_id=payload.source_message_id,
             team_id=payload.team_id,
             user_id=payload.user_id,
         )
@@ -234,6 +240,22 @@ class ConclusionService:
         if payload is None:
             return None
         return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+    def _validate_source_message(
+        self,
+        *,
+        source_message_id: str | None,
+        team_id: str,
+        user_id: str,
+    ) -> None:
+        normalized_id = (source_message_id or "").strip()
+        if not normalized_id:
+            return
+        message = self.db.get(ChatHistory, normalized_id)
+        if message is None:
+            raise EntityNotFoundError(f"Message '{normalized_id}' does not exist.")
+        if message.team_id != team_id or message.user_id != user_id:
+            raise DomainValidationError("Source message does not belong to the provided team/user.")
 
     def _upsert_sync_document(self, item: Conclusion) -> Document:
         markdown_content = self._build_conclusion_markdown(item)

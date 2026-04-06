@@ -63,6 +63,7 @@ async def upload_document(
         payload = await file.read()
         document = document_service.upload_document(
             team_id=team_id,
+            user_id=user_id,
             conversation_id=conversation_id,
             space_id=space_id,
             source_name=file.filename or "uploaded.bin",

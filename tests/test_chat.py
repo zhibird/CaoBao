@@ -1793,7 +1793,7 @@ def test_chat_ask_respects_use_document_scope_false_with_ready_conversation_file
         json={
             "team_id": team_id,
             "conversation_id": conversation_id,
-            "max_chars": 80,
+            "max_chars": 100,
             "overlap": 10,
         },
     )
@@ -1852,7 +1852,7 @@ def test_chat_history_edit_preserves_use_document_scope_false(client) -> None:
         json={
             "team_id": team_id,
             "conversation_id": conversation_id,
-            "max_chars": 80,
+            "max_chars": 100,
             "overlap": 10,
         },
     )
@@ -1912,7 +1912,7 @@ def test_chat_history_edit_preserves_use_document_scope_false(client) -> None:
     assert edited["request_payload"]["include_library"] is False
     assert edited["response_payload"]["mode"] == "chat"
 
-def test_chat_ask_defaults_to_chat_mode_without_use_document_scope_flag(client) -> None:
+def test_chat_ask_defaults_to_chat_mode_without_use_document_scope_flag_when_document_enhancement_is_disabled(client) -> None:
     suffix = uuid4().hex[:8]
     team_id, user_id, conversation_id = _create_team_user_and_conversation(client, suffix)
 
@@ -1934,7 +1934,7 @@ def test_chat_ask_defaults_to_chat_mode_without_use_document_scope_flag(client) 
         json={
             "team_id": team_id,
             "conversation_id": conversation_id,
-            "max_chars": 80,
+            "max_chars": 100,
             "overlap": 10,
         },
     )
@@ -1957,6 +1957,9 @@ def test_chat_ask_defaults_to_chat_mode_without_use_document_scope_flag(client) 
             "team_id": team_id,
             "conversation_id": conversation_id,
             "question": "What does the brief say about rollback?",
+            "include_memory": False,
+            "include_library": False,
+            "include_conclusions": False,
             "top_k": 3,
         },
     )

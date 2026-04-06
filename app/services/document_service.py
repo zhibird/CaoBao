@@ -99,6 +99,7 @@ class DocumentService:
             team_id=payload.team_id,
             conversation_id=payload.conversation_id,
             space_id=payload.space_id,
+            user_id=payload.user_id,
         )
 
         now = datetime.now(timezone.utc)
@@ -118,6 +119,9 @@ class DocumentService:
             size_bytes=size_bytes,
             sha256=hashlib.sha256(content.encode("utf-8")).hexdigest(),
             storage_key=f"inline://import/{uuid4()}",
+            meta_json=json.dumps(payload.meta, ensure_ascii=False, separators=(",", ":"))
+            if payload.meta
+            else None,
             visibility="conversation" if payload.conversation_id else "space",
             asset_kind="attachment" if payload.conversation_id else "knowledge_doc",
             retrieval_enabled=True,
@@ -136,6 +140,7 @@ class DocumentService:
         self,
         *,
         team_id: str,
+        user_id: str | None,
         conversation_id: str | None,
         space_id: str | None,
         source_name: str,
@@ -147,6 +152,7 @@ class DocumentService:
             team_id=team_id,
             conversation_id=conversation_id,
             space_id=space_id,
+            user_id=user_id,
         )
         if not file_bytes:
             raise DomainValidationError("EMPTY_FILE: uploaded file is empty.")
@@ -662,7 +668,7 @@ class DocumentService:
 
         document.content = parse_result.text
         document.page_count = parse_result.page_count
-        document.meta_json = json.dumps(parse_result.meta, separators=(",", ":")) if parse_result.meta else None
+        document.meta_json = self._merge_meta_json(document.meta_json, parse_result.meta)
         document.failure_stage = None
         document.error_code = None
         document.error_message = None
@@ -1309,6 +1315,28 @@ class DocumentService:
         except OSError:
             # Best effort cleanup only.
             return
+
+    def _merge_meta_json(
+        self,
+        current_meta_json: str | None,
+        new_meta: dict[str, object] | None,
+    ) -> str | None:
+        merged: dict[str, object] = {}
+
+        if current_meta_json:
+            try:
+                decoded = json.loads(current_meta_json)
+            except json.JSONDecodeError:
+                decoded = None
+            if isinstance(decoded, dict):
+                merged.update(decoded)
+
+        if new_meta:
+            merged.update(new_meta)
+
+        if not merged:
+            return None
+        return json.dumps(merged, ensure_ascii=False, separators=(",", ":"))
 
     def _to_pipeline_error(self, *, stage: str, exc: DomainValidationError) -> PipelineError:
         message = str(exc)

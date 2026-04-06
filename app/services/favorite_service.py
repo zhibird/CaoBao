@@ -151,6 +151,7 @@ class FavoriteService:
                 weight=payload.weight,
                 confidence=payload.confidence,
                 status=payload.status,
+                source_message_id=favorite.message_id,
                 expires_at=payload.expires_at,
             )
         )

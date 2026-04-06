@@ -8,6 +8,7 @@ from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import DomainValidationError, EntityNotFoundError
+from app.models.chat_history import ChatHistory
 from app.models.memory_card import MemoryCard
 from app.models.memory_card_embedding import MemoryCardEmbedding
 from app.schemas.memory import MemoryCardCreate, MemoryCardUpdate
@@ -40,6 +41,11 @@ class MemoryService:
             team_id=payload.team_id,
             user_id=payload.user_id,
         )
+        self._validate_source_message(
+            source_message_id=payload.source_message_id,
+            team_id=payload.team_id,
+            user_id=payload.user_id,
+        )
 
         status = self._normalize_status(payload.status)
         now = datetime.now(timezone.utc)
@@ -57,6 +63,7 @@ class MemoryService:
             weight=float(payload.weight),
             confidence=float(payload.confidence),
             status=status,
+            source_message_id=payload.source_message_id,
             expires_at=payload.expires_at,
             created_at=now,
             updated_at=now,
@@ -241,6 +248,22 @@ class MemoryService:
         if normalized_status not in self._ALLOWED_STATUSES:
             raise DomainValidationError("status must be one of: active, disabled, expired.")
         return normalized_status
+
+    def _validate_source_message(
+        self,
+        *,
+        source_message_id: str | None,
+        team_id: str,
+        user_id: str,
+    ) -> None:
+        normalized_id = (source_message_id or "").strip()
+        if not normalized_id:
+            return
+        message = self.db.get(ChatHistory, normalized_id)
+        if message is None:
+            raise EntityNotFoundError(f"Message '{normalized_id}' does not exist.")
+        if message.team_id != team_id or message.user_id != user_id:
+            raise DomainValidationError("Source message does not belong to the provided team/user.")
 
     def _upsert_embedding(
         self,

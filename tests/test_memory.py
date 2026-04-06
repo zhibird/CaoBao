@@ -42,6 +42,52 @@ def _create_space(client, *, team_id: str, user_id: str, name: str) -> str:
     return response.json()["space_id"]
 
 
+def _create_conversation(client, *, team_id: str, user_id: str, title: str) -> dict[str, object]:
+    response = client.post(
+        "/api/v1/conversations",
+        json={
+            "team_id": team_id,
+            "user_id": user_id,
+            "title": title,
+        },
+    )
+    assert response.status_code == 201
+    return response.json()
+
+
+def _create_history_message(
+    client,
+    *,
+    team_id: str,
+    user_id: str,
+    conversation_id: str,
+) -> str:
+    echo_response = client.post(
+        "/api/v1/chat/echo",
+        json={
+            "team_id": team_id,
+            "user_id": user_id,
+            "conversation_id": conversation_id,
+            "message": "Remember this answer.",
+        },
+    )
+    assert echo_response.status_code == 200
+
+    history_response = client.get(
+        "/api/v1/chat/history",
+        params={
+            "team_id": team_id,
+            "user_id": user_id,
+            "conversation_id": conversation_id,
+            "limit": 1,
+        },
+    )
+    assert history_response.status_code == 200
+    items = history_response.json()["items"]
+    assert len(items) == 1
+    return items[0]["message_id"]
+
+
 def test_memory_cards_crud_happy_path(client) -> None:
     suffix = uuid4().hex[:8]
     team_id, user_id = _create_team_and_user(client, suffix)
@@ -181,3 +227,51 @@ def test_memory_cards_are_isolated_by_space(client) -> None:
     )
     assert list_space_b.status_code == 200
     assert list_space_b.json() == []
+
+
+def test_memory_cards_can_track_source_message(client) -> None:
+    suffix = uuid4().hex[:8]
+    team_id, user_id = _create_team_and_user(client, suffix)
+    conversation = _create_conversation(
+        client,
+        team_id=team_id,
+        user_id=user_id,
+        title="Memory Source Conversation",
+    )
+    space_id = conversation["space_id"]
+    message_id = _create_history_message(
+        client,
+        team_id=team_id,
+        user_id=user_id,
+        conversation_id=conversation["conversation_id"],
+    )
+
+    create_response = client.post(
+        "/api/v1/memory/cards",
+        json={
+            "team_id": team_id,
+            "user_id": user_id,
+            "space_id": space_id,
+            "title": "Remembered answer",
+            "content": "This answer should remain linked to the original message.",
+            "category": "assistant_answer",
+            "source_message_id": message_id,
+        },
+    )
+    assert create_response.status_code == 201
+    created = create_response.json()
+    assert created["source_message_id"] == message_id
+
+    list_response = client.get(
+        "/api/v1/memory/cards",
+        params={
+            "team_id": team_id,
+            "user_id": user_id,
+            "space_id": space_id,
+            "limit": 50,
+        },
+    )
+    assert list_response.status_code == 200
+    items = list_response.json()
+    assert len(items) == 1
+    assert items[0]["source_message_id"] == message_id

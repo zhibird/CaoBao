@@ -11,6 +11,15 @@ const DEFAULT_CONVERSATION_TITLE = "新会话";
 const CHAT_MODE_CHAT = "chat";
 const CHAT_MODE_DOCS = "docs";
 
+function createEmptyMessageCaptureState() {
+  return {
+    favoritesByMessageId: {},
+    memoriesByMessageId: {},
+    conclusionsByMessageId: {},
+    libraryDocsByMessageId: {},
+  };
+}
+
 const STORAGE_KEYS = {
   teamId: "caibao.teamId",
   teamName: "caibao.teamName",
@@ -34,11 +43,15 @@ const state = {
   conversations: [],
   history: [],
   documents: [],
+  favoriteItems: [],
   selectedDocumentIds: [],
   chatMode: CHAT_MODE_CHAT,
   sending: false,
   importing: false,
   dragCounter: 0,
+  messageCaptures: createEmptyMessageCaptureState(),
+  pendingCaptureActions: {},
+  messageCaptureRequestSeq: 0,
 };
 
 const els = {};
@@ -327,6 +340,87 @@ function getActiveConversation() {
   return state.conversations.find((item) => item.conversation_id === state.conversationId) || null;
 }
 
+function getActiveSpaceId() {
+  return getActiveConversation()?.space_id || state.history[0]?.space_id || "";
+}
+
+function resetMessageCaptureState() {
+  state.messageCaptures = createEmptyMessageCaptureState();
+  state.favoriteItems = [];
+  state.pendingCaptureActions = {};
+  state.messageCaptureRequestSeq += 1;
+}
+
+function createCaptureActionKey(messageId, action) {
+  return `${action}:${messageId}`;
+}
+
+function isCaptureActionPending(messageId, action) {
+  return Boolean(state.pendingCaptureActions[createCaptureActionKey(messageId, action)]);
+}
+
+function setCaptureActionPending(messageId, action, pending) {
+  const key = createCaptureActionKey(messageId, action);
+  const next = { ...state.pendingCaptureActions };
+  if (pending) {
+    next[key] = true;
+  } else {
+    delete next[key];
+  }
+  state.pendingCaptureActions = next;
+}
+
+function updateMessageCaptureRecord(type, messageId, record) {
+  const current = state.messageCaptures;
+  const nextBucket = {
+    ...current[type],
+    [messageId]: record,
+  };
+  state.messageCaptures = {
+    ...current,
+    [type]: nextBucket,
+  };
+}
+
+function removeMessageCaptureRecord(type, messageId) {
+  const current = state.messageCaptures;
+  if (!current[type]?.[messageId]) {
+    return;
+  }
+  const nextBucket = { ...current[type] };
+  delete nextBucket[messageId];
+  state.messageCaptures = {
+    ...current,
+    [type]: nextBucket,
+  };
+}
+
+function getMessageCaptureRecord(type, messageId) {
+  if (!messageId) {
+    return null;
+  }
+  return state.messageCaptures[type]?.[messageId] || null;
+}
+
+function setFavoriteItems(items) {
+  state.favoriteItems = Array.isArray(items) ? [...items] : [];
+}
+
+function upsertFavoriteItem(item) {
+  if (!item?.favorite_id) {
+    return;
+  }
+  const next = state.favoriteItems.filter((favorite) => favorite.favorite_id !== item.favorite_id);
+  state.favoriteItems = [item, ...next];
+}
+
+function removeFavoriteItem(favoriteId) {
+  if (!favoriteId) {
+    return;
+  }
+  state.favoriteItems = state.favoriteItems.filter((item) => item.favorite_id !== favoriteId);
+}
+
 function getReadyDocumentCount() {
   return state.documents.filter((doc) => normalizeStatus(doc.status) === "ready").length;
 }
@@ -540,6 +634,12 @@ function refreshWorkspaceUi() {
   }
   if (els.chatModeHint) {
     els.chatModeHint.textContent = getChatModeHint(readyCount, getProcessingDocumentCount());
+  }
+  if (els.heroPanel && els.conversation) {
+    if (!state.history.length && !pendingAssistantRow) {
+      els.heroPanel.classList.remove("hidden");
+      els.conversation.classList.remove("has-messages");
+    }
   }
 
   if (els.shell) {
@@ -836,7 +936,7 @@ async function loadAllData() {
   initEmbeddingOptions();
   await loadConversations();
   await ensureActiveConversation();
-  await Promise.all([loadHistory(), loadDocuments()]);
+  await Promise.all([loadHistory(), loadDocuments(), loadMessageCaptures()]);
   refreshWorkspaceUi();
 }
 
@@ -1034,7 +1134,7 @@ async function createAndSwitchConversation() {
   persistConversation();
   await loadConversations();
   clearConversation();
-  await Promise.all([loadHistory(), loadDocuments()]);
+  await Promise.all([loadHistory(), loadDocuments(), loadMessageCaptures()]);
   showToast("已创建新会话");
 }
 
@@ -1048,7 +1148,7 @@ async function switchConversation(conversationId) {
   persistConversation();
   renderConversationList();
   clearConversation();
-  await Promise.all([loadHistory(), loadDocuments()]);
+  await Promise.all([loadHistory(), loadDocuments(), loadMessageCaptures()]);
 }
 
 async function renameConversation(conversation) {
@@ -1109,11 +1209,12 @@ async function deleteConversation(conversationId) {
 
   await loadConversations();
   await ensureActiveConversation();
-  await Promise.all([loadHistory(), loadDocuments()]);
+  await Promise.all([loadHistory(), loadDocuments(), loadMessageCaptures()]);
   showToast("会话已删除");
 }
 async function loadHistory() {
   if (!state.conversationId) {
+    resetMessageCaptureState();
     clearConversation();
     return;
   }
@@ -1129,7 +1230,77 @@ async function loadHistory() {
   renderCurrentConversationMessages();
 }
 
-function renderCurrentConversationMessages() {
+async function loadMessageCaptures() {
+  const conversationId = state.conversationId;
+  const spaceId = getActiveSpaceId();
+  if (!ensureIdentity() || !state.conversationId || !spaceId) {
+    resetMessageCaptureState();
+    return;
+  }
+  const requestSeq = state.messageCaptureRequestSeq + 1;
+  state.messageCaptureRequestSeq = requestSeq;
+
+  const query = new URLSearchParams({
+    team_id: state.teamId,
+    user_id: state.userId,
+    space_id: spaceId,
+  });
+  const [favorites, memories, conclusions, libraryDocs] = await Promise.all([
+    apiRequest(`/favorites/answers?${query.toString()}`),
+    apiRequest(`/memory/cards?${query.toString()}`),
+    apiRequest(`/conclusions?${query.toString()}`),
+    apiRequest(`/library/documents?${query.toString()}`),
+  ]);
+  if (
+    requestSeq !== state.messageCaptureRequestSeq
+    || conversationId !== state.conversationId
+    || spaceId !== getActiveSpaceId()
+  ) {
+    return;
+  }
+
+  const nextState = createEmptyMessageCaptureState();
+
+  for (const item of Array.isArray(favorites) ? favorites : []) {
+    if (item?.message_id) {
+      nextState.favoritesByMessageId[item.message_id] = item;
+    }
+  }
+
+  for (const item of Array.isArray(memories) ? memories : []) {
+    if (item?.source_message_id) {
+      nextState.memoriesByMessageId[item.source_message_id] = item;
+    }
+  }
+
+  for (const item of Array.isArray(conclusions) ? conclusions : []) {
+    if (item?.source_message_id) {
+      nextState.conclusionsByMessageId[item.source_message_id] = item;
+    }
+  }
+
+  for (const item of Array.isArray(libraryDocs) ? libraryDocs : []) {
+    const meta = safeParseJson(item?.meta_json, {});
+    const sourceMessageId = typeof meta?.source_message_id === "string" ? meta.source_message_id : "";
+    if (!sourceMessageId) {
+      continue;
+    }
+    if (String(item?.asset_kind || "").trim().toLowerCase() !== "knowledge_doc") {
+      continue;
+    }
+    nextState.libraryDocsByMessageId[sourceMessageId] = item;
+  }
+
+  setFavoriteItems(Array.isArray(favorites) ? favorites : []);
+  state.messageCaptures = nextState;
+  if (state.history.length) {
+    renderCurrentConversationMessages({ scrollToEnd: false });
+  }
+}
+
+function renderCurrentConversationMessages(options = {}) {
+  const shouldScrollToEnd = options.scrollToEnd !== false;
+  const previousScrollTop = els.conversation?.scrollTop ?? 0;
   clearConversation();
   if (!state.history.length) {
     refreshWorkspaceUi();
@@ -1146,6 +1317,7 @@ function renderCurrentConversationMessages() {
       channel: item.channel,
       editable: allowLatestEdit,
       deletable: true,
+      autoScroll: false,
     });
 
     const responsePayload = item.response_payload || {};
@@ -1156,12 +1328,21 @@ function renderCurrentConversationMessages() {
       mode: responsePayload.mode || "",
       model: responsePayload.model || "",
       messageId: item.message_id,
+      spaceId: item.space_id,
       requestText: item.request_text || "",
       channel: item.channel,
       regenerable: allowLatestEdit,
+      autoScroll: false,
     });
   }
   refreshWorkspaceUi();
+  if (shouldScrollToEnd) {
+    scrollToBottom();
+    return;
+  }
+  if (els.conversation) {
+    els.conversation.scrollTop = previousScrollTop;
+  }
 }
 
 async function deleteHistoryMessage(messageId) {
@@ -1279,11 +1460,239 @@ async function regenerateAssistantMessage(messageId, requestText, channel) {
   showToast(`已使用 ${normalizedModel} 重新生成`);
 }
 
+function truncateText(value, maxLength) {
+  const normalized = String(value || "").trim();
+  if (!normalized || normalized.length <= maxLength) {
+    return normalized;
+  }
+  return `${normalized.slice(0, Math.max(1, maxLength - 1)).trim()}…`;
+}
+
+function buildCaptureTitle(requestText, fallbackPrefix) {
+  const normalized = truncateText(requestText, 96);
+  if (normalized) {
+    return normalized;
+  }
+  return fallbackPrefix;
+}
+
+function buildConclusionTitle(requestText) {
+  const normalized = truncateText(requestText, 84);
+  if (!normalized) {
+    return "聊天结论";
+  }
+  return truncateText(`关于「${normalized}」的结论`, 128);
+}
+
+function safeParseJson(raw, fallback) {
+  if (!raw || typeof raw !== "string") {
+    return fallback;
+  }
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return fallback;
+  }
+}
+
+function buildSourceLocator(source) {
+  if (!source || typeof source !== "object") {
+    return "";
+  }
+  if (source.locator_label) {
+    return String(source.locator_label);
+  }
+  if (Number.isInteger(Number(source.page_no))) {
+    return `Page ${Number(source.page_no)}`;
+  }
+  if (Number.isInteger(Number(source.chunk_index))) {
+    return `Chunk ${Number(source.chunk_index) + 1}`;
+  }
+  return "";
+}
+
+function buildCaptureEvidence(sources) {
+  if (!Array.isArray(sources) || !sources.length) {
+    return undefined;
+  }
+  return {
+    sources: sources.map((source) => ({
+      document_id: source.document_id || "",
+      source_name: source.source_name || "",
+      locator: buildSourceLocator(source),
+      snippet: truncateText(source.snippet || "", 280),
+      score: Number(source.score || 0),
+    })),
+  };
+}
+
+function buildLibraryCaptureMarkdownFromContext(context) {
+  const questionText = truncateText(context?.requestText || "未记录问题", 8_000) || "未记录问题";
+  const answerText = truncateText(context?.answerText || "", 180_000);
+  const lines = [
+    `# ${buildCaptureTitle(context?.requestText || context?.answerText, "聊天回答沉淀")}`,
+    "",
+    `- 来源消息: ${context?.messageId || "unknown"}`,
+    `- 会话: ${state.conversationId || "unknown"}`,
+    `- 生成时间: ${context?.createdAt || new Date().toISOString()}`,
+    "",
+    "## 用户问题",
+    "",
+    questionText,
+    "",
+    "## 回答内容",
+    "",
+    answerText,
+  ];
+
+  const sources = Array.isArray(context?.sources) ? context.sources : [];
+  if (sources.length) {
+    lines.push("", "## 引用来源", "");
+    for (const source of sources) {
+      const prefix = source.source_name || "未命名资料";
+      const locator = buildSourceLocator(source);
+      const summary = [prefix, locator].filter(Boolean).join(" · ");
+      lines.push(`- ${summary || prefix}`);
+      if (source.snippet) {
+        lines.push(`  - 摘要：${truncateText(source.snippet, 280)}`);
+      }
+    }
+  }
+
+  return lines.join("\n").trim();
+}
+
+async function runMessageCaptureAction(messageId, action, task) {
+  if (isCaptureActionPending(messageId, action)) {
+    return null;
+  }
+
+  setCaptureActionPending(messageId, action, true);
+  renderCurrentConversationMessages({ scrollToEnd: false });
+  try {
+    return await task();
+  } finally {
+  setCaptureActionPending(messageId, action, false);
+  renderCurrentConversationMessages({ scrollToEnd: false });
+  }
+}
+
+async function captureAssistantFavorite(context) {
+  const existing = getMessageCaptureRecord("favoritesByMessageId", context.messageId);
+  if (existing) {
+    showToast("这条回答已经收藏过了");
+    return existing;
+  }
+
+  return runMessageCaptureAction(context.messageId, "favorite", async () => {
+    const created = await apiRequest("/favorites/answers", {
+      method: "POST",
+      body: {
+        team_id: state.teamId,
+        user_id: state.userId,
+        space_id: context.spaceId,
+        message_id: context.messageId,
+      },
+    });
+    updateMessageCaptureRecord("favoritesByMessageId", context.messageId, created);
+    upsertFavoriteItem(created);
+    showToast("已收藏这条回答");
+    return created;
+  });
+}
+
+async function captureAssistantMemory(context) {
+  const existing = getMessageCaptureRecord("memoriesByMessageId", context.messageId);
+  if (existing) {
+    showToast("这条回答已经记住过了");
+    return existing;
+  }
+
+  return runMessageCaptureAction(context.messageId, "memory", async () => {
+    const created = await apiRequest("/memory/cards", {
+      method: "POST",
+      body: {
+        team_id: state.teamId,
+        user_id: state.userId,
+        space_id: context.spaceId,
+        category: "assistant_answer",
+        title: buildCaptureTitle(context.requestText || context.answerText, "聊天记忆"),
+        content: truncateText(context.answerText || "", 4000) || "未记录回答",
+        summary: truncateText(context.requestText || "", 200),
+        source_message_id: context.messageId,
+      },
+    });
+    updateMessageCaptureRecord("memoriesByMessageId", context.messageId, created);
+    showToast("已记住这条回答");
+    return created;
+  });
+}
+
+async function captureAssistantConclusion(context) {
+  const existing = getMessageCaptureRecord("conclusionsByMessageId", context.messageId);
+  if (existing) {
+    showToast("这条回答已经沉淀为结论");
+    return existing;
+  }
+
+  return runMessageCaptureAction(context.messageId, "conclusion", async () => {
+    const created = await apiRequest("/conclusions", {
+      method: "POST",
+      body: {
+        team_id: state.teamId,
+        user_id: state.userId,
+        space_id: context.spaceId,
+        title: buildConclusionTitle(context.requestText || context.answerText),
+        topic: truncateText(context.requestText || "", 128),
+        content: truncateText(context.answerText || "", 12000) || "未记录回答",
+        summary: truncateText(context.answerText || "", 360),
+        source_message_id: context.messageId,
+        evidence: buildCaptureEvidence(context.sources),
+      },
+    });
+    updateMessageCaptureRecord("conclusionsByMessageId", context.messageId, created);
+    showToast("已沉淀为结论");
+    return created;
+  });
+}
+
+async function captureAssistantLibrary(context) {
+  const existing = getMessageCaptureRecord("libraryDocsByMessageId", context.messageId);
+  if (existing) {
+    showToast("这条回答已经发布到资料库");
+    return existing;
+  }
+
+  return runMessageCaptureAction(context.messageId, "library", async () => {
+    const created = await apiRequest("/documents/import", {
+      method: "POST",
+      body: {
+        team_id: state.teamId,
+        user_id: state.userId,
+        space_id: context.spaceId,
+        source_name: `answer-${context.messageId}.md`,
+        content_type: "md",
+        content: buildLibraryCaptureMarkdownFromContext(context),
+        auto_index: true,
+        meta: {
+          source_message_id: context.messageId,
+          capture_kind: "assistant_answer",
+          source_conversation_id: state.conversationId || "",
+        },
+      },
+    });
+    updateMessageCaptureRecord("libraryDocsByMessageId", context.messageId, created);
+    showToast("已发布到资料库");
+    return created;
+  });
+}
+
 async function loadDocuments() {
   if (!state.conversationId) {
     state.documents = [];
     state.selectedDocumentIds = [];
     state.chatMode = CHAT_MODE_CHAT;
+    resetMessageCaptureState();
     renderDocuments();
     renderAttachmentStrip();
     return;
@@ -2492,19 +2901,31 @@ function appendMessage(role, content, options = {}) {
     message.appendChild(sourceBox);
   }
 
+  const assistantCaptureContext = role === "assistant" && options.messageId && options.spaceId
+    ? {
+      messageId: options.messageId,
+      spaceId: options.spaceId,
+      channel: options.channel || "",
+      requestText: options.requestText || "",
+      answerText: extractCopyText(content, contentParts).trim(),
+      sources: Array.isArray(options.sources) ? options.sources : [],
+      createdAt: options.createdAt || null,
+    }
+    : null;
+
   const actionRail = document.createElement("div");
   actionRail.className = "message-action-rail";
 
   if (role === "user" && options.messageId) {
     if (options.editable) {
-      actionRail.appendChild(createMessageActionButton("编辑", "✎", () => {
+      actionRail.appendChild(createMessageActionButton("编辑", () => {
         editHistoryMessage(options.messageId, content, options.channel).catch((error) => {
           showToast(error.message, true);
         });
       }));
     }
     if (options.deletable) {
-      actionRail.appendChild(createMessageActionButton("删除", "⌫", () => {
+      actionRail.appendChild(createMessageActionButton("删除", () => {
         deleteHistoryMessage(options.messageId).catch((error) => {
           showToast(error.message, true);
         });
@@ -2513,12 +2934,72 @@ function appendMessage(role, content, options = {}) {
   }
 
   if (role === "assistant") {
-    actionRail.appendChild(createMessageActionButton("复制", "⧉", () => {
+    if (assistantCaptureContext && assistantCaptureContext.channel !== "action") {
+      const messageId = assistantCaptureContext.messageId;
+      const favoriteRecord = getMessageCaptureRecord("favoritesByMessageId", messageId);
+      const memoryRecord = getMessageCaptureRecord("memoriesByMessageId", messageId);
+      const conclusionRecord = getMessageCaptureRecord("conclusionsByMessageId", messageId);
+      const libraryRecord = getMessageCaptureRecord("libraryDocsByMessageId", messageId);
+
+      actionRail.appendChild(createMessageActionButton(
+        favoriteRecord ? "已收藏" : "收藏",
+        () => {
+          captureAssistantFavorite(assistantCaptureContext).catch((error) => showToast(error.message, true));
+        },
+        {
+          active: Boolean(favoriteRecord),
+          disabled: isCaptureActionPending(messageId, "favorite"),
+          title: favoriteRecord ? "这条回答已经收藏过了" : "收藏这条回答",
+          pressed: Boolean(favoriteRecord),
+        },
+      ));
+
+      actionRail.appendChild(createMessageActionButton(
+        memoryRecord ? "已记住" : "记住这条",
+        () => {
+          captureAssistantMemory(assistantCaptureContext).catch((error) => showToast(error.message, true));
+        },
+        {
+          active: Boolean(memoryRecord),
+          disabled: Boolean(memoryRecord) || isCaptureActionPending(messageId, "memory"),
+          title: memoryRecord ? "这条回答已经转为长期记忆" : "把这条回答记为长期记忆",
+          pressed: Boolean(memoryRecord),
+        },
+      ));
+
+      actionRail.appendChild(createMessageActionButton(
+        conclusionRecord ? "已成结论" : "沉淀为结论",
+        () => {
+          captureAssistantConclusion(assistantCaptureContext).catch((error) => showToast(error.message, true));
+        },
+        {
+          active: Boolean(conclusionRecord),
+          disabled: Boolean(conclusionRecord) || isCaptureActionPending(messageId, "conclusion"),
+          title: conclusionRecord ? "这条回答已经沉淀为结论" : "把这条回答沉淀为结论",
+          pressed: Boolean(conclusionRecord),
+        },
+      ));
+
+      actionRail.appendChild(createMessageActionButton(
+        libraryRecord ? "已入资料库" : "发布到资料库",
+        () => {
+          captureAssistantLibrary(assistantCaptureContext).catch((error) => showToast(error.message, true));
+        },
+        {
+          active: Boolean(libraryRecord),
+          disabled: Boolean(libraryRecord) || isCaptureActionPending(messageId, "library"),
+          title: libraryRecord ? "这条回答已经发布到资料库" : "把这条回答发布到资料库",
+          pressed: Boolean(libraryRecord),
+        },
+      ));
+    }
+
+    actionRail.appendChild(createMessageActionButton("复制", () => {
       copyMessageText(extractCopyText(content, contentParts)).catch((error) => showToast(error.message, true));
     }));
 
     if (options.regenerable && options.messageId && options.requestText) {
-      actionRail.appendChild(createMessageActionButton("重新生成", "↻", () => {
+      actionRail.appendChild(createMessageActionButton("重新生成", () => {
         regenerateAssistantMessage(options.messageId, options.requestText, options.channel).catch((error) => {
           showToast(error.message, true);
         });
@@ -2534,7 +3015,9 @@ function appendMessage(role, content, options = {}) {
   row.appendChild(shell);
   els.messageList.appendChild(row);
   refreshWorkspaceUi();
-  scrollToBottom();
+  if (options.autoScroll !== false) {
+    scrollToBottom();
+  }
 }
 
 function renderAssistantContent(container, contentParts, fallbackText = "") {
@@ -2601,12 +3084,16 @@ function extractCopyText(content, contentParts = []) {
   return content || "";
 }
 
-function createMessageActionButton(title, text, onClick) {
+function createMessageActionButton(label, onClick, options = {}) {
   const button = document.createElement("button");
-  button.className = "message-icon-btn";
+  button.className = `message-icon-btn${options.active ? " active" : ""}`;
   button.type = "button";
-  button.title = title;
-  button.textContent = text;
+  button.title = options.title || label;
+  button.textContent = label;
+  button.disabled = Boolean(options.disabled);
+  if (typeof options.pressed === "boolean") {
+    button.setAttribute("aria-pressed", String(options.pressed));
+  }
   button.addEventListener("click", onClick);
   return button;
 }
@@ -2777,6 +3264,15 @@ function dedupeStrings(values) {
     }
   }
   return result;
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
 
 function formatClock(dateObj) {

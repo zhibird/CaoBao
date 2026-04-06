@@ -597,10 +597,12 @@ select:focus, input:focus, textarea:focus { border-color: rgba(13, 127, 112, 0.3
 
 .message-action-rail {
   gap: 8px;
+  flex-wrap: wrap;
   opacity: 0;
   transform: translateY(4px);
   transition: opacity 0.18s ease, transform 0.18s ease;
 }
+.message-row.assistant .message-action-rail { opacity: 1; transform: translateY(0); }
 .message-row:hover .message-action-rail, .message-row:focus-within .message-action-rail { opacity: 1; transform: translateY(0); }
 .message-row.user .message-action-rail { justify-content: flex-end; }
 .message-icon-btn {
@@ -612,6 +614,12 @@ select:focus, input:focus, textarea:focus { border-color: rgba(13, 127, 112, 0.3
   background: rgba(255, 255, 255, 0.8);
   color: #425868;
   font-size: 13px;
+  white-space: nowrap;
+}
+.message-icon-btn.active {
+  border-color: rgba(13, 127, 112, 0.28);
+  background: rgba(13, 127, 112, 0.12);
+  color: #0d675e;
 }
 
 .source-box { margin-top: 16px; padding-top: 14px; border-top: 1px dashed rgba(20, 41, 52, 0.12); }

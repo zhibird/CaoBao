@@ -14,6 +14,7 @@ class MemoryCardCreate(BaseModel):
     weight: float = Field(default=0.8, ge=0.0, le=1.0)
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
     status: str = Field(default="active", min_length=1, max_length=16)
+    source_message_id: str | None = Field(default=None, min_length=1, max_length=36)
     expires_at: datetime | None = None
 
 
@@ -42,6 +43,7 @@ class MemoryCardResponse(BaseModel):
     weight: float
     confidence: float
     status: str
+    source_message_id: str | None
     expires_at: datetime | None
     created_at: datetime
     updated_at: datetime

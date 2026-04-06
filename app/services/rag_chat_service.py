@@ -37,7 +37,12 @@ class RagChatService:
         if isinstance(payload.use_document_scope, bool):
             use_document_scope = payload.use_document_scope
         else:
-            use_document_scope = bool(payload.document_id or payload.selected_document_ids)
+            use_document_scope = bool(
+                payload.document_id
+                or payload.selected_document_ids
+                or payload.include_library
+                or payload.include_conclusions
+            )
         effective_space_id = self.document_service.resolve_space_id(
             team_id=payload.team_id,
             conversation_id=payload.conversation_id,

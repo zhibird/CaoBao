@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -14,6 +14,7 @@ class DocumentImportRequest(BaseModel):
     content: str = Field(min_length=1, max_length=200_000)
     auto_index: bool = False
     embedding_model: str | None = Field(default=None, min_length=1, max_length=128)
+    meta: dict[str, Any] | None = None
 
 
 class DocumentResponse(BaseModel):

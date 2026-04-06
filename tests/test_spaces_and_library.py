@@ -1,3 +1,4 @@
+import json
 from uuid import uuid4
 
 
@@ -83,6 +84,39 @@ def _import_and_index_document(
     )
     assert index_response.status_code == 200
     return document_id
+
+
+def _create_history_message(
+    client,
+    *,
+    team_id: str,
+    user_id: str,
+    conversation_id: str,
+) -> str:
+    echo_response = client.post(
+        "/api/v1/chat/echo",
+        json={
+            "team_id": team_id,
+            "user_id": user_id,
+            "conversation_id": conversation_id,
+            "message": "Publish this answer into the library.",
+        },
+    )
+    assert echo_response.status_code == 200
+
+    history_response = client.get(
+        "/api/v1/chat/history",
+        params={
+            "team_id": team_id,
+            "user_id": user_id,
+            "conversation_id": conversation_id,
+            "limit": 1,
+        },
+    )
+    assert history_response.status_code == 200
+    items = history_response.json()["items"]
+    assert len(items) == 1
+    return items[0]["message_id"]
 
 
 def test_conversation_creation_auto_provisions_default_space(client) -> None:
@@ -215,3 +249,57 @@ def test_chat_ask_uses_library_documents_across_conversations_in_same_space(clie
     assert body["space_id"] == target_conversation["space_id"]
     assert any(hit["document_id"] == published_document_id for hit in body["hits"])
     assert any(source["document_id"] == published_document_id for source in body["sources"])
+
+
+def test_library_import_can_persist_source_message_metadata(client) -> None:
+    suffix = uuid4().hex[:8]
+    team_id, user_id = _create_team_and_user(client, suffix)
+    conversation = _create_conversation(
+        client,
+        team_id=team_id,
+        user_id=user_id,
+        title="Capture Conversation",
+    )
+    message_id = _create_history_message(
+        client,
+        team_id=team_id,
+        user_id=user_id,
+        conversation_id=conversation["conversation_id"],
+    )
+
+    import_response = client.post(
+        "/api/v1/documents/import",
+        json={
+            "team_id": team_id,
+            "user_id": user_id,
+            "space_id": conversation["space_id"],
+            "source_name": f"answer-{message_id}.md",
+            "content_type": "md",
+            "content": "# Captured Answer\n\nKeep this answer reusable.",
+            "auto_index": True,
+            "meta": {
+                "source_message_id": message_id,
+                "capture_kind": "assistant_answer",
+            },
+        },
+    )
+    assert import_response.status_code == 201
+    created = import_response.json()
+    meta = json.loads(created["meta_json"])
+    assert meta["source_message_id"] == message_id
+    assert created["space_id"] == conversation["space_id"]
+    assert created["visibility"] == "space"
+
+    library_response = client.get(
+        "/api/v1/library/documents",
+        params={
+            "team_id": team_id,
+            "user_id": user_id,
+            "space_id": conversation["space_id"],
+        },
+    )
+    assert library_response.status_code == 200
+    documents = library_response.json()
+    assert len(documents) == 1
+    listed_meta = json.loads(documents[0]["meta_json"])
+    assert listed_meta["source_message_id"] == message_id
