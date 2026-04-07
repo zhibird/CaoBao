@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CaiBao Chat</title>
-  <link rel="stylesheet" href="/web/styles.css?v=0.14.2&build=20260405-1" />
+  <link rel="stylesheet" href="/web/styles.css?v=0.14.3&build=20260406-1" />
 </head>
 <body>
   <div class="bg-orb orb-a" aria-hidden="true"></div>
@@ -71,6 +71,10 @@
           <div id="workspaceEyebrow" class="workspace-eyebrow">Personal AI Assistant</div>
           <h1 class="workspace-title">能直接聊、资料可增强的个人 AI 助手</h1>
           <p id="workspaceDescription" class="workspace-description">登录后先聊天、写方案、做头脑风暴；需要时再接入资料检索与引用来源。</p>
+          <div class="workspace-view-switch" role="tablist" aria-label="工作台视图">
+            <button id="chatWorkspaceBtn" class="workspace-view-btn active" type="button" aria-pressed="true">聊天</button>
+            <button id="favoritesWorkspaceBtn" class="workspace-view-btn" type="button" aria-pressed="false">收藏夹</button>
+          </div>
         </div>
         <div class="topbar-controls">
           <div class="picker-group">
@@ -90,7 +94,8 @@
       <section class="conversation">
         <div class="conversation-glow" aria-hidden="true"></div>
         <div class="conversation-inner">
-          <section id="heroPanel" class="hero-panel">
+          <section id="chatWorkspacePanel" class="workspace-panel">
+            <section id="heroPanel" class="hero-panel">
             <div class="hero-copy">
               <div class="hero-kicker">CaiBao Assistant</div>
               <h2 id="heroTitle">登录后就能直接聊，资料会在需要时增强回答</h2>
@@ -129,9 +134,21 @@
                 <span>需要依据时，再按当前会话文件检索回答</span>
               </button>
             </div>
+            </section>
+
+            <div id="messageList" class="message-list"></div>
           </section>
 
-          <div id="messageList" class="message-list"></div>
+          <section id="favoritesPanel" class="workspace-panel favorites-panel hidden">
+            <div class="favorites-panel-head">
+              <div>
+                <div class="hero-kicker">Favorites Workspace</div>
+                <h2 class="favorites-panel-title">先收藏，再整理为长期资产</h2>
+                <p class="favorites-panel-subtitle">收藏夹承接“长期记忆 / 结论 / 资料库”的二级整理动作，聊天卡片首层只保留收藏。</p>
+              </div>
+            </div>
+            <div id="favoriteList" class="favorite-list"></div>
+          </section>
         </div>
       </section>
 
@@ -255,6 +272,6 @@
 
   <div id="toast" class="toast hidden"></div>
 
-  <script src="/web/app.js?v=0.14.2&build=20260405-1" defer></script>
+  <script src="/web/app.js?v=0.14.3&build=20260406-1" defer></script>
 </body>
 </html>

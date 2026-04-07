@@ -10,10 +10,17 @@ const DOCUMENT_STATUS_POLL_TIMEOUT_MS = 120000;
 const DEFAULT_CONVERSATION_TITLE = "新会话";
 const CHAT_MODE_CHAT = "chat";
 const CHAT_MODE_DOCS = "docs";
+const WORKSPACE_VIEW_CHAT = "chat";
+const WORKSPACE_VIEW_FAVORITES = "favorites";
 
 function createEmptyMessageCaptureState() {
   return {
     favoritesByMessageId: {},
+  };
+}
+
+function createEmptyFavoriteWorkspaceAssetState() {
+  return {
     memoriesByMessageId: {},
     conclusionsByMessageId: {},
     libraryDocsByMessageId: {},
@@ -44,14 +51,17 @@ const state = {
   history: [],
   documents: [],
   favoriteItems: [],
+  favoriteWorkspaceAssets: createEmptyFavoriteWorkspaceAssetState(),
   selectedDocumentIds: [],
   chatMode: CHAT_MODE_CHAT,
+  workspaceView: WORKSPACE_VIEW_CHAT,
   sending: false,
   importing: false,
   dragCounter: 0,
   messageCaptures: createEmptyMessageCaptureState(),
   pendingCaptureActions: {},
   messageCaptureRequestSeq: 0,
+  favoriteWorkspaceRequestSeq: 0,
 };
 
 const els = {};
@@ -92,6 +102,11 @@ function bindElements() {
   els.avatarText = document.getElementById("avatarText");
   els.workspaceEyebrow = document.getElementById("workspaceEyebrow");
   els.workspaceDescription = document.getElementById("workspaceDescription");
+  els.chatWorkspaceBtn = document.getElementById("chatWorkspaceBtn");
+  els.favoritesWorkspaceBtn = document.getElementById("favoritesWorkspaceBtn");
+  els.chatWorkspacePanel = document.getElementById("chatWorkspacePanel");
+  els.favoritesPanel = document.getElementById("favoritesPanel");
+  els.favoriteList = document.getElementById("favoriteList");
   els.heroPanel = document.getElementById("heroPanel");
   els.modelSelect = document.getElementById("modelSelect");
   els.embeddingSelect = document.getElementById("embeddingSelect");
@@ -169,6 +184,16 @@ function bindEvents() {
   els.refreshAllBtn.addEventListener("click", () => {
     loadAllData().catch((error) => showToast(error.message, true));
   });
+  if (els.chatWorkspaceBtn) {
+    els.chatWorkspaceBtn.addEventListener("click", () => {
+      setWorkspaceView(WORKSPACE_VIEW_CHAT).catch((error) => showToast(error.message, true));
+    });
+  }
+  if (els.favoritesWorkspaceBtn) {
+    els.favoritesWorkspaceBtn.addEventListener("click", () => {
+      setWorkspaceView(WORKSPACE_VIEW_FAVORITES).catch((error) => showToast(error.message, true));
+    });
+  }
 
   els.newSessionBtn.addEventListener("click", () => {
     createAndSwitchConversation().catch((error) => showToast(error.message, true));
@@ -347,8 +372,10 @@ function getActiveSpaceId() {
 function resetMessageCaptureState() {
   state.messageCaptures = createEmptyMessageCaptureState();
   state.favoriteItems = [];
+  state.favoriteWorkspaceAssets = createEmptyFavoriteWorkspaceAssetState();
   state.pendingCaptureActions = {};
   state.messageCaptureRequestSeq += 1;
+  state.favoriteWorkspaceRequestSeq += 1;
 }
 
 function createCaptureActionKey(messageId, action) {
@@ -400,6 +427,44 @@ function getMessageCaptureRecord(type, messageId) {
     return null;
   }
   return state.messageCaptures[type]?.[messageId] || null;
+}
+
+function updateFavoriteWorkspaceAsset(type, messageId, record) {
+  const current = state.favoriteWorkspaceAssets;
+  const nextBucket = {
+    ...current[type],
+    [messageId]: record,
+  };
+  state.favoriteWorkspaceAssets = {
+    ...current,
+    [type]: nextBucket,
+  };
+}
+
+function removeFavoriteWorkspaceAsset(type, messageId) {
+  const current = state.favoriteWorkspaceAssets;
+  if (!current[type]?.[messageId]) {
+    return;
+  }
+  const nextBucket = { ...current[type] };
+  delete nextBucket[messageId];
+  state.favoriteWorkspaceAssets = {
+    ...current,
+    [type]: nextBucket,
+  };
+}
+
+function removeFavoriteWorkspaceAssets(messageId) {
+  removeFavoriteWorkspaceAsset("memoriesByMessageId", messageId);
+  removeFavoriteWorkspaceAsset("conclusionsByMessageId", messageId);
+  removeFavoriteWorkspaceAsset("libraryDocsByMessageId", messageId);
+}
+
+function getFavoriteWorkspaceAsset(type, messageId) {
+  if (!messageId) {
+    return null;
+  }
+  return state.favoriteWorkspaceAssets[type]?.[messageId] || null;
 }
 
 function setFavoriteItems(items) {
@@ -514,6 +579,41 @@ function getDocumentScopeSummary() {
         ? `当前是直接聊天模式；已有 ${readyCount} 个 ready 文件可随时开启资料增强，另有 ${processingCount} 个文件正在处理中`
         : `当前是直接聊天模式；已有 ${readyCount} 个 ready 文件，切换到“资料增强”后才会使用`),
   };
+}
+
+async function setWorkspaceView(view) {
+  const nextView = view === WORKSPACE_VIEW_FAVORITES
+    ? WORKSPACE_VIEW_FAVORITES
+    : WORKSPACE_VIEW_CHAT;
+  state.workspaceView = nextView;
+  refreshWorkspaceUi();
+
+  if (nextView === WORKSPACE_VIEW_FAVORITES) {
+    renderFavoriteWorkspace();
+    await loadFavoriteWorkspaceAssets();
+  }
+}
+
+function syncWorkspaceView() {
+  const isFavoritesView = state.workspaceView === WORKSPACE_VIEW_FAVORITES;
+
+  if (els.chatWorkspaceBtn) {
+    els.chatWorkspaceBtn.classList.toggle("active", !isFavoritesView);
+    els.chatWorkspaceBtn.setAttribute("aria-pressed", String(!isFavoritesView));
+  }
+  if (els.favoritesWorkspaceBtn) {
+    els.favoritesWorkspaceBtn.classList.toggle("active", isFavoritesView);
+    els.favoritesWorkspaceBtn.setAttribute("aria-pressed", String(isFavoritesView));
+    els.favoritesWorkspaceBtn.textContent = state.favoriteItems.length
+      ? `收藏夹 ${state.favoriteItems.length}`
+      : "收藏夹";
+  }
+  if (els.chatWorkspacePanel) {
+    els.chatWorkspacePanel.classList.toggle("hidden", isFavoritesView);
+  }
+  if (els.favoritesPanel) {
+    els.favoritesPanel.classList.toggle("hidden", !isFavoritesView);
+  }
 }
 
 function refreshWorkspaceUi() {
@@ -645,6 +745,8 @@ function refreshWorkspaceUi() {
   if (els.shell) {
     els.shell.classList.toggle("has-history", Boolean(state.history.length || pendingAssistantRow));
   }
+
+  syncWorkspaceView();
 }
 
 function initModelOptions() {
@@ -1235,6 +1337,7 @@ async function loadMessageCaptures() {
   const spaceId = getActiveSpaceId();
   if (!ensureIdentity() || !state.conversationId || !spaceId) {
     resetMessageCaptureState();
+    renderFavoriteWorkspace();
     return;
   }
   const requestSeq = state.messageCaptureRequestSeq + 1;
@@ -1245,12 +1348,7 @@ async function loadMessageCaptures() {
     user_id: state.userId,
     space_id: spaceId,
   });
-  const [favorites, memories, conclusions, libraryDocs] = await Promise.all([
-    apiRequest(`/favorites/answers?${query.toString()}`),
-    apiRequest(`/memory/cards?${query.toString()}`),
-    apiRequest(`/conclusions?${query.toString()}`),
-    apiRequest(`/library/documents?${query.toString()}`),
-  ]);
+  const favorites = await apiRequest(`/favorites/answers?${query.toString()}`);
   if (
     requestSeq !== state.messageCaptureRequestSeq
     || conversationId !== state.conversationId
@@ -1267,15 +1365,60 @@ async function loadMessageCaptures() {
     }
   }
 
+  setFavoriteItems(Array.isArray(favorites) ? favorites : []);
+  state.messageCaptures = nextState;
+  state.favoriteWorkspaceAssets = createEmptyFavoriteWorkspaceAssetState();
+  if (state.history.length) {
+    renderCurrentConversationMessages({ scrollToEnd: false });
+  }
+  renderFavoriteWorkspace();
+  if (state.workspaceView === WORKSPACE_VIEW_FAVORITES && state.favoriteItems.length) {
+    await loadFavoriteWorkspaceAssets();
+  }
+}
+
+async function loadFavoriteWorkspaceAssets() {
+  const conversationId = state.conversationId;
+  const spaceId = getActiveSpaceId();
+  if (!ensureIdentity() || !state.conversationId || !spaceId || !state.favoriteItems.length) {
+    state.favoriteWorkspaceAssets = createEmptyFavoriteWorkspaceAssetState();
+    renderFavoriteWorkspace();
+    return;
+  }
+
+  const requestSeq = state.favoriteWorkspaceRequestSeq + 1;
+  state.favoriteWorkspaceRequestSeq = requestSeq;
+
+  const query = new URLSearchParams({
+    team_id: state.teamId,
+    user_id: state.userId,
+    space_id: spaceId,
+  });
+  const [memories, conclusions, libraryDocs] = await Promise.all([
+    apiRequest(`/memory/cards?${query.toString()}`),
+    apiRequest(`/conclusions?${query.toString()}`),
+    apiRequest(`/library/documents?${query.toString()}`),
+  ]);
+
+  if (
+    requestSeq !== state.favoriteWorkspaceRequestSeq
+    || conversationId !== state.conversationId
+    || spaceId !== getActiveSpaceId()
+  ) {
+    return;
+  }
+
+  const nextAssets = createEmptyFavoriteWorkspaceAssetState();
+
   for (const item of Array.isArray(memories) ? memories : []) {
     if (item?.source_message_id) {
-      nextState.memoriesByMessageId[item.source_message_id] = item;
+      nextAssets.memoriesByMessageId[item.source_message_id] = item;
     }
   }
 
   for (const item of Array.isArray(conclusions) ? conclusions : []) {
     if (item?.source_message_id) {
-      nextState.conclusionsByMessageId[item.source_message_id] = item;
+      nextAssets.conclusionsByMessageId[item.source_message_id] = item;
     }
   }
 
@@ -1288,14 +1431,11 @@ async function loadMessageCaptures() {
     if (String(item?.asset_kind || "").trim().toLowerCase() !== "knowledge_doc") {
       continue;
     }
-    nextState.libraryDocsByMessageId[sourceMessageId] = item;
+    nextAssets.libraryDocsByMessageId[sourceMessageId] = item;
   }
 
-  setFavoriteItems(Array.isArray(favorites) ? favorites : []);
-  state.messageCaptures = nextState;
-  if (state.history.length) {
-    renderCurrentConversationMessages({ scrollToEnd: false });
-  }
+  state.favoriteWorkspaceAssets = nextAssets;
+  renderFavoriteWorkspace();
 }
 
 function renderCurrentConversationMessages(options = {}) {
@@ -1342,6 +1482,163 @@ function renderCurrentConversationMessages(options = {}) {
   }
   if (els.conversation) {
     els.conversation.scrollTop = previousScrollTop;
+  }
+}
+
+function buildFavoriteWorkspaceContext(favorite) {
+  return {
+    messageId: favorite?.message_id || "",
+    spaceId: favorite?.space_id || getActiveSpaceId(),
+    requestText: favorite?.question_text || "",
+    answerText: favorite?.answer_text || "",
+    createdAt: favorite?.created_at || null,
+    sources: safeParseJson(favorite?.sources_json, []),
+  };
+}
+
+function appendFavoriteWorkspaceEmptyState(text) {
+  if (!els.favoriteList) {
+    return;
+  }
+  const empty = document.createElement("article");
+  empty.className = "favorite-empty-state";
+  empty.textContent = text;
+  els.favoriteList.appendChild(empty);
+}
+
+function renderFavoriteWorkspace() {
+  if (!els.favoriteList) {
+    return;
+  }
+
+  els.favoriteList.innerHTML = "";
+
+  if (!ensureIdentity()) {
+    appendFavoriteWorkspaceEmptyState("登录后可把回答收藏到这里，再继续整理为长期记忆、结论和资料库。");
+    refreshWorkspaceUi();
+    return;
+  }
+
+  if (!state.favoriteItems.length) {
+    appendFavoriteWorkspaceEmptyState("当前会话空间还没有收藏内容。先在回答卡片里点“收藏”，再回来整理。");
+    refreshWorkspaceUi();
+    return;
+  }
+
+  for (const favorite of state.favoriteItems) {
+    const favoriteContext = buildFavoriteWorkspaceContext(favorite);
+    const memoryRecord = getFavoriteWorkspaceAsset("memoriesByMessageId", favorite.message_id);
+    const conclusionRecord = getFavoriteWorkspaceAsset("conclusionsByMessageId", favorite.message_id);
+    const libraryRecord = getFavoriteWorkspaceAsset("libraryDocsByMessageId", favorite.message_id);
+
+    const card = document.createElement("article");
+    card.className = "favorite-card";
+
+    const head = document.createElement("div");
+    head.className = "favorite-card-head";
+
+    const heading = document.createElement("div");
+    heading.className = "favorite-card-heading";
+
+    const title = document.createElement("h3");
+    title.className = "favorite-card-title";
+    title.textContent = favorite.title || buildCaptureTitle(favorite.question_text || favorite.answer_text, "收藏回答");
+
+    const meta = document.createElement("div");
+    meta.className = "favorite-card-meta";
+    meta.textContent = [
+      favorite.conversation_id ? "来自当前会话" : "",
+      formatTime(favorite.created_at),
+    ].filter(Boolean).join(" · ");
+
+    heading.append(title, meta);
+    head.appendChild(heading);
+
+    const question = document.createElement("div");
+    question.className = "favorite-card-question";
+    question.textContent = favorite.question_text || "未记录问题";
+
+    const answer = document.createElement("div");
+    answer.className = "favorite-card-answer";
+    answer.textContent = favorite.answer_text || "未记录回答";
+
+    const actions = document.createElement("div");
+    actions.className = "favorite-card-actions";
+
+    actions.appendChild(createMessageActionButton(
+      memoryRecord ? "已成记忆" : "设为长期记忆",
+      () => {
+        promoteFavoriteToMemory(favorite).catch((error) => showToast(error.message, true));
+      },
+      {
+        active: Boolean(memoryRecord),
+        disabled: Boolean(memoryRecord) || isCaptureActionPending(favorite.message_id, "memory"),
+        title: memoryRecord ? "这条收藏已经转为长期记忆" : "把这条收藏转为长期记忆",
+        pressed: Boolean(memoryRecord),
+      },
+    ));
+
+    actions.appendChild(createMessageActionButton(
+      conclusionRecord ? "已成结论" : "沉淀为结论",
+      () => {
+        promoteFavoriteToConclusion(favorite).catch((error) => showToast(error.message, true));
+      },
+      {
+        active: Boolean(conclusionRecord),
+        disabled: Boolean(conclusionRecord) || isCaptureActionPending(favorite.message_id, "conclusion"),
+        title: conclusionRecord ? "这条收藏已经沉淀为结论" : "把这条收藏沉淀为结论",
+        pressed: Boolean(conclusionRecord),
+      },
+    ));
+
+    actions.appendChild(createMessageActionButton(
+      libraryRecord ? "已入资料库" : "发布到资料库",
+      () => {
+        publishFavoriteToLibrary(favorite).catch((error) => showToast(error.message, true));
+      },
+      {
+        active: Boolean(libraryRecord),
+        disabled: Boolean(libraryRecord) || isCaptureActionPending(favorite.message_id, "library"),
+        title: libraryRecord ? "这条收藏已经发布到资料库" : "把这条收藏发布到资料库",
+        pressed: Boolean(libraryRecord),
+      },
+    ));
+
+    actions.appendChild(createMessageActionButton("复制回答", () => {
+      copyMessageText(favorite.answer_text || "").catch((error) => showToast(error.message, true));
+    }));
+
+    actions.appendChild(createMessageActionButton("回到对话", () => {
+      setWorkspaceView(WORKSPACE_VIEW_CHAT)
+        .then(() => focusMessageInConversation(favorite.message_id))
+        .catch((error) => showToast(error.message, true));
+    }));
+
+    actions.appendChild(createMessageActionButton(
+      "取消收藏",
+      () => {
+        toggleAssistantFavorite(favoriteContext).catch((error) => showToast(error.message, true));
+      },
+      {
+        disabled: isCaptureActionPending(favorite.message_id, "favorite"),
+        title: "把这条回答从收藏夹移除",
+      },
+    ));
+
+    card.append(head, question, answer, actions);
+    els.favoriteList.appendChild(card);
+  }
+
+  refreshWorkspaceUi();
+}
+
+function focusMessageInConversation(messageId) {
+  if (!messageId || !els.messageList) {
+    return;
+  }
+  const target = els.messageList.querySelector(`[data-message-id="${messageId}"]`);
+  if (target instanceof HTMLElement) {
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
   }
 }
 
@@ -1569,11 +1866,13 @@ async function runMessageCaptureAction(messageId, action, task) {
 
   setCaptureActionPending(messageId, action, true);
   renderCurrentConversationMessages({ scrollToEnd: false });
+  renderFavoriteWorkspace();
   try {
     return await task();
   } finally {
-  setCaptureActionPending(messageId, action, false);
-  renderCurrentConversationMessages({ scrollToEnd: false });
+    setCaptureActionPending(messageId, action, false);
+    renderCurrentConversationMessages({ scrollToEnd: false });
+    renderFavoriteWorkspace();
   }
 }
 
@@ -1682,6 +1981,119 @@ async function captureAssistantLibrary(context) {
       },
     });
     updateMessageCaptureRecord("libraryDocsByMessageId", context.messageId, created);
+    showToast("已发布到资料库");
+    return created;
+  });
+}
+
+async function toggleAssistantFavorite(context) {
+  const existing = getMessageCaptureRecord("favoritesByMessageId", context.messageId);
+  if (!existing) {
+    return captureAssistantFavorite(context);
+  }
+
+  return runMessageCaptureAction(context.messageId, "favorite", async () => {
+    const query = new URLSearchParams({
+      team_id: state.teamId,
+      user_id: state.userId,
+    });
+    await apiRequest(`/favorites/answers/${encodeURIComponent(existing.favorite_id)}?${query.toString()}`, {
+      method: "DELETE",
+    });
+    removeMessageCaptureRecord("favoritesByMessageId", context.messageId);
+    removeFavoriteItem(existing.favorite_id);
+    removeFavoriteWorkspaceAssets(context.messageId);
+    renderFavoriteWorkspace();
+    showToast("已取消收藏");
+    return null;
+  });
+}
+
+async function promoteFavoriteToMemory(favorite) {
+  const existing = getFavoriteWorkspaceAsset("memoriesByMessageId", favorite.message_id);
+  if (existing) {
+    showToast("这条收藏已经转为长期记忆");
+    return existing;
+  }
+
+  return runMessageCaptureAction(favorite.message_id, "memory", async () => {
+    const result = await apiRequest(`/favorites/answers/${encodeURIComponent(favorite.favorite_id)}/promote-to-memory`, {
+      method: "POST",
+      body: {
+        team_id: state.teamId,
+        user_id: state.userId,
+        space_id: favorite.space_id,
+        category: "assistant_answer",
+        title: favorite.title || buildCaptureTitle(favorite.question_text || favorite.answer_text, "聊天记忆"),
+        summary: truncateText(favorite.question_text || "", 200),
+      },
+    });
+    if (result?.favorite) {
+      upsertFavoriteItem(result.favorite);
+    }
+    await loadFavoriteWorkspaceAssets();
+    showToast("已转为长期记忆");
+    return getFavoriteWorkspaceAsset("memoriesByMessageId", favorite.message_id);
+  });
+}
+
+async function promoteFavoriteToConclusion(favorite) {
+  const existing = getFavoriteWorkspaceAsset("conclusionsByMessageId", favorite.message_id);
+  if (existing) {
+    showToast("这条收藏已经沉淀为结论");
+    return existing;
+  }
+
+  return runMessageCaptureAction(favorite.message_id, "conclusion", async () => {
+    const result = await apiRequest(`/favorites/answers/${encodeURIComponent(favorite.favorite_id)}/promote-to-conclusion`, {
+      method: "POST",
+      body: {
+        team_id: state.teamId,
+        user_id: state.userId,
+        space_id: favorite.space_id,
+        title: buildConclusionTitle(favorite.question_text || favorite.answer_text),
+        topic: truncateText(favorite.question_text || "", 128),
+        summary: truncateText(favorite.answer_text || "", 360),
+      },
+    });
+    if (result?.favorite) {
+      upsertFavoriteItem(result.favorite);
+    }
+    await loadFavoriteWorkspaceAssets();
+    showToast("已沉淀为结论");
+    return getFavoriteWorkspaceAsset("conclusionsByMessageId", favorite.message_id);
+  });
+}
+
+async function publishFavoriteToLibrary(favorite) {
+  const existing = getFavoriteWorkspaceAsset("libraryDocsByMessageId", favorite.message_id);
+  if (existing) {
+    showToast("这条收藏已经发布到资料库");
+    return existing;
+  }
+
+  return runMessageCaptureAction(favorite.message_id, "library", async () => {
+    const favoriteContext = buildFavoriteWorkspaceContext(favorite);
+    const created = await apiRequest("/documents/import", {
+      method: "POST",
+      body: {
+        team_id: state.teamId,
+        user_id: state.userId,
+        space_id: favorite.space_id,
+        source_name: `favorite-${favorite.message_id}.md`,
+        content_type: "md",
+        content: buildLibraryCaptureMarkdownFromContext(favoriteContext),
+        auto_index: true,
+        meta: {
+          source_message_id: favorite.message_id,
+          capture_kind: "favorite_answer",
+          source_conversation_id: favorite.conversation_id || state.conversationId || "",
+          favorite_id: favorite.favorite_id,
+        },
+      },
+    });
+    updateFavoriteWorkspaceAsset("libraryDocsByMessageId", favorite.message_id, created);
+    renderFavoriteWorkspace();
     showToast("已发布到资料库");
     return created;
   });
@@ -2819,6 +3231,9 @@ function appendMessage(role, content, options = {}) {
 
   const row = document.createElement("div");
   row.className = `message-row ${role}`;
+  if (options.messageId) {
+    row.dataset.messageId = options.messageId;
+  }
 
   const speakerName = role === "user" ? (state.displayName || "你") : "CaiBao";
   const { shell, column } = createMessageShell(role, speakerName);
@@ -2937,59 +3352,17 @@ function appendMessage(role, content, options = {}) {
     if (assistantCaptureContext && assistantCaptureContext.channel !== "action") {
       const messageId = assistantCaptureContext.messageId;
       const favoriteRecord = getMessageCaptureRecord("favoritesByMessageId", messageId);
-      const memoryRecord = getMessageCaptureRecord("memoriesByMessageId", messageId);
-      const conclusionRecord = getMessageCaptureRecord("conclusionsByMessageId", messageId);
-      const libraryRecord = getMessageCaptureRecord("libraryDocsByMessageId", messageId);
 
       actionRail.appendChild(createMessageActionButton(
         favoriteRecord ? "已收藏" : "收藏",
         () => {
-          captureAssistantFavorite(assistantCaptureContext).catch((error) => showToast(error.message, true));
+          toggleAssistantFavorite(assistantCaptureContext).catch((error) => showToast(error.message, true));
         },
         {
           active: Boolean(favoriteRecord),
           disabled: isCaptureActionPending(messageId, "favorite"),
           title: favoriteRecord ? "这条回答已经收藏过了" : "收藏这条回答",
           pressed: Boolean(favoriteRecord),
-        },
-      ));
-
-      actionRail.appendChild(createMessageActionButton(
-        memoryRecord ? "已记住" : "记住这条",
-        () => {
-          captureAssistantMemory(assistantCaptureContext).catch((error) => showToast(error.message, true));
-        },
-        {
-          active: Boolean(memoryRecord),
-          disabled: Boolean(memoryRecord) || isCaptureActionPending(messageId, "memory"),
-          title: memoryRecord ? "这条回答已经转为长期记忆" : "把这条回答记为长期记忆",
-          pressed: Boolean(memoryRecord),
-        },
-      ));
-
-      actionRail.appendChild(createMessageActionButton(
-        conclusionRecord ? "已成结论" : "沉淀为结论",
-        () => {
-          captureAssistantConclusion(assistantCaptureContext).catch((error) => showToast(error.message, true));
-        },
-        {
-          active: Boolean(conclusionRecord),
-          disabled: Boolean(conclusionRecord) || isCaptureActionPending(messageId, "conclusion"),
-          title: conclusionRecord ? "这条回答已经沉淀为结论" : "把这条回答沉淀为结论",
-          pressed: Boolean(conclusionRecord),
-        },
-      ));
-
-      actionRail.appendChild(createMessageActionButton(
-        libraryRecord ? "已入资料库" : "发布到资料库",
-        () => {
-          captureAssistantLibrary(assistantCaptureContext).catch((error) => showToast(error.message, true));
-        },
-        {
-          active: Boolean(libraryRecord),
-          disabled: Boolean(libraryRecord) || isCaptureActionPending(messageId, "library"),
-          title: libraryRecord ? "这条回答已经发布到资料库" : "把这条回答发布到资料库",
-          pressed: Boolean(libraryRecord),
         },
       ));
     }
