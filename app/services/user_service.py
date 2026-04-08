@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app.core.exceptions import DomainValidationError, EntityConflictError, EntityNotFoundError
 from app.models.team import Team
 from app.models.user import User
-from app.schemas.user import UserCreate
+from app.schemas.user import UserCreate, UserEnsure
 
 
 class UserService:
@@ -30,6 +30,37 @@ class UserService:
         self.db.commit()
         self.db.refresh(user)
         return user
+
+    def ensure_user(self, *, user_id: str, payload: UserEnsure) -> tuple[User, bool]:
+        team = self.db.get(Team, payload.team_id)
+        if team is None:
+            raise EntityNotFoundError(f"Team '{payload.team_id}' does not exist.")
+
+        existing = self.db.get(User, user_id)
+        if existing is None:
+            user = User(
+                user_id=user_id,
+                team_id=payload.team_id,
+                display_name=payload.display_name,
+                role="member",
+            )
+            self.db.add(user)
+            self.db.commit()
+            self.db.refresh(user)
+            return user, True
+
+        if existing.team_id != payload.team_id:
+            raise EntityConflictError(
+                f"User '{user_id}' already exists in team '{existing.team_id}'."
+            )
+
+        if existing.display_name != payload.display_name:
+            existing.display_name = payload.display_name
+            self.db.add(existing)
+            self.db.commit()
+            self.db.refresh(existing)
+
+        return existing, False
 
     def get_by_id(self, user_id: str) -> User | None:
         return self.db.get(User, user_id)

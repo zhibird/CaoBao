@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Response, status
 
 from app.api.deps import get_team_service
 from app.core.exceptions import EntityConflictError
-from app.schemas.team import TeamCreate, TeamResponse
+from app.schemas.team import TeamCreate, TeamEnsure, TeamResponse
 from app.services.team_service import TeamService
 
 router = APIRouter(prefix="/teams")
@@ -21,8 +21,23 @@ def create_team(
     return TeamResponse.model_validate(team)
 
 
+@router.put("/{team_id}", response_model=TeamResponse)
+def ensure_team(
+    payload: TeamEnsure,
+    response: Response,
+    team_id: str = Path(min_length=1, max_length=64),
+    team_service: TeamService = Depends(get_team_service),
+) -> TeamResponse:
+    team, created = team_service.ensure_team(team_id=team_id, payload=payload)
+    response.status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
+    return TeamResponse.model_validate(team)
+
+
 @router.get("/{team_id}", response_model=TeamResponse)
-def get_team(team_id: str, team_service: TeamService = Depends(get_team_service)) -> TeamResponse:
+def get_team(
+    team_id: str = Path(min_length=1, max_length=64),
+    team_service: TeamService = Depends(get_team_service),
+) -> TeamResponse:
     team = team_service.get_by_id(team_id)
     if team is None:
         raise HTTPException(

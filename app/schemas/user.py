@@ -10,6 +10,11 @@ class UserCreate(BaseModel):
     role: str = Field(default="member", min_length=1, max_length=32)
 
 
+class UserEnsure(BaseModel):
+    team_id: str = Field(min_length=1, max_length=64)
+    display_name: str = Field(min_length=1, max_length=128)
+
+
 class UserResponse(BaseModel):
     user_id: str
     team_id: str

@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CaiBao Chat</title>
-  <link rel="stylesheet" href="/web/styles.css?v=0.14.3&build=20260406-1" />
+  <link rel="stylesheet" href="/web/styles.css?v=0.15.0&build=20260407-1" />
 </head>
 <body>
   <div class="bg-orb orb-a" aria-hidden="true"></div>
@@ -17,12 +17,11 @@
       <section class="brand-panel">
         <div class="product-badge-row">
           <div class="product-badge">CaiBao</div>
-          <a class="admin-link" href="/web/admin.html" target="_blank" rel="noopener">Admin</a>
         </div>
         <div class="brand-copy">
           <p class="brand-kicker">Personal AI Assistant</p>
-          <h2 class="brand-title">能直接聊、资料可增强的个人 AI 助手</h2>
-          <p class="brand-desc">不必先上传文件；需要更准的回答时，再把资料和引用带进当前会话。</p>
+          <h2 class="brand-title">先完成任务，再按需引入资料和长期资产</h2>
+          <p class="brand-desc">主界面只保留聊天、资料增强和收藏整理。开发者配置被收进二级设置，不打扰终端用户。</p>
         </div>
         <div class="sidebar-stats">
           <article class="sidebar-stat">
@@ -59,8 +58,8 @@
       <button id="profileBtn" class="profile-card" type="button">
         <div class="avatar" id="avatarText">未</div>
         <div class="profile-meta">
-          <strong id="profileName">未登录</strong>
-          <span id="profileTeam">点击登录或切换账户</span>
+          <strong id="profileName">未进入工作台</strong>
+          <span id="profileTeam">点击进入或切换工作台</span>
         </div>
       </button>
     </aside>
@@ -69,24 +68,15 @@
       <header class="main-topbar">
         <div class="workspace-intro">
           <div id="workspaceEyebrow" class="workspace-eyebrow">Personal AI Assistant</div>
-          <h1 class="workspace-title">能直接聊、资料可增强的个人 AI 助手</h1>
-          <p id="workspaceDescription" class="workspace-description">登录后先聊天、写方案、做头脑风暴；需要时再接入资料检索与引用来源。</p>
+          <h1 class="workspace-title">先完成任务，再按需引入资料和长期资产</h1>
+          <p id="workspaceDescription" class="workspace-description">进入工作台后即可直接聊天、写方案、做头脑风暴；只有需要依据时再开启资料增强。</p>
           <div class="workspace-view-switch" role="tablist" aria-label="工作台视图">
             <button id="chatWorkspaceBtn" class="workspace-view-btn active" type="button" aria-pressed="true">聊天</button>
             <button id="favoritesWorkspaceBtn" class="workspace-view-btn" type="button" aria-pressed="false">收藏夹</button>
           </div>
         </div>
         <div class="topbar-controls">
-          <div class="picker-group">
-            <label for="modelSelect">模型</label>
-            <select id="modelSelect" aria-label="选择模型"></select>
-          </div>
-
-          <div class="picker-group">
-            <label for="embeddingSelect">向量模型</label>
-            <select id="embeddingSelect" aria-label="选择向量模型"></select>
-          </div>
-
+          <button id="workspaceSettingsBtn" class="ghost-btn" type="button">工作台设置</button>
           <button id="refreshAllBtn" class="ghost-btn" type="button">刷新数据</button>
         </div>
       </header>
@@ -96,44 +86,44 @@
         <div class="conversation-inner">
           <section id="chatWorkspacePanel" class="workspace-panel">
             <section id="heroPanel" class="hero-panel">
-            <div class="hero-copy">
-              <div class="hero-kicker">CaiBao Assistant</div>
-              <h2 id="heroTitle">登录后就能直接聊，资料会在需要时增强回答</h2>
-              <p id="heroSubtitle" class="hero-subtitle">不必先上传文件；需要依据时，再显式开启当前会话资料检索，并在回答里保留来源卡片。</p>
-            </div>
+              <div class="hero-copy">
+                <div class="hero-kicker">CaiBao Assistant</div>
+                <h2 id="heroTitle">进入工作台后就能直接开聊，需要时再补充资料</h2>
+                <p id="heroSubtitle" class="hero-subtitle">不用先上传文件。只有当你需要更稳妥的依据、引用和范围控制时，才打开资料增强。</p>
+              </div>
 
-            <div class="hero-metrics">
-              <article class="hero-metric">
-                <span>账户</span>
-                <strong id="heroAccount">未登录</strong>
-                <small id="heroAccountHint">点击左下角登录或切换账户</small>
-              </article>
-              <article class="hero-metric">
-                <span>当前模型</span>
-                <strong id="heroModel">default</strong>
-                <small id="heroEmbedding">向量：default</small>
-              </article>
-              <article class="hero-metric">
-                <span>资料范围</span>
-                <strong id="heroScope">0 个文件</strong>
-                <small id="heroScopeHint">不上传也能直接聊；有资料时可按文件范围检索</small>
-              </article>
-            </div>
+              <div class="hero-metrics">
+                <article class="hero-metric">
+                  <span>工作台</span>
+                  <strong id="heroAccount">未进入工作台</strong>
+                  <small id="heroAccountHint">点击左下角进入或切换工作台</small>
+                </article>
+                <article class="hero-metric">
+                  <span>回答方式</span>
+                  <strong id="heroSession">直接聊天</strong>
+                  <small id="heroSessionHint">需要依据时再开启资料增强</small>
+                </article>
+                <article class="hero-metric">
+                  <span>资料范围</span>
+                  <strong id="heroScope">0 个文件</strong>
+                  <small id="heroScopeHint">不上传也能直接聊天；有资料时可按文件范围检索</small>
+                </article>
+              </div>
 
-            <div id="scenarioCards" class="scenario-cards">
-              <button class="scenario-card" type="button" data-scene="direct">
-                <strong>直接聊聊</strong>
-                <span>先提问、头脑风暴、润色表达或拆解任务</span>
-              </button>
-              <button class="scenario-card" type="button" data-scene="plan">
-                <strong>写方案</strong>
-                <span>生成目标、里程碑、资源和验收标准</span>
-              </button>
-              <button class="scenario-card" type="button" data-scene="qa">
-                <strong>资料增强问答</strong>
-                <span>需要依据时，再按当前会话文件检索回答</span>
-              </button>
-            </div>
+              <div id="scenarioCards" class="scenario-cards">
+                <button class="scenario-card" type="button" data-scene="direct">
+                  <strong>直接聊聊</strong>
+                  <span>先提问、头脑风暴、润色表达，或拆解一个任务</span>
+                </button>
+                <button class="scenario-card" type="button" data-scene="plan">
+                  <strong>写方案</strong>
+                  <span>生成目标、里程碑、资源投入、风险与验收标准</span>
+                </button>
+                <button class="scenario-card" type="button" data-scene="qa">
+                  <strong>资料增强问答</strong>
+                  <span>当你需要依据时，再结合当前会话资料检索回答</span>
+                </button>
+              </div>
             </section>
 
             <div id="messageList" class="message-list"></div>
@@ -143,8 +133,8 @@
             <div class="favorites-panel-head">
               <div>
                 <div class="hero-kicker">Favorites Workspace</div>
-                <h2 class="favorites-panel-title">先收藏，再整理为长期资产</h2>
-                <p class="favorites-panel-subtitle">收藏夹承接“长期记忆 / 结论 / 资料库”的二级整理动作，聊天卡片首层只保留收藏。</p>
+                <h2 class="favorites-panel-title">先收藏，再沉淀为长期资产</h2>
+                <p class="favorites-panel-subtitle">收藏夹承接“长期记忆 / 结论 / 资料库”的二级整理动作，聊天首屏只保留收藏。</p>
               </div>
             </div>
             <div id="favoriteList" class="favorite-list"></div>
@@ -154,9 +144,9 @@
 
       <section class="composer-zone">
         <div class="composer-status-row">
-          <div id="composerPresence" class="composer-status-pill">尚未登录</div>
+          <div id="composerPresence" class="composer-status-pill">尚未设置工作台</div>
           <div id="composerScope" class="composer-status-pill">资料范围 · 0 个文件</div>
-          <div id="composerModel" class="composer-status-pill">模型 · default / default</div>
+          <div id="composerSession" class="composer-status-pill">智能配置 · 默认</div>
         </div>
 
         <div class="chat-mode-row">
@@ -237,7 +227,7 @@
           <h2 id="imageViewerTitle" class="image-viewer-title">图片预览</h2>
         </div>
         <div class="image-viewer-actions">
-          <a id="downloadImageBtn" class="ghost-btn compact-btn image-viewer-action" href="#" download>下载当前图</a>
+          <a id="downloadImageBtn" class="ghost-btn compact-btn image-viewer-action" href="#" download>下载当前图片</a>
           <a id="openOriginalImageBtn" class="ghost-btn compact-btn image-viewer-action hidden" href="#" target="_blank" rel="noopener">打开原图</a>
           <button id="closeImageViewerBtn" class="drawer-close image-viewer-close" type="button" aria-label="关闭图片预览">×</button>
         </div>
@@ -251,27 +241,154 @@
 
   <div id="authModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="authTitle">
     <div class="modal-card">
-      <h2 id="authTitle">登录 / 切换账户</h2>
-      <p class="modal-tip">产品层使用 account；后端会自动兼容映射到 team/user。</p>
+      <h2 id="authTitle">进入 / 切换工作台</h2>
+      <p class="modal-tip">系统会按这个工作台隔离会话、资料和偏好设置。</p>
 
       <div class="field">
-        <label for="accountIdInput">account_id</label>
-        <input id="accountIdInput" type="text" placeholder="例如：zhibirdw" />
+        <label for="accountIdInput">工作台 ID</label>
+        <input id="accountIdInput" type="text" placeholder="例如：hibirdw" />
       </div>
       <div class="field">
-        <label for="accountNameInput">account_name</label>
+        <label for="accountNameInput">工作台名称</label>
         <input id="accountNameInput" type="text" placeholder="例如：一只长角的鸟" />
       </div>
 
       <div class="modal-actions">
         <button id="cancelAuthBtn" class="ghost-btn compact-btn" type="button">取消</button>
-        <button id="saveAuthBtn" class="primary-btn compact-primary-btn" type="button">保存并登录</button>
+        <button id="saveAuthBtn" class="primary-btn compact-primary-btn" type="button">进入工作台</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="settingsModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+    <div class="modal-card modal-card-wide">
+      <div class="modal-head">
+        <div>
+          <h2 id="settingsTitle">工作台设置</h2>
+          <p class="modal-tip">主界面默认隐藏模型与密钥配置，只有需要时才在这里调整。</p>
+        </div>
+        <button id="closeSettingsBtn" class="drawer-close modal-close" type="button" aria-label="关闭设置">×</button>
+      </div>
+
+      <div class="settings-grid">
+        <section class="settings-section">
+          <div class="settings-section-head">
+            <div>
+              <h3>当前工作台</h3>
+              <p id="settingsWorkspaceSummary" class="settings-note">未进入工作台</p>
+            </div>
+            <button id="switchWorkspaceBtn" class="ghost-btn compact-btn" type="button">切换工作台</button>
+          </div>
+        </section>
+
+        <section class="settings-section">
+          <div class="settings-section-head">
+            <div>
+              <h3>默认回答模型</h3>
+              <p class="settings-note">只在这里调整默认模型，不打扰主工作台。</p>
+            </div>
+            <button id="addModelBtn" class="ghost-btn compact-btn" type="button">新增模型</button>
+          </div>
+          <div class="field">
+            <label for="settingsModelSelect">默认回答模型</label>
+            <select id="settingsModelSelect" aria-label="选择默认回答模型"></select>
+          </div>
+        </section>
+
+        <section class="settings-section">
+          <div class="settings-section-head">
+            <div>
+              <h3>资料增强模型</h3>
+              <p class="settings-note">检索与向量模型只在资料增强场景使用。</p>
+            </div>
+            <button id="addEmbeddingBtn" class="ghost-btn compact-btn" type="button">新增向量模型</button>
+          </div>
+          <div class="field">
+            <label for="settingsEmbeddingSelect">默认向量模型</label>
+            <select id="settingsEmbeddingSelect" aria-label="选择默认向量模型"></select>
+          </div>
+        </section>
+
+        <section class="settings-section settings-section-compact">
+          <h3>高级设置</h3>
+          <p class="settings-note">主界面默认隐藏模型与密钥配置</p>
+          <p class="settings-note">开发者管理台、API Key、Base URL 等能力都留在这里，避免把终端用户带到开发者心智里。</p>
+          <a class="modal-link" href="/web/admin.html" target="_blank" rel="noopener">开发者管理台</a>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <div id="customModelModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="customModelTitle">
+    <div class="modal-card">
+      <div class="modal-head">
+        <div>
+          <h2 id="customModelTitle">新增自定义模型</h2>
+          <p class="modal-tip">为当前工作台添加一个可切换的回答模型。</p>
+        </div>
+        <button id="closeCustomModelBtn" class="drawer-close modal-close" type="button" aria-label="关闭新增模型">×</button>
+      </div>
+
+      <div class="field">
+        <label for="customModelNameInput">模型名称</label>
+        <input id="customModelNameInput" type="text" placeholder="例如：gpt-4.1-mini" />
+      </div>
+      <div class="field">
+        <label for="customModelBaseUrlInput">API Base URL</label>
+        <input id="customModelBaseUrlInput" type="text" placeholder="https://api.openai.com/v1" />
+      </div>
+      <div class="field">
+        <label for="customModelApiKeyInput">API Key</label>
+        <input id="customModelApiKeyInput" type="password" placeholder="输入模型 API Key" />
+      </div>
+
+      <div class="modal-actions">
+        <button id="cancelCustomModelBtn" class="ghost-btn compact-btn" type="button">取消</button>
+        <button id="saveCustomModelBtn" class="primary-btn compact-primary-btn" type="button">保存模型</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="customEmbeddingModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="customEmbeddingTitle">
+    <div class="modal-card">
+      <div class="modal-head">
+        <div>
+          <h2 id="customEmbeddingTitle">新增向量模型</h2>
+          <p class="modal-tip">为当前工作台补充资料增强所需的向量模型配置。</p>
+        </div>
+        <button id="closeCustomEmbeddingBtn" class="drawer-close modal-close" type="button" aria-label="关闭新增向量模型">×</button>
+      </div>
+
+      <div class="field">
+        <label for="customEmbeddingNameInput">模型名称</label>
+        <input id="customEmbeddingNameInput" type="text" placeholder="例如：text-embedding-3-small" />
+      </div>
+      <div class="field">
+        <label for="customEmbeddingProviderSelect">Provider</label>
+        <select id="customEmbeddingProviderSelect" aria-label="选择向量模型 provider">
+          <option value="openai">openai</option>
+          <option value="volcengine">volcengine</option>
+          <option value="mock">mock</option>
+        </select>
+      </div>
+      <div id="customEmbeddingBaseUrlField" class="field">
+        <label for="customEmbeddingBaseUrlInput">Embedding API Base URL</label>
+        <input id="customEmbeddingBaseUrlInput" type="text" placeholder="https://api.openai.com/v1" />
+      </div>
+      <div id="customEmbeddingApiKeyField" class="field">
+        <label for="customEmbeddingApiKeyInput">Embedding API Key</label>
+        <input id="customEmbeddingApiKeyInput" type="password" placeholder="输入向量模型 API Key" />
+      </div>
+
+      <div class="modal-actions">
+        <button id="cancelCustomEmbeddingBtn" class="ghost-btn compact-btn" type="button">取消</button>
+        <button id="saveCustomEmbeddingBtn" class="primary-btn compact-primary-btn" type="button">保存向量模型</button>
       </div>
     </div>
   </div>
 
   <div id="toast" class="toast hidden"></div>
 
-  <script src="/web/app.js?v=0.14.3&build=20260406-1" defer></script>
+  <script src="/web/app.js?v=0.15.0&build=20260407-1" defer></script>
 </body>
 </html>

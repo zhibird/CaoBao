@@ -9,6 +9,11 @@ class TeamCreate(BaseModel):
     description: str | None = Field(default=None, max_length=500)
 
 
+class TeamEnsure(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    description: str | None = Field(default=None, max_length=500)
+
+
 class TeamResponse(BaseModel):
     team_id: str
     name: str

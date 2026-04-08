@@ -108,15 +108,22 @@ function bindElements() {
   els.favoritesPanel = document.getElementById("favoritesPanel");
   els.favoriteList = document.getElementById("favoriteList");
   els.heroPanel = document.getElementById("heroPanel");
-  els.modelSelect = document.getElementById("modelSelect");
-  els.embeddingSelect = document.getElementById("embeddingSelect");
+  els.workspaceSettingsBtn = document.getElementById("workspaceSettingsBtn");
+  els.settingsModal = document.getElementById("settingsModal");
+  els.closeSettingsBtn = document.getElementById("closeSettingsBtn");
+  els.switchWorkspaceBtn = document.getElementById("switchWorkspaceBtn");
+  els.settingsWorkspaceSummary = document.getElementById("settingsWorkspaceSummary");
+  els.addModelBtn = document.getElementById("addModelBtn");
+  els.addEmbeddingBtn = document.getElementById("addEmbeddingBtn");
+  els.modelSelect = document.getElementById("settingsModelSelect");
+  els.embeddingSelect = document.getElementById("settingsEmbeddingSelect");
   els.refreshAllBtn = document.getElementById("refreshAllBtn");
   els.heroTitle = document.getElementById("heroTitle");
   els.heroSubtitle = document.getElementById("heroSubtitle");
   els.heroAccount = document.getElementById("heroAccount");
   els.heroAccountHint = document.getElementById("heroAccountHint");
-  els.heroModel = document.getElementById("heroModel");
-  els.heroEmbedding = document.getElementById("heroEmbedding");
+  els.heroSession = document.getElementById("heroSession");
+  els.heroSessionHint = document.getElementById("heroSessionHint");
   els.heroScope = document.getElementById("heroScope");
   els.heroScopeHint = document.getElementById("heroScopeHint");
   els.scenarioCards = document.getElementById("scenarioCards");
@@ -124,7 +131,7 @@ function bindElements() {
   els.composerZone = document.querySelector(".composer-zone");
   els.composerPresence = document.getElementById("composerPresence");
   els.composerScope = document.getElementById("composerScope");
-  els.composerModel = document.getElementById("composerModel");
+  els.composerSession = document.getElementById("composerSession");
   els.composerHint = document.getElementById("composerHint");
   els.chatOnlyBtn = document.getElementById("chatOnlyBtn");
   els.docAssistBtn = document.getElementById("docAssistBtn");
@@ -167,19 +174,71 @@ function bindElements() {
   els.accountNameInput = document.getElementById("accountNameInput");
   els.cancelAuthBtn = document.getElementById("cancelAuthBtn");
   els.saveAuthBtn = document.getElementById("saveAuthBtn");
+  els.customModelModal = document.getElementById("customModelModal");
+  els.customModelNameInput = document.getElementById("customModelNameInput");
+  els.customModelBaseUrlInput = document.getElementById("customModelBaseUrlInput");
+  els.customModelApiKeyInput = document.getElementById("customModelApiKeyInput");
+  els.closeCustomModelBtn = document.getElementById("closeCustomModelBtn");
+  els.cancelCustomModelBtn = document.getElementById("cancelCustomModelBtn");
+  els.saveCustomModelBtn = document.getElementById("saveCustomModelBtn");
+  els.customEmbeddingModal = document.getElementById("customEmbeddingModal");
+  els.customEmbeddingNameInput = document.getElementById("customEmbeddingNameInput");
+  els.customEmbeddingProviderInput = document.getElementById("customEmbeddingProviderSelect");
+  els.customEmbeddingBaseUrlField = document.getElementById("customEmbeddingBaseUrlField");
+  els.customEmbeddingBaseUrlInput = document.getElementById("customEmbeddingBaseUrlInput");
+  els.customEmbeddingApiKeyField = document.getElementById("customEmbeddingApiKeyField");
+  els.customEmbeddingApiKeyInput = document.getElementById("customEmbeddingApiKeyInput");
+  els.closeCustomEmbeddingBtn = document.getElementById("closeCustomEmbeddingBtn");
+  els.cancelCustomEmbeddingBtn = document.getElementById("cancelCustomEmbeddingBtn");
+  els.saveCustomEmbeddingBtn = document.getElementById("saveCustomEmbeddingBtn");
   els.toast = document.getElementById("toast");
 }
 
 function bindEvents() {
   els.profileBtn.addEventListener("click", openAuthModal);
+  if (els.workspaceSettingsBtn) {
+    els.workspaceSettingsBtn.addEventListener("click", openSettingsModal);
+  }
+  if (els.closeSettingsBtn) {
+    els.closeSettingsBtn.addEventListener("click", closeSettingsModal);
+  }
+  if (els.switchWorkspaceBtn) {
+    els.switchWorkspaceBtn.addEventListener("click", () => {
+      closeSettingsModal();
+      openAuthModal();
+    });
+  }
+  if (els.addModelBtn) {
+    els.addModelBtn.addEventListener("click", openCustomModelModal);
+  }
+  if (els.addEmbeddingBtn) {
+    els.addEmbeddingBtn.addEventListener("click", openCustomEmbeddingModal);
+  }
   els.cancelAuthBtn.addEventListener("click", () => {
     if (!state.teamId || !state.userId) {
-      showToast("请先登录账户后再开始聊天", true);
+      showToast("请先设置工作台后再开始聊天", true);
       return;
     }
     closeAuthModal();
   });
   els.saveAuthBtn.addEventListener("click", handleSaveAuth);
+  if (els.closeCustomModelBtn) {
+    els.closeCustomModelBtn.addEventListener("click", closeCustomModelModal);
+  }
+  els.cancelCustomModelBtn.addEventListener("click", closeCustomModelModal);
+  els.saveCustomModelBtn.addEventListener("click", () => {
+    saveCustomModelConfig().catch((error) => showToast(error.message, true));
+  });
+  if (els.closeCustomEmbeddingBtn) {
+    els.closeCustomEmbeddingBtn.addEventListener("click", closeCustomEmbeddingModal);
+  }
+  els.cancelCustomEmbeddingBtn.addEventListener("click", closeCustomEmbeddingModal);
+  els.saveCustomEmbeddingBtn.addEventListener("click", () => {
+    saveCustomEmbeddingConfig().catch((error) => showToast(error.message, true));
+  });
+  if (els.customEmbeddingProviderInput) {
+    els.customEmbeddingProviderInput.addEventListener("change", syncCustomEmbeddingFields);
+  }
 
   els.refreshAllBtn.addEventListener("click", () => {
     loadAllData().catch((error) => showToast(error.message, true));
@@ -199,12 +258,16 @@ function bindEvents() {
     createAndSwitchConversation().catch((error) => showToast(error.message, true));
   });
 
-  els.modelSelect.addEventListener("change", () => {
-    handleModelChange().catch((error) => showToast(error.message, true));
-  });
-  els.embeddingSelect.addEventListener("change", () => {
-    handleEmbeddingChange().catch((error) => showToast(error.message, true));
-  });
+  if (els.modelSelect) {
+    els.modelSelect.addEventListener("change", () => {
+      handleModelChange().catch((error) => showToast(error.message, true));
+    });
+  }
+  if (els.embeddingSelect) {
+    els.embeddingSelect.addEventListener("change", () => {
+      handleEmbeddingChange().catch((error) => showToast(error.message, true));
+    });
+  }
 
   els.toggleImportBtn.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -261,6 +324,10 @@ function bindEvents() {
       closeAttachMenu();
       closePreviewDrawer();
       closeImageViewer();
+      closeSettingsModal();
+      closeAuthModal();
+      closeCustomModelModal();
+      closeCustomEmbeddingModal();
     }
   });
 
@@ -350,14 +417,14 @@ function persistSelectedEmbedding() {
   localStorage.setItem(selectedEmbeddingStorageKey(), state.selectedEmbedding || DEFAULT_EMBEDDING_ID);
 }
 
-function updateIdentityCard() {
-  const name = state.displayName || state.teamName || "未登录";
+function legacyUpdateIdentityCard() {
+  const name = state.displayName || state.teamName || "未设置工作台";
   const accountId = state.teamId || state.userId;
   els.profileName.textContent = name;
-  els.profileTeam.textContent = accountId ? `account: ${accountId}` : "点击登录或切换账户";
+  els.profileTeam.textContent = accountId ? `工作台 ID · ${accountId}` : "点击设置工作台";
   els.avatarText.textContent = name.slice(0, 1) || "未";
   els.accountIdInput.value = accountId || "";
-  els.accountNameInput.value = accountId ? name : "";
+  els.accountNameInput.value = state.displayName || state.teamName || "";
   refreshWorkspaceUi();
 }
 
@@ -507,7 +574,7 @@ function formatEmbeddingDisplayName(model) {
 
 function getChatModeHint(readyCount, processingCount) {
   if (!ensureIdentity()) {
-    return "登录后默认直接聊天；有 ready 文件时可显式切换到资料增强。";
+    return "设置工作台后默认直接聊天；有 ready 文件时可显式切换到资料增强。";
   }
   if (!readyCount) {
     return processingCount
@@ -616,7 +683,7 @@ function syncWorkspaceView() {
   }
 }
 
-function refreshWorkspaceUi() {
+function legacyRefreshWorkspaceUi() {
   const loggedIn = ensureIdentity();
   const activeConversation = getActiveConversation();
   const scope = getDocumentScopeSummary();
@@ -645,12 +712,12 @@ function refreshWorkspaceUi() {
 
   if (els.workspaceEyebrow) {
     els.workspaceEyebrow.textContent = loggedIn
-      ? `当前账户 · ${state.teamId}`
+      ? `当前工作台 · ${state.displayName || state.teamId}`
       : "Personal AI Assistant";
   }
   if (els.workspaceDescription) {
     if (!loggedIn) {
-      els.workspaceDescription.textContent = "登录后即可直接聊天；需要时再导入文档、限定检索范围和查看引用来源。";
+      els.workspaceDescription.textContent = "进入工作台后即可直接聊天；需要时再导入文档、限定检索范围和查看引用来源。";
     } else {
       const desc = [activeTitle];
       if (state.history.length) {
@@ -660,10 +727,15 @@ function refreshWorkspaceUi() {
       els.workspaceDescription.textContent = desc.join(" · ");
     }
   }
+  if (els.settingsWorkspaceSummary) {
+    els.settingsWorkspaceSummary.textContent = loggedIn
+      ? `${state.displayName || state.teamId} · 工作台 ID ${state.teamId}`
+      : "未进入工作台";
+  }
 
   if (els.heroTitle) {
     if (!loggedIn) {
-      els.heroTitle.textContent = "登录后直接开始聊天，需要时再补充资料";
+      els.heroTitle.textContent = "设置工作台后直接开始聊天，需要时再补充资料";
     } else if (!state.documents.length) {
       els.heroTitle.textContent = "直接开始聊天，需要时再补充资料";
     } else if (!readyCount) {
@@ -674,24 +746,28 @@ function refreshWorkspaceUi() {
   }
   if (els.heroSubtitle) {
     if (!loggedIn) {
-      els.heroSubtitle.textContent = "CaiBao 支持直接对话、文件导入、引用溯源、图片预览和多模型切换。";
+      els.heroSubtitle.textContent = "CaiBao 支持直接对话、文件导入、引用溯源、图片预览，以及按需启用的高级模型配置。";
     } else {
       els.heroSubtitle.textContent = scope.hint;
     }
   }
   if (els.heroAccount) {
-    els.heroAccount.textContent = state.displayName || state.teamName || "未登录";
+    els.heroAccount.textContent = state.displayName || state.teamName || "未设置";
   }
   if (els.heroAccountHint) {
     els.heroAccountHint.textContent = loggedIn
-      ? `account: ${state.teamId}`
-      : "点击左下角登录或切换账户";
+      ? `工作台 ID · ${state.teamId}`
+      : "点击左下角设置工作台";
   }
-  if (els.heroModel) {
-    els.heroModel.textContent = formatModelDisplayName(state.selectedModel);
+  if (els.heroSession) {
+    els.heroSession.textContent = activeTitle;
   }
-  if (els.heroEmbedding) {
-    els.heroEmbedding.textContent = `向量：${formatEmbeddingDisplayName(state.selectedEmbedding)}`;
+  if (els.heroSessionHint) {
+    els.heroSessionHint.textContent = loggedIn
+      ? (state.history.length
+        ? `${state.history.length} 轮消息会沿用当前工作台上下文`
+        : "进入工作台后会自动为你创建新会话")
+      : "进入工作台后自动接续最近上下文";
   }
   if (els.heroScope) {
     els.heroScope.textContent = scope.label;
@@ -703,13 +779,13 @@ function refreshWorkspaceUi() {
   if (els.composerPresence) {
     els.composerPresence.textContent = state.sending
       ? "CaiBao 正在整理回答"
-      : (loggedIn ? `账户 · ${state.displayName || state.teamId}` : "尚未登录");
+      : (loggedIn ? `工作台 · ${state.displayName || state.teamId}` : "尚未设置工作台");
   }
   if (els.composerScope) {
     els.composerScope.textContent = `资料范围 · ${scope.label}`;
   }
-  if (els.composerModel) {
-    els.composerModel.textContent = `模型 · ${formatModelDisplayName(state.selectedModel)} / ${formatEmbeddingDisplayName(state.selectedEmbedding)}`;
+  if (els.composerSession) {
+    els.composerSession.textContent = `会话 · ${activeTitle}`;
   }
   if (els.composerHint) {
     if (state.importing) {
@@ -749,7 +825,7 @@ function refreshWorkspaceUi() {
   syncWorkspaceView();
 }
 
-function initModelOptions() {
+function legacyInitModelOptions() {
   const configuredModels = state.modelConfigs.map((item) => item.model_name);
   const allModels = dedupeStrings([DEFAULT_MODEL_ID, NONE_MODEL_ID, ...configuredModels]);
   els.modelSelect.innerHTML = "";
@@ -772,7 +848,7 @@ function initModelOptions() {
   refreshWorkspaceUi();
 }
 
-function initEmbeddingOptions() {
+function legacyInitEmbeddingOptions() {
   const configuredModels = state.embeddingConfigs.map((item) => item.model_name);
   const allModels = dedupeStrings([DEFAULT_EMBEDDING_ID, MOCK_EMBEDDING_ID, ...configuredModels]);
   els.embeddingSelect.innerHTML = "";
@@ -814,165 +890,165 @@ function formatEmbeddingOptionLabel(model) {
   }
   return model;
 }
-async function handleModelChange() {
+async function legacyHandleModelChange() {
   const selected = els.modelSelect.value;
   if (selected !== ADD_MODEL_OPTION) {
     state.selectedModel = selected;
     persistSelectedModel();
     if (selected === DEFAULT_MODEL_ID) {
-      showToast("当前使用 default（读取 .env 大模型配置）");
+      showToast("当前使用系统默认对话模型配置");
     } else if (selected === NONE_MODEL_ID) {
-      showToast("当前使用 none（强制 mock 回复）");
+      showToast("当前使用 none（仅输出 mock 回复）");
     } else {
-      showToast(`模型已切换为 ${selected}`);
+      showToast(`对话模型已切换为 ${selected}`);
     }
     return;
   }
 
   if (!ensureIdentity()) {
-    openAuthModal();
-    showToast("请先登录账户", true);
+    openSettingsModal();
+    showToast("请先设置工作台", true);
     els.modelSelect.value = state.selectedModel;
     return;
   }
 
-  const modelName = window.prompt("输入模型名称，例如 gpt-4.1-mini");
-  if (!modelName) {
-    els.modelSelect.value = state.selectedModel;
-    return;
-  }
-
-  const normalizedModelName = modelName.trim();
-  if (!normalizedModelName || normalizedModelName.toLowerCase() === DEFAULT_MODEL_ID || normalizedModelName.toLowerCase() === NONE_MODEL_ID) {
-    els.modelSelect.value = state.selectedModel;
-    showToast("模型名称无效", true);
-    return;
-  }
-
-  const baseUrl = window.prompt("输入 API Base URL", "https://api.openai.com/v1");
-  if (!baseUrl || !baseUrl.trim()) {
-    els.modelSelect.value = state.selectedModel;
-    return;
-  }
-
-  const apiKey = window.prompt("输入 API Key");
-  if (!apiKey || !apiKey.trim()) {
-    els.modelSelect.value = state.selectedModel;
-    return;
-  }
-
-  await apiRequest("/llm/models", {
-    method: "POST",
-    body: {
-      team_id: state.teamId,
-      user_id: state.userId,
-      model_name: normalizedModelName,
-      base_url: baseUrl.trim(),
-      api_key: apiKey.trim(),
-    },
-  });
-
-  state.selectedModel = normalizedModelName;
-  persistSelectedModel();
-  await loadModelConfigs();
-  showToast(`已添加并切换到模型 ${normalizedModelName}`);
+  openCustomModelModal();
 }
 
-async function handleEmbeddingChange() {
+async function legacyHandleEmbeddingChange() {
   const selected = els.embeddingSelect.value;
   if (selected !== ADD_EMBEDDING_OPTION) {
     state.selectedEmbedding = selected;
     persistSelectedEmbedding();
     if (selected === DEFAULT_EMBEDDING_ID) {
-      showToast("当前使用 default（读取 .env 向量模型配置）");
+      showToast("当前使用系统默认检索向量配置");
     } else if (selected === MOCK_EMBEDDING_ID) {
       showToast("当前使用 mock（hashing 向量）");
     } else {
-      showToast(`向量模型已切换为 ${selected}`);
+      showToast(`检索向量模型已切换为 ${selected}`);
     }
     return;
   }
 
   if (!ensureIdentity()) {
-    openAuthModal();
-    showToast("请先登录账户", true);
+    openSettingsModal();
+    showToast("请先设置工作台", true);
     els.embeddingSelect.value = state.selectedEmbedding;
     return;
   }
 
-  const modelName = window.prompt("输入向量模型名称，例如 text-embedding-3-small");
-  if (!modelName) {
-    els.embeddingSelect.value = state.selectedEmbedding;
-    return;
-  }
-
-  const normalizedModelName = modelName.trim();
-  if (!normalizedModelName || normalizedModelName.toLowerCase() === DEFAULT_EMBEDDING_ID) {
-    els.embeddingSelect.value = state.selectedEmbedding;
-    showToast("向量模型名称无效", true);
-    return;
-  }
-
-  const providerInput = window.prompt("输入 provider（openai / volcengine / mock）", "openai");
-  if (!providerInput || !providerInput.trim()) {
-    els.embeddingSelect.value = state.selectedEmbedding;
-    return;
-  }
-  const provider = providerInput.trim().toLowerCase();
-
-  let baseUrl = null;
-  let apiKey = null;
-  if (provider !== "mock") {
-    baseUrl = window.prompt("输入 Embedding API Base URL", "https://api.openai.com/v1");
-    if (!baseUrl || !baseUrl.trim()) {
-      els.embeddingSelect.value = state.selectedEmbedding;
-      return;
-    }
-    apiKey = window.prompt("输入 Embedding API Key");
-    if (!apiKey || !apiKey.trim()) {
-      els.embeddingSelect.value = state.selectedEmbedding;
-      return;
-    }
-  }
-
-  await apiRequest("/embedding/models", {
-    method: "POST",
-    body: {
-      team_id: state.teamId,
-      user_id: state.userId,
-      model_name: normalizedModelName,
-      provider,
-      base_url: baseUrl ? baseUrl.trim() : null,
-      api_key: apiKey ? apiKey.trim() : null,
-    },
-  });
-
-  state.selectedEmbedding = normalizedModelName;
-  persistSelectedEmbedding();
-  await loadEmbeddingConfigs();
-  showToast(`已添加并切换到向量模型 ${normalizedModelName}`);
+  openCustomEmbeddingModal();
 }
 
-async function handleSaveAuth() {
+async function legacySaveCustomModelConfig() {
+  const normalizedModelName = els.customModelNameInput.value.trim();
+  const baseUrl = els.customModelBaseUrlInput.value.trim();
+  const apiKey = els.customModelApiKeyInput.value.trim();
+
+  if (!normalizedModelName || normalizedModelName.toLowerCase() === DEFAULT_MODEL_ID || normalizedModelName.toLowerCase() === NONE_MODEL_ID) {
+    showToast("对话模型名称无效", true);
+    return;
+  }
+  if (!baseUrl) {
+    showToast("请填写对话模型 API Base URL", true);
+    return;
+  }
+  if (!apiKey) {
+    showToast("请填写对话模型 API Key", true);
+    return;
+  }
+
+  setButtonLoading(els.saveCustomModelBtn, true, "保存中...");
+  try {
+    await apiRequest("/llm/models", {
+      method: "POST",
+      body: {
+        team_id: state.teamId,
+        user_id: state.userId,
+        model_name: normalizedModelName,
+        base_url: baseUrl,
+        api_key: apiKey,
+      },
+    });
+
+    state.selectedModel = normalizedModelName;
+    persistSelectedModel();
+    await loadModelConfigs();
+    closeCustomModelModal();
+    showToast(`已添加并切换到对话模型 ${normalizedModelName}`);
+  } finally {
+    setButtonLoading(els.saveCustomModelBtn, false, "保存模型");
+  }
+}
+
+async function legacySaveCustomEmbeddingConfig() {
+  const normalizedModelName = els.customEmbeddingNameInput.value.trim();
+  const provider = els.customEmbeddingProviderInput.value.trim().toLowerCase();
+  const baseUrl = els.customEmbeddingBaseUrlInput.value.trim();
+  const apiKey = els.customEmbeddingApiKeyInput.value.trim();
+
+  if (!normalizedModelName || normalizedModelName.toLowerCase() === DEFAULT_EMBEDDING_ID) {
+    showToast("检索向量模型名称无效", true);
+    return;
+  }
+  if (!provider) {
+    showToast("请选择向量 provider", true);
+    return;
+  }
+  if (provider !== "mock" && !baseUrl) {
+    showToast("请填写检索向量 API Base URL", true);
+    return;
+  }
+  if (provider !== "mock" && !apiKey) {
+    showToast("请填写检索向量 API Key", true);
+    return;
+  }
+
+  setButtonLoading(els.saveCustomEmbeddingBtn, true, "保存中...");
+  try {
+    await apiRequest("/embedding/models", {
+      method: "POST",
+      body: {
+        team_id: state.teamId,
+        user_id: state.userId,
+        model_name: normalizedModelName,
+        provider,
+        base_url: provider === "mock" ? null : baseUrl,
+        api_key: provider === "mock" ? null : apiKey,
+      },
+    });
+
+    state.selectedEmbedding = normalizedModelName;
+    persistSelectedEmbedding();
+    await loadEmbeddingConfigs();
+    closeCustomEmbeddingModal();
+    showToast(`已添加并切换到检索向量模型 ${normalizedModelName}`);
+  } finally {
+    setButtonLoading(els.saveCustomEmbeddingBtn, false, "保存模型");
+  }
+}
+
+async function legacyHandleSaveAuth() {
   const rawAccountId = els.accountIdInput.value.trim();
   const accountId = rawAccountId.replace(/\s+/g, "_").slice(0, 64);
   const accountName = els.accountNameInput.value.trim() || accountId;
 
   if (!accountId) {
-    showToast("account_id 不能为空", true);
+    showToast("工作台 ID 不能为空", true);
     return;
   }
 
-  setButtonLoading(els.saveAuthBtn, true, "保存中...");
+  setButtonLoading(els.saveAuthBtn, true, "进入中...");
 
   try {
-    await createOrReuseTeam(accountId, accountName);
-    await createOrReuseUser(accountId, accountId, accountName);
+    const team = await ensureTeam(accountId, accountName);
+    const user = await ensureUser(accountId, accountId, accountName);
+    const resolvedWorkspaceName = (user && user.display_name) || (team && team.name) || accountName;
 
-    state.teamId = accountId;
-    state.teamName = accountName;
-    state.userId = accountId;
-    state.displayName = accountName;
+    state.teamId = (team && team.team_id) || accountId;
+    state.teamName = (team && team.name) || resolvedWorkspaceName;
+    state.userId = (user && user.user_id) || accountId;
+    state.displayName = resolvedWorkspaceName;
     state.conversationId = "";
     state.selectedDocumentIds = [];
     state.chatMode = CHAT_MODE_CHAT;
@@ -985,47 +1061,32 @@ async function handleSaveAuth() {
     closeAuthModal();
     clearConversation();
     await loadAllData();
-    showToast(`已登录账户：${accountName}`);
+    showToast(`已进入工作台：${accountName}`);
   } catch (error) {
     showToast(error.message, true);
   } finally {
-    setButtonLoading(els.saveAuthBtn, false, "保存并登录");
+    setButtonLoading(els.saveAuthBtn, false, "进入工作台");
   }
 }
 
-async function createOrReuseTeam(teamId, teamName) {
-  try {
-    await apiRequest("/teams", {
-      method: "POST",
-      body: {
-        team_id: teamId,
-        name: teamName,
-        description: "Created from CaiBao web UI",
-      },
-    });
-  } catch (error) {
-    if (!String(error.message).includes("already exists")) {
-      throw error;
-    }
-  }
+async function ensureTeam(teamId, teamName) {
+  return apiRequest(`/teams/${encodeURIComponent(teamId)}`, {
+    method: "PUT",
+    body: {
+      name: teamName,
+      description: null,
+    },
+  });
 }
 
-async function createOrReuseUser(userId, teamId, displayName) {
-  try {
-    await apiRequest("/users", {
-      method: "POST",
-      body: {
-        user_id: userId,
-        team_id: teamId,
-        display_name: displayName,
-        role: "member",
-      },
-    });
-  } catch (error) {
-    if (!String(error.message).includes("already exists")) {
-      throw error;
-    }
-  }
+async function ensureUser(userId, teamId, displayName) {
+  return apiRequest(`/users/${encodeURIComponent(userId)}`, {
+    method: "PUT",
+    body: {
+      team_id: teamId,
+      display_name: displayName,
+    },
+  });
 }
 
 async function loadAllData() {
@@ -1225,7 +1286,7 @@ async function createConversation(title) {
 async function createAndSwitchConversation() {
   if (!ensureIdentity()) {
     openAuthModal();
-    showToast("请先登录账户", true);
+    showToast("请先设置工作台", true);
     return;
   }
 
@@ -1514,7 +1575,7 @@ function renderFavoriteWorkspace() {
   els.favoriteList.innerHTML = "";
 
   if (!ensureIdentity()) {
-    appendFavoriteWorkspaceEmptyState("登录后可把回答收藏到这里，再继续整理为长期记忆、结论和资料库。");
+    appendFavoriteWorkspaceEmptyState("设置工作台后可把回答收藏到这里，再继续整理为长期记忆、结论和资料库。");
     refreshWorkspaceUi();
     return;
   }
@@ -2736,7 +2797,7 @@ async function handleSend() {
 
   if (!ensureIdentity()) {
     openAuthModal();
-    showToast("请先登录账户", true);
+    showToast("请先设置工作台", true);
     return;
   }
 
@@ -2904,7 +2965,7 @@ async function importDocumentWithContent({ sourceName, content, contentType }) {
   }
   if (!ensureIdentity()) {
     openAuthModal();
-    showToast("请先登录账户", true);
+    showToast("请先设置工作台", true);
     return;
   }
 
@@ -2993,7 +3054,7 @@ async function uploadDocumentFile(file) {
   inferUploadContentType(file.name);
   if (!ensureIdentity()) {
     openAuthModal();
-    showToast("请先登录账户", true);
+    showToast("请先设置工作台", true);
     return;
   }
 
@@ -3603,17 +3664,596 @@ function scrollToBottom() {
   });
 }
 
-function openAuthModal() {
+function legacyOpenSettingsModal() {
   updateIdentityCard();
-  els.authModal.classList.remove("hidden");
+  refreshWorkspaceUi();
+  if (els.settingsModal) {
+    els.settingsModal.classList.remove("hidden");
+  }
 }
 
-function closeAuthModal() {
-  els.authModal.classList.add("hidden");
+function legacyCloseSettingsModal() {
+  if (els.settingsModal) {
+    els.settingsModal.classList.add("hidden");
+  }
+}
+
+function legacyOpenAuthModal() {
+  legacyOpenSettingsModal();
+}
+
+function legacyCloseAuthModal() {
+  legacyCloseSettingsModal();
+}
+
+function legacyOpenCustomModelModal() {
+  els.customModelNameInput.value = "";
+  els.customModelBaseUrlInput.value = "https://api.openai.com/v1";
+  els.customModelApiKeyInput.value = "";
+  els.customModelModal.classList.remove("hidden");
+  els.customModelNameInput.focus();
+}
+
+function legacyCloseCustomModelModal() {
+  els.customModelModal.classList.add("hidden");
+  if (els.modelSelect) {
+    els.modelSelect.value = state.selectedModel;
+  }
+}
+
+function legacyOpenCustomEmbeddingModal() {
+  els.customEmbeddingNameInput.value = "";
+  els.customEmbeddingProviderInput.value = "openai";
+  els.customEmbeddingBaseUrlInput.value = "https://api.openai.com/v1";
+  els.customEmbeddingApiKeyInput.value = "";
+  syncCustomEmbeddingFields();
+  els.customEmbeddingModal.classList.remove("hidden");
+  els.customEmbeddingNameInput.focus();
+}
+
+function legacyCloseCustomEmbeddingModal() {
+  els.customEmbeddingModal.classList.add("hidden");
+  if (els.embeddingSelect) {
+    els.embeddingSelect.value = state.selectedEmbedding;
+  }
+}
+
+function legacySyncCustomEmbeddingFields() {
+  const isMock = els.customEmbeddingProviderInput.value === "mock";
+  els.customEmbeddingBaseUrlField.classList.toggle("hidden", isMock);
+  els.customEmbeddingApiKeyField.classList.toggle("hidden", isMock);
 }
 
 function ensureIdentity() {
   return Boolean(state.teamId && state.userId);
+}
+
+function getWorkspaceDisplayName() {
+  return state.displayName || state.teamName || "未进入工作区";
+}
+
+function getWorkspaceId() {
+  return state.teamId || state.userId || "";
+}
+
+function getAiConfigurationSummary() {
+  const usesCustomChatModel = ![DEFAULT_MODEL_ID, NONE_MODEL_ID].includes(state.selectedModel);
+  const usesCustomEmbedding = ![DEFAULT_EMBEDDING_ID, MOCK_EMBEDDING_ID].includes(state.selectedEmbedding);
+  return usesCustomChatModel || usesCustomEmbedding ? "已自定义" : "默认";
+}
+
+function getResponseModeLabel() {
+  return state.chatMode === CHAT_MODE_DOCS ? "资料增强" : "直接聊天";
+}
+
+function getResponseModeHint(readyCount) {
+  if (!readyCount) {
+    return "需要依据时再导入资料并开启资料增强";
+  }
+  return state.chatMode === CHAT_MODE_DOCS
+    ? `已接入 ${readyCount} 份可检索资料`
+    : "目前以直接聊天为主，需要时再切到资料增强";
+}
+
+function updateIdentityCard() {
+  const name = getWorkspaceDisplayName();
+  const workspaceId = getWorkspaceId();
+  if (els.profileName) {
+    els.profileName.textContent = name;
+  }
+  if (els.profileTeam) {
+    els.profileTeam.textContent = workspaceId ? `工作区 ID · ${workspaceId}` : "点击进入或切换工作区";
+  }
+  if (els.avatarText) {
+    els.avatarText.textContent = name.slice(0, 1) || "未";
+  }
+  if (els.accountIdInput) {
+    els.accountIdInput.value = workspaceId;
+  }
+  if (els.accountNameInput) {
+    els.accountNameInput.value = state.displayName || state.teamName || "";
+  }
+  if (els.settingsWorkspaceSummary) {
+    els.settingsWorkspaceSummary.textContent = workspaceId
+      ? `${name} · 工作区 ID ${workspaceId}`
+      : "未进入工作区";
+  }
+  refreshWorkspaceUi();
+}
+
+function refreshWorkspaceUi() {
+  const loggedIn = ensureIdentity();
+  const activeConversation = getActiveConversation();
+  const scope = getDocumentScopeSummary();
+  const activeTitle = activeConversation?.title || "新会话";
+  const readyCount = getReadyDocumentCount();
+
+  if (els.historySectionTitle) {
+    els.historySectionTitle.textContent = state.conversations.length
+      ? `会话列表 · ${state.conversations.length}`
+      : "会话列表";
+  }
+  if (els.documentSectionTitle) {
+    els.documentSectionTitle.textContent = state.documents.length
+      ? `本会话文件 · ${state.documents.length}`
+      : "本会话文件";
+  }
+  if (els.conversationCountValue) {
+    els.conversationCountValue.textContent = String(state.conversations.length);
+  }
+  if (els.documentCountValue) {
+    els.documentCountValue.textContent = String(state.documents.length);
+  }
+  if (els.readyDocumentCountValue) {
+    els.readyDocumentCountValue.textContent = String(readyCount);
+  }
+
+  if (els.workspaceEyebrow) {
+    els.workspaceEyebrow.textContent = loggedIn
+      ? `当前工作区 · ${getWorkspaceId()}`
+      : "Personal AI Assistant";
+  }
+  if (els.workspaceDescription) {
+    if (!loggedIn) {
+      els.workspaceDescription.textContent = "进入工作区后即可直接聊天、写方案和整理想法；只有需要依据时再开启资料增强。";
+    } else {
+      const desc = [activeTitle];
+      if (state.history.length) {
+        desc.push(`${state.history.length} 轮对话`);
+      }
+      desc.push(scope.label);
+      els.workspaceDescription.textContent = desc.join(" · ");
+    }
+  }
+
+  if (els.heroTitle) {
+    if (!loggedIn) {
+      els.heroTitle.textContent = "进入工作区后就能直接开聊，需要时再补充资料";
+    } else if (!state.documents.length) {
+      els.heroTitle.textContent = "先直接聊天，只有需要依据时再补充资料";
+    } else if (!readyCount) {
+      els.heroTitle.textContent = "现在就能继续聊，资料处理完成后会自动增强回答";
+    } else {
+      els.heroTitle.textContent = "直接聊天，或让资料为回答补充依据";
+    }
+  }
+  if (els.heroSubtitle) {
+    els.heroSubtitle.textContent = loggedIn
+      ? scope.hint
+      : "不用先上传文件。只有当你需要更稳妥的依据、引用和范围控制时，才打开资料增强。";
+  }
+  if (els.heroAccount) {
+    els.heroAccount.textContent = getWorkspaceDisplayName();
+  }
+  if (els.heroAccountHint) {
+    els.heroAccountHint.textContent = loggedIn
+      ? `工作区 ID · ${getWorkspaceId()}`
+      : "点击左下角进入或切换工作区";
+  }
+  if (els.heroSession) {
+    els.heroSession.textContent = getResponseModeLabel();
+  }
+  if (els.heroSessionHint) {
+    els.heroSessionHint.textContent = getResponseModeHint(readyCount);
+  }
+  if (els.heroScope) {
+    els.heroScope.textContent = scope.label;
+  }
+  if (els.heroScopeHint) {
+    els.heroScopeHint.textContent = scope.hint;
+  }
+
+  if (els.composerPresence) {
+    els.composerPresence.textContent = state.sending
+      ? "CaiBao 正在整理回答"
+      : (loggedIn ? `工作区 · ${getWorkspaceDisplayName()}` : "尚未进入工作区");
+  }
+  if (els.composerScope) {
+    els.composerScope.textContent = `资料范围 · ${scope.label}`;
+  }
+  if (els.composerSession) {
+    els.composerSession.textContent = `智能配置 · ${getAiConfigurationSummary()}`;
+  }
+  if (els.composerHint) {
+    if (state.importing) {
+      els.composerHint.textContent = "正在处理新资料，完成后会自动加入本会话检索范围。";
+    } else if (!readyCount) {
+      els.composerHint.textContent = "支持直接聊天、拖拽上传、粘贴文本和双击附件预览。";
+    } else {
+      els.composerHint.textContent = "回答会附带来源卡片，双击附件可快速预览原文。";
+    }
+  }
+  if (els.chatOnlyBtn) {
+    const isChatMode = state.chatMode === CHAT_MODE_CHAT;
+    els.chatOnlyBtn.classList.toggle("active", isChatMode);
+    els.chatOnlyBtn.setAttribute("aria-pressed", String(isChatMode));
+  }
+  if (els.docAssistBtn) {
+    const isDocsMode = state.chatMode === CHAT_MODE_DOCS;
+    const docsAvailable = readyCount > 0;
+    els.docAssistBtn.classList.toggle("active", isDocsMode);
+    els.docAssistBtn.setAttribute("aria-pressed", String(isDocsMode));
+    els.docAssistBtn.disabled = !docsAvailable;
+  }
+  if (els.chatModeHint) {
+    els.chatModeHint.textContent = getChatModeHint(readyCount, getProcessingDocumentCount());
+  }
+  if (els.heroPanel && els.conversation && !state.history.length && !pendingAssistantRow) {
+    els.heroPanel.classList.remove("hidden");
+    els.conversation.classList.remove("has-messages");
+  }
+  if (els.shell) {
+    els.shell.classList.toggle("has-history", Boolean(state.history.length || pendingAssistantRow));
+  }
+  if (els.settingsWorkspaceSummary) {
+    els.settingsWorkspaceSummary.textContent = loggedIn
+      ? `${getWorkspaceDisplayName()} · 工作区 ID ${getWorkspaceId()}`
+      : "未进入工作区";
+  }
+
+  syncWorkspaceView();
+}
+
+function initModelOptions() {
+  if (!els.modelSelect) {
+    return;
+  }
+  const configuredModels = state.modelConfigs.map((item) => item.model_name);
+  const allModels = dedupeStrings([DEFAULT_MODEL_ID, NONE_MODEL_ID, ...configuredModels]);
+  els.modelSelect.innerHTML = "";
+
+  for (const model of allModels) {
+    const option = document.createElement("option");
+    option.value = model;
+    option.textContent = formatModelOptionLabel(model);
+    els.modelSelect.appendChild(option);
+  }
+
+  state.selectedModel = allModels.includes(state.selectedModel) ? state.selectedModel : DEFAULT_MODEL_ID;
+  els.modelSelect.value = state.selectedModel;
+  persistSelectedModel();
+  refreshWorkspaceUi();
+}
+
+function initEmbeddingOptions() {
+  if (!els.embeddingSelect) {
+    return;
+  }
+  const configuredModels = state.embeddingConfigs.map((item) => item.model_name);
+  const allModels = dedupeStrings([DEFAULT_EMBEDDING_ID, MOCK_EMBEDDING_ID, ...configuredModels]);
+  els.embeddingSelect.innerHTML = "";
+
+  for (const model of allModels) {
+    const option = document.createElement("option");
+    option.value = model;
+    option.textContent = formatEmbeddingOptionLabel(model);
+    els.embeddingSelect.appendChild(option);
+  }
+
+  state.selectedEmbedding = allModels.includes(state.selectedEmbedding) ? state.selectedEmbedding : DEFAULT_EMBEDDING_ID;
+  els.embeddingSelect.value = state.selectedEmbedding;
+  persistSelectedEmbedding();
+  refreshWorkspaceUi();
+}
+
+async function handleModelChange() {
+  if (!els.modelSelect) {
+    return;
+  }
+  const selected = els.modelSelect.value;
+  state.selectedModel = selected;
+  persistSelectedModel();
+  if (selected === DEFAULT_MODEL_ID) {
+    showToast("当前使用系统默认回答模型");
+  } else if (selected === NONE_MODEL_ID) {
+    showToast("当前使用 none（仅输出 mock 回复）");
+  } else {
+    showToast(`默认回答模型已切换为 ${selected}`);
+  }
+  refreshWorkspaceUi();
+}
+
+async function handleEmbeddingChange() {
+  if (!els.embeddingSelect) {
+    return;
+  }
+  const selected = els.embeddingSelect.value;
+  state.selectedEmbedding = selected;
+  persistSelectedEmbedding();
+  if (selected === DEFAULT_EMBEDDING_ID) {
+    showToast("当前使用系统默认向量模型");
+  } else if (selected === MOCK_EMBEDDING_ID) {
+    showToast("当前使用 mock 向量配置");
+  } else {
+    showToast(`默认向量模型已切换为 ${selected}`);
+  }
+  refreshWorkspaceUi();
+}
+
+async function saveCustomModelConfig() {
+  const normalizedModelName = els.customModelNameInput?.value.trim() || "";
+  const baseUrl = els.customModelBaseUrlInput?.value.trim() || "";
+  const apiKey = els.customModelApiKeyInput?.value.trim() || "";
+
+  if (!normalizedModelName || normalizedModelName.toLowerCase() === DEFAULT_MODEL_ID || normalizedModelName.toLowerCase() === NONE_MODEL_ID) {
+    showToast("模型名称无效", true);
+    return;
+  }
+  if (!baseUrl) {
+    showToast("请填写 API Base URL", true);
+    return;
+  }
+  if (!apiKey) {
+    showToast("请填写 API Key", true);
+    return;
+  }
+
+  setButtonLoading(els.saveCustomModelBtn, true, "保存中...");
+  try {
+    await apiRequest("/llm/models", {
+      method: "POST",
+      body: {
+        team_id: state.teamId,
+        user_id: state.userId,
+        model_name: normalizedModelName,
+        base_url: baseUrl,
+        api_key: apiKey,
+      },
+    });
+
+    state.selectedModel = normalizedModelName;
+    persistSelectedModel();
+    await loadModelConfigs();
+    closeCustomModelModal();
+    showToast(`已添加并切换到模型 ${normalizedModelName}`);
+  } finally {
+    setButtonLoading(els.saveCustomModelBtn, false, "保存模型");
+  }
+}
+
+async function saveCustomEmbeddingConfig() {
+  const normalizedModelName = els.customEmbeddingNameInput?.value.trim() || "";
+  const provider = els.customEmbeddingProviderInput?.value.trim().toLowerCase() || "";
+  const baseUrl = els.customEmbeddingBaseUrlInput?.value.trim() || "";
+  const apiKey = els.customEmbeddingApiKeyInput?.value.trim() || "";
+
+  if (!normalizedModelName || normalizedModelName.toLowerCase() === DEFAULT_EMBEDDING_ID) {
+    showToast("向量模型名称无效", true);
+    return;
+  }
+  if (!provider) {
+    showToast("请选择 provider", true);
+    return;
+  }
+  if (provider !== "mock" && !baseUrl) {
+    showToast("请填写 Embedding API Base URL", true);
+    return;
+  }
+  if (provider !== "mock" && !apiKey) {
+    showToast("请填写 Embedding API Key", true);
+    return;
+  }
+
+  setButtonLoading(els.saveCustomEmbeddingBtn, true, "保存中...");
+  try {
+    await apiRequest("/embedding/models", {
+      method: "POST",
+      body: {
+        team_id: state.teamId,
+        user_id: state.userId,
+        model_name: normalizedModelName,
+        provider,
+        base_url: provider === "mock" ? null : baseUrl,
+        api_key: provider === "mock" ? null : apiKey,
+      },
+    });
+
+    state.selectedEmbedding = normalizedModelName;
+    persistSelectedEmbedding();
+    await loadEmbeddingConfigs();
+    closeCustomEmbeddingModal();
+    showToast(`已添加并切换到向量模型 ${normalizedModelName}`);
+  } finally {
+    setButtonLoading(els.saveCustomEmbeddingBtn, false, "保存向量模型");
+  }
+}
+
+async function legacyHandleSaveAuthV2() {
+  const rawAccountId = els.accountIdInput?.value.trim() || "";
+  const accountId = rawAccountId.replace(/\s+/g, "_").slice(0, 64);
+  const accountName = (els.accountNameInput?.value.trim() || accountId).slice(0, 64);
+
+  if (!accountId) {
+    showToast("工作区 ID 不能为空", true);
+    return;
+  }
+
+  setButtonLoading(els.saveAuthBtn, true, "进入中...");
+  try {
+    await ensureTeam(accountId, accountName);
+    await ensureUser(accountId, accountId, accountName);
+
+    state.teamId = accountId;
+    state.teamName = accountName;
+    state.userId = accountId;
+    state.displayName = accountName;
+    state.conversationId = "";
+    state.selectedDocumentIds = [];
+    state.chatMode = CHAT_MODE_CHAT;
+    persistIdentity();
+    persistConversation();
+    state.selectedModel = loadSelectedModelFromStorage();
+    state.selectedEmbedding = loadSelectedEmbeddingFromStorage();
+
+    closeSettingsModal();
+    closeAuthModal();
+    clearConversation();
+    updateIdentityCard();
+    await loadAllData();
+    showToast(`已进入工作区：${accountName}`);
+  } catch (error) {
+    showToast(error.message, true);
+  } finally {
+    setButtonLoading(els.saveAuthBtn, false, "进入工作区");
+  }
+}
+
+async function handleSaveAuth() {
+  const rawAccountId = els.accountIdInput?.value.trim() || "";
+  const accountId = rawAccountId.replace(/\s+/g, "_").slice(0, 64);
+  const accountName = (els.accountNameInput?.value.trim() || accountId).slice(0, 64);
+
+  if (!accountId) {
+    showToast("工作区 ID 不能为空", true);
+    return;
+  }
+
+  setButtonLoading(els.saveAuthBtn, true, "进入中...");
+  try {
+    const team = await ensureTeam(accountId, accountName);
+    const user = await ensureUser(accountId, accountId, accountName);
+    const resolvedWorkspaceName = user?.display_name || team?.name || accountName;
+
+    state.teamId = team?.team_id || accountId;
+    state.teamName = team?.name || resolvedWorkspaceName;
+    state.userId = user?.user_id || accountId;
+    state.displayName = resolvedWorkspaceName;
+    state.conversationId = "";
+    state.selectedDocumentIds = [];
+    state.chatMode = CHAT_MODE_CHAT;
+    persistIdentity();
+    persistConversation();
+    state.selectedModel = loadSelectedModelFromStorage();
+    state.selectedEmbedding = loadSelectedEmbeddingFromStorage();
+
+    closeSettingsModal();
+    closeAuthModal();
+    clearConversation();
+    updateIdentityCard();
+    await loadAllData();
+    showToast(`已进入工作区：${resolvedWorkspaceName}`);
+  } catch (error) {
+    showToast(error.message, true);
+  } finally {
+    setButtonLoading(els.saveAuthBtn, false, "进入工作区");
+  }
+}
+
+function openAuthModal() {
+  updateIdentityCard();
+  if (els.authModal) {
+    els.authModal.classList.remove("hidden");
+  }
+}
+
+function closeAuthModal() {
+  if (els.authModal) {
+    els.authModal.classList.add("hidden");
+  }
+}
+
+function openSettingsModal() {
+  if (!ensureIdentity()) {
+    openAuthModal();
+    return;
+  }
+  updateIdentityCard();
+  if (els.settingsModal) {
+    els.settingsModal.classList.remove("hidden");
+  }
+}
+
+function closeSettingsModal() {
+  if (els.settingsModal) {
+    els.settingsModal.classList.add("hidden");
+  }
+}
+
+function openCustomModelModal() {
+  if (!ensureIdentity()) {
+    openAuthModal();
+    showToast("请先设置工作台", true);
+    return;
+  }
+  if (els.customModelNameInput) {
+    els.customModelNameInput.value = "";
+  }
+  if (els.customModelBaseUrlInput) {
+    els.customModelBaseUrlInput.value = "https://api.openai.com/v1";
+  }
+  if (els.customModelApiKeyInput) {
+    els.customModelApiKeyInput.value = "";
+  }
+  if (els.customModelModal) {
+    els.customModelModal.classList.remove("hidden");
+  }
+}
+
+function closeCustomModelModal() {
+  if (els.customModelModal) {
+    els.customModelModal.classList.add("hidden");
+  }
+}
+
+function openCustomEmbeddingModal() {
+  if (!ensureIdentity()) {
+    openAuthModal();
+    showToast("请先设置工作台", true);
+    return;
+  }
+  if (els.customEmbeddingNameInput) {
+    els.customEmbeddingNameInput.value = "";
+  }
+  if (els.customEmbeddingProviderInput) {
+    els.customEmbeddingProviderInput.value = "openai";
+  }
+  if (els.customEmbeddingBaseUrlInput) {
+    els.customEmbeddingBaseUrlInput.value = "https://api.openai.com/v1";
+  }
+  if (els.customEmbeddingApiKeyInput) {
+    els.customEmbeddingApiKeyInput.value = "";
+  }
+  syncCustomEmbeddingFields();
+  if (els.customEmbeddingModal) {
+    els.customEmbeddingModal.classList.remove("hidden");
+  }
+}
+
+function closeCustomEmbeddingModal() {
+  if (els.customEmbeddingModal) {
+    els.customEmbeddingModal.classList.add("hidden");
+  }
+}
+
+function syncCustomEmbeddingFields() {
+  const provider = els.customEmbeddingProviderInput?.value || "openai";
+  const isMock = provider === "mock";
+  if (els.customEmbeddingBaseUrlField) {
+    els.customEmbeddingBaseUrlField.classList.toggle("hidden", isMock);
+  }
+  if (els.customEmbeddingApiKeyField) {
+    els.customEmbeddingApiKeyField.classList.toggle("hidden", isMock);
+  }
 }
 
 function autoGrowTextarea() {
