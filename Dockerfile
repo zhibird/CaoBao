@@ -19,7 +19,4 @@ RUN chmod +x ./scripts/docker-entrypoint.sh
 EXPOSE 8000
 VOLUME ["/data"]
 
-# Default to a persistent SQLite file inside the mounted /data volume.
-ENV DATABASE_URL=sqlite:////data/CaiBao.db
-
 CMD ["./scripts/docker-entrypoint.sh"]

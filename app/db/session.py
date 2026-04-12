@@ -13,9 +13,14 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.core.config import get_settings
 from app.db.base import Base
 
+
+def _is_sqlite_url(database_url: str) -> bool:
+    return database_url.strip().lower().startswith("sqlite")
+
+
 settings = get_settings()
 
-is_sqlite = settings.database_url.startswith("sqlite")
+is_sqlite = _is_sqlite_url(settings.database_url)
 connect_args = {"check_same_thread": False} if is_sqlite else {}
 
 engine = create_engine(
@@ -60,7 +65,7 @@ def init_db() -> None:
         user,
     )
 
-    if _should_run_legacy_init():
+    if _should_run_legacy_init(settings.database_url, settings.app_env, settings.db_legacy_init_enabled):
         Base.metadata.create_all(bind=engine)
         _ensure_phase1_columns()
         return
@@ -68,14 +73,18 @@ def init_db() -> None:
     _ensure_schema_is_alembic_head()
 
 
-def _should_run_legacy_init() -> bool:
-    explicit = settings.db_legacy_init_enabled
+def _should_run_legacy_init(database_url: str, app_env: str, explicit: bool | None) -> bool:
     if explicit is not None:
         enabled = bool(explicit)
+        if enabled and not _is_sqlite_url(database_url):
+            raise RuntimeError(
+                "Legacy DB bootstrap is forbidden for non-SQLite databases. "
+                "Use Alembic migrations and set DB_LEGACY_INIT_ENABLED=false."
+            )
     else:
-        enabled = settings.app_env.strip().lower() != "prod"
+        enabled = app_env.strip().lower() != "prod" and _is_sqlite_url(database_url)
 
-    if settings.app_env.strip().lower() == "prod" and enabled:
+    if app_env.strip().lower() == "prod" and enabled:
         raise RuntimeError(
             "Legacy DB bootstrap is forbidden in prod. Set DB_LEGACY_INIT_ENABLED=false and run 'alembic upgrade head'."
         )

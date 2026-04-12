@@ -1,16 +1,39 @@
 services:
+  postgres:
+    image: postgres:16
+    container_name: caibao-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-caibao}
+      POSTGRES_USER: ${POSTGRES_USER:-caibao}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-caibao}
+    ports:
+      - "5432:5432"
+    volumes:
+      - caibao_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
   caibao-api:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: caibao-api
+    depends_on:
+      postgres:
+        condition: service_healthy
     ports:
       - "8000:8000"
     environment:
       APP_ENV: prod
       DB_LEGACY_INIT_ENABLED: "false"
       PYTHONPATH: /app
-      DATABASE_URL: sqlite:////data/CaiBao.db
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-caibao}:${POSTGRES_PASSWORD:-caibao}@postgres:5432/${POSTGRES_DB:-caibao}
+      UPLOAD_ROOT_DIR: /data/uploads
       LLM_PROVIDER: ${LLM_PROVIDER:-mock}
       LLM_BASE_URL: ${LLM_BASE_URL:-https://api.openai.com/v1}
       LLM_API_KEY: ${LLM_API_KEY:-}
@@ -24,3 +47,4 @@ services:
 
 volumes:
   caibao_data:
+  caibao_postgres_data:

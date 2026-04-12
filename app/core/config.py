@@ -2,7 +2,6 @@ import os
 import sys
 from functools import lru_cache
 from pathlib import Path
-from urllib.parse import quote
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -23,13 +22,7 @@ def _default_runtime_root() -> Path:
     return Path.home() / ".local" / "share" / "CaiBao"
 
 
-def _sqlite_url_for_path(path: Path) -> str:
-    resolved = path.expanduser().resolve()
-    return f"sqlite:///{quote(resolved.as_posix(), safe='/:')}"
-
-
 DEFAULT_RUNTIME_ROOT = _default_runtime_root()
-DEFAULT_DATABASE_URL = _sqlite_url_for_path(DEFAULT_RUNTIME_ROOT / "CaiBao.db")
 DEFAULT_UPLOAD_ROOT_DIR = str(DEFAULT_RUNTIME_ROOT / "uploads")
 
 
@@ -38,7 +31,7 @@ class Settings(BaseSettings):
     app_version: str = "0.13.0"
     app_env: str = "dev"
     api_prefix: str = "/api/v1"
-    database_url: str = DEFAULT_DATABASE_URL
+    database_url: str
     dev_admin_enabled: bool = True
     dev_admin_account_id: str = "dev_admin"
     dev_admin_display_name: str = "Developer Admin"
