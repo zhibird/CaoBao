@@ -1052,6 +1052,50 @@ select:focus, input:focus, textarea:focus { border-color: rgba(13, 127, 112, 0.3
 }
 .modal-close { flex: 0 0 auto; }
 .modal-tip { margin: 6px 0 14px; font-size: 13px; }
+.auth-mode-switch {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 6px;
+  border-radius: 18px;
+  border: 1px solid rgba(20, 41, 52, 0.08);
+  background: rgba(244, 248, 250, 0.92);
+}
+.auth-mode-btn {
+  min-height: 42px;
+  border-radius: 14px;
+  background: transparent;
+  color: #5c7180;
+  font-size: 13px;
+  font-weight: 700;
+}
+.auth-mode-btn.active {
+  background: linear-gradient(135deg, rgba(15, 163, 139, 0.12) 0%, rgba(13, 127, 112, 0.18) 100%);
+  color: #0d675e;
+  box-shadow: inset 0 0 0 1px rgba(13, 127, 112, 0.12);
+}
+.auth-panel {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+.auth-panel-actions {
+  justify-content: flex-end;
+}
+.auth-secondary-actions {
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+.auth-error {
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(188, 62, 46, 0.14);
+  background: rgba(255, 237, 233, 0.88);
+  color: #a03f31;
+  font-size: 13px;
+  line-height: 1.6;
+}
 .modal-section {
   margin-top: 14px;
   border: 1px solid rgba(20, 41, 52, 0.08);
@@ -1116,6 +1160,19 @@ select:focus, input:focus, textarea:focus { border-color: rgba(13, 127, 112, 0.3
   text-decoration: none;
 }
 .modal-link:hover { text-decoration: underline; }
+.settings-inline-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.danger-btn {
+  border-color: rgba(188, 62, 46, 0.16);
+  color: var(--danger);
+}
+.danger-btn:hover {
+  background: rgba(188, 62, 46, 0.08);
+}
 
 .toast {
   position: fixed;

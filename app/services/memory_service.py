@@ -235,7 +235,7 @@ class MemoryService:
         if memory is None:
             raise EntityNotFoundError(f"Memory card '{memory_id}' not found.")
         if memory.team_id != team_id or memory.user_id != user_id:
-            raise DomainValidationError("Memory card does not belong to the provided team/user.")
+            raise EntityNotFoundError(f"Memory card '{memory_id}' not found.")
         self.space_service.ensure_access(
             space_id=memory.space_id,
             team_id=team_id,
@@ -261,9 +261,9 @@ class MemoryService:
             return
         message = self.db.get(ChatHistory, normalized_id)
         if message is None:
-            raise EntityNotFoundError(f"Message '{normalized_id}' does not exist.")
+            raise EntityNotFoundError(f"Message '{normalized_id}' not found.")
         if message.team_id != team_id or message.user_id != user_id:
-            raise DomainValidationError("Source message does not belong to the provided team/user.")
+            raise EntityNotFoundError(f"Message '{normalized_id}' not found.")
 
     def _upsert_embedding(
         self,

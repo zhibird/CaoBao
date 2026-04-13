@@ -4,8 +4,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class MemoryCardCreate(BaseModel):
-    team_id: str = Field(min_length=1, max_length=64)
-    user_id: str = Field(min_length=1, max_length=64)
+    team_id: str | None = Field(default=None, min_length=1, max_length=64)
+    user_id: str | None = Field(default=None, min_length=1, max_length=64)
     space_id: str = Field(min_length=1, max_length=36)
     category: str = Field(min_length=1, max_length=32)
     title: str = Field(min_length=1, max_length=128)
@@ -19,8 +19,8 @@ class MemoryCardCreate(BaseModel):
 
 
 class MemoryCardUpdate(BaseModel):
-    team_id: str = Field(min_length=1, max_length=64)
-    user_id: str = Field(min_length=1, max_length=64)
+    team_id: str | None = Field(default=None, min_length=1, max_length=64)
+    user_id: str | None = Field(default=None, min_length=1, max_length=64)
     category: str | None = Field(default=None, min_length=1, max_length=32)
     title: str | None = Field(default=None, min_length=1, max_length=128)
     content: str | None = Field(default=None, min_length=1, max_length=4000)

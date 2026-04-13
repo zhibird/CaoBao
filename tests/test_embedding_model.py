@@ -1,46 +1,25 @@
 from uuid import uuid4
 
-
-def _create_team(client, team_id: str) -> None:
-    response = client.post(
-        "/api/v1/teams",
-        json={
-            "team_id": team_id,
-            "name": "Embedding Team",
-            "description": "for embedding model tests",
-        },
-    )
-    assert response.status_code == 201
+from tests.auth_helpers import register_workspace_user
 
 
-def _create_user(client, team_id: str, user_id: str) -> None:
-    response = client.post(
-        "/api/v1/users",
-        json={
-            "user_id": user_id,
-            "team_id": team_id,
-            "display_name": user_id,
-            "role": "member",
-        },
-    )
-    assert response.status_code == 201
+def test_embedding_model_routes_require_authenticated_user(client) -> None:
+    client.cookies.clear()
+    response = client.get("/api/v1/embedding/models")
+    assert response.status_code == 401
 
 
 def test_embedding_model_config_is_isolated_by_account(client) -> None:
     suffix = uuid4().hex[:8]
-    team_id = f"team_embedding_{suffix}"
-    user_a = f"u_embedding_a_{suffix}"
-    user_b = f"u_embedding_b_{suffix}"
-
-    _create_team(client, team_id)
-    _create_user(client, team_id, user_a)
-    _create_user(client, team_id, user_b)
+    register_workspace_user(
+        client,
+        prefix=f"embedding_a_{suffix}",
+        display_name="Embedding User A",
+    )
 
     upsert = client.post(
         "/api/v1/embedding/models",
         json={
-            "team_id": team_id,
-            "user_id": user_a,
             "model_name": "text-embedding-3-small",
             "provider": "openai",
             "base_url": "https://api.openai.com/v1",
@@ -55,35 +34,36 @@ def test_embedding_model_config_is_isolated_by_account(client) -> None:
     assert body["has_api_key"] is True
     assert body["masked_api_key"] != "sk-embedding-account-a"
 
-    list_a = client.get(
-        "/api/v1/embedding/models",
-        params={"team_id": team_id, "user_id": user_a},
-    )
+    list_a = client.get("/api/v1/embedding/models")
     assert list_a.status_code == 200
     assert len(list_a.json()["items"]) == 1
     assert list_a.json()["items"][0]["model_name"] == "text-embedding-3-small"
 
-    list_b = client.get(
-        "/api/v1/embedding/models",
-        params={"team_id": team_id, "user_id": user_b},
+    logout = client.post("/api/v1/auth/logout")
+    assert logout.status_code == 204
+
+    register_workspace_user(
+        client,
+        prefix=f"embedding_b_{suffix}",
+        display_name="Embedding User B",
     )
+
+    list_b = client.get("/api/v1/embedding/models")
     assert list_b.status_code == 200
     assert list_b.json()["items"] == []
 
 
 def test_embedding_model_config_can_be_deleted(client) -> None:
     suffix = uuid4().hex[:8]
-    team_id = f"team_embedding_del_{suffix}"
-    user_id = f"u_embedding_del_{suffix}"
-
-    _create_team(client, team_id)
-    _create_user(client, team_id, user_id)
+    register_workspace_user(
+        client,
+        prefix=f"embedding_del_{suffix}",
+        display_name="Embedding Delete User",
+    )
 
     upsert = client.post(
         "/api/v1/embedding/models",
         json={
-            "team_id": team_id,
-            "user_id": user_id,
             "model_name": "emb-2026-02",
             "provider": "volcengine",
             "base_url": "https://ark.cn-beijing.volces.com/api/v3",
@@ -92,33 +72,25 @@ def test_embedding_model_config_can_be_deleted(client) -> None:
     )
     assert upsert.status_code == 200
 
-    delete = client.delete(
-        "/api/v1/embedding/models/emb-2026-02",
-        params={"team_id": team_id, "user_id": user_id},
-    )
+    delete = client.delete("/api/v1/embedding/models/emb-2026-02")
     assert delete.status_code == 204
 
-    list_after = client.get(
-        "/api/v1/embedding/models",
-        params={"team_id": team_id, "user_id": user_id},
-    )
+    list_after = client.get("/api/v1/embedding/models")
     assert list_after.status_code == 200
     assert list_after.json()["items"] == []
 
 
 def test_embedding_model_rejects_reserved_mock_name(client) -> None:
     suffix = uuid4().hex[:8]
-    team_id = f"team_embedding_reserved_{suffix}"
-    user_id = f"u_embedding_reserved_{suffix}"
-
-    _create_team(client, team_id)
-    _create_user(client, team_id, user_id)
+    register_workspace_user(
+        client,
+        prefix=f"embedding_reserved_{suffix}",
+        display_name="Embedding Reserved User",
+    )
 
     upsert = client.post(
         "/api/v1/embedding/models",
         json={
-            "team_id": team_id,
-            "user_id": user_id,
             "model_name": "mock",
             "provider": "openai",
             "base_url": "https://api.openai.com/v1",

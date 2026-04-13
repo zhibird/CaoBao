@@ -1,74 +1,25 @@
 from uuid import uuid4
 
-import pytest
+from tests.auth_helpers import register_workspace_user
 
 
-def _create_team_and_user(client, suffix: str) -> tuple[str, str]:
-    team_id = f"team_phase3_{suffix}"
-    user_id = f"user_phase3_{suffix}"
-
-    team_response = client.post(
-        "/api/v1/teams",
-        json={
-            "team_id": team_id,
-            "name": "Phase3 Team",
-            "description": "for favorites and conclusions tests",
-        },
-    )
-    assert team_response.status_code == 201
-
-    user_response = client.post(
-        "/api/v1/users",
-        json={
-            "user_id": user_id,
-            "team_id": team_id,
-            "display_name": "Phase3 User",
-            "role": "member",
-        },
-    )
-    assert user_response.status_code == 201
-    return team_id, user_id
-
-
-def _create_space(client, *, team_id: str, user_id: str, name: str) -> str:
-    response = client.post(
-        "/api/v1/spaces",
-        json={
-            "team_id": team_id,
-            "user_id": user_id,
-            "name": name,
-            "description": "phase3 space",
-        },
-    )
-    assert response.status_code == 201
-    return response.json()["space_id"]
-
-
-def _create_conversation(client, *, team_id: str, user_id: str, title: str) -> str:
+def _create_conversation(client, *, title: str) -> dict:
     response = client.post(
         "/api/v1/conversations",
-        json={
-            "team_id": team_id,
-            "user_id": user_id,
-            "title": title,
-        },
+        json={"title": title},
     )
     assert response.status_code == 201
-    return response.json()["conversation_id"]
+    return response.json()
 
 
 def _create_history_message(
     client,
     *,
-    team_id: str,
-    user_id: str,
     conversation_id: str,
 ) -> str:
     echo_response = client.post(
         "/api/v1/chat/echo",
         json={
-            "team_id": team_id,
-            "user_id": user_id,
             "conversation_id": conversation_id,
             "message": "Snapshot this message.",
         },
@@ -78,8 +29,6 @@ def _create_history_message(
     history_response = client.get(
         "/api/v1/chat/history",
         params={
-            "team_id": team_id,
-            "user_id": user_id,
             "conversation_id": conversation_id,
             "limit": 1,
         },
@@ -93,17 +42,12 @@ def _create_history_message(
 def _create_favorite(
     client,
     *,
-    team_id: str,
-    user_id: str,
     space_id: str,
-    conversation_id: str,
     message_id: str,
 ) -> dict:
     response = client.post(
         "/api/v1/favorites/answers",
         json={
-            "team_id": team_id,
-            "user_id": user_id,
             "space_id": space_id,
             "message_id": message_id,
             "title": "Saved Answer",
@@ -115,64 +59,53 @@ def _create_favorite(
     return response.json()
 
 
-def _promote(client, *, favorite_id: str, target: str, team_id: str, user_id: str, space_id: str):
+def _promote(client, *, favorite_id: str, target: str, space_id: str):
     url = f"/api/v1/favorites/answers/{favorite_id}/promote-to-{target}"
-    return client.post(
-        url,
-        json={
-            "team_id": team_id,
-            "user_id": user_id,
-            "space_id": space_id,
-        },
+    return client.post(url, json={"space_id": space_id})
+
+
+def test_favorites_and_conclusions_require_authenticated_user(client) -> None:
+    client.cookies.clear()
+
+    favorites_response = client.get(
+        "/api/v1/favorites/answers",
+        params={"space_id": "space_123", "limit": 20},
     )
+    assert favorites_response.status_code == 401
+
+    conclusions_response = client.get(
+        "/api/v1/conclusions",
+        params={"space_id": "space_123", "limit": 20},
+    )
+    assert conclusions_response.status_code == 401
 
 
 def test_favorites_crud_and_access_boundary(client) -> None:
     suffix = uuid4().hex[:8]
-    team_id, user_id = _create_team_and_user(client, suffix)
-    other_user_id = f"user_other_{suffix}"
-    other_user_response = client.post(
-        "/api/v1/users",
-        json={
-            "user_id": other_user_id,
-            "team_id": team_id,
-            "display_name": "Other User",
-            "role": "member",
-        },
-    )
-    assert other_user_response.status_code == 201
-
-    space_id = _create_space(client, team_id=team_id, user_id=user_id, name="Favorites Space")
-    conversation_id = _create_conversation(
+    owner_team_id, owner_user_id = register_workspace_user(
         client,
-        team_id=team_id,
-        user_id=user_id,
-        title="Favorites Conversation",
+        prefix=f"phase3_owner_{suffix}",
+        display_name="Phase3 Owner",
     )
+
+    conversation = _create_conversation(client, title="Favorites Conversation")
+    space_id = conversation["space_id"]
+    conversation_id = conversation["conversation_id"]
     message_id = _create_history_message(
         client,
-        team_id=team_id,
-        user_id=user_id,
         conversation_id=conversation_id,
     )
 
     favorite = _create_favorite(
         client,
-        team_id=team_id,
-        user_id=user_id,
         space_id=space_id,
-        conversation_id=conversation_id,
         message_id=message_id,
     )
     favorite_id = favorite["favorite_id"]
 
     list_response = client.get(
         "/api/v1/favorites/answers",
-        params={
-            "team_id": team_id,
-            "user_id": user_id,
-            "space_id": space_id,
-        },
+        params={"space_id": space_id},
     )
     assert list_response.status_code == 200
     listed = list_response.json()
@@ -180,58 +113,52 @@ def test_favorites_crud_and_access_boundary(client) -> None:
 
     patch_response = client.patch(
         f"/api/v1/favorites/answers/{favorite_id}",
-        json={
-            "team_id": team_id,
-            "user_id": user_id,
-            "title": "Saved Answer Updated",
-        },
+        json={"title": "Saved Answer Updated"},
     )
     assert patch_response.status_code == 200
     assert patch_response.json()["title"] == "Saved Answer Updated"
 
+    logout_response = client.post("/api/v1/auth/logout")
+    assert logout_response.status_code == 204
+
+    intruder_team_id, intruder_user_id = register_workspace_user(
+        client,
+        prefix=f"phase3_intruder_{suffix}",
+        display_name="Intruder",
+    )
+    assert intruder_team_id != owner_team_id
+    assert intruder_user_id != owner_user_id
+
     forbidden = client.get(
         "/api/v1/favorites/answers",
-        params={
-            "team_id": team_id,
-            "user_id": other_user_id,
-            "space_id": space_id,
-        },
+        params={"space_id": space_id},
     )
-    assert forbidden.status_code in {400, 404}
+    assert forbidden.status_code == 404
+    assert forbidden.json()["detail"] == f"Space '{space_id}' not found."
 
-    delete_response = client.delete(
-        f"/api/v1/favorites/answers/{favorite_id}",
-        params={
-            "team_id": team_id,
-            "user_id": user_id,
-        },
-    )
-    assert delete_response.status_code == 204
+    delete_response = client.delete(f"/api/v1/favorites/answers/{favorite_id}")
+    assert delete_response.status_code == 404
+    assert delete_response.json()["detail"] == f"Favorite '{favorite_id}' not found."
 
 
 def test_promote_favorite_to_memory_and_conclusion(client) -> None:
     suffix = uuid4().hex[:8]
-    team_id, user_id = _create_team_and_user(client, suffix)
-    space_id = _create_space(client, team_id=team_id, user_id=user_id, name="Promote Space")
-    conversation_id = _create_conversation(
+    register_workspace_user(
         client,
-        team_id=team_id,
-        user_id=user_id,
-        title="Promote Conversation",
+        prefix=f"phase3_promote_{suffix}",
+        display_name="Phase3 Promoter",
     )
+    conversation = _create_conversation(client, title="Promote Conversation")
+    space_id = conversation["space_id"]
+    conversation_id = conversation["conversation_id"]
     message_id = _create_history_message(
         client,
-        team_id=team_id,
-        user_id=user_id,
         conversation_id=conversation_id,
     )
 
     favorite = _create_favorite(
         client,
-        team_id=team_id,
-        user_id=user_id,
         space_id=space_id,
-        conversation_id=conversation_id,
         message_id=message_id,
     )
     favorite_id = favorite["favorite_id"]
@@ -240,19 +167,13 @@ def test_promote_favorite_to_memory_and_conclusion(client) -> None:
         client,
         favorite_id=favorite_id,
         target="memory",
-        team_id=team_id,
-        user_id=user_id,
         space_id=space_id,
     )
     assert memory_promote.status_code in {200, 201}
 
     memory_list = client.get(
         "/api/v1/memory/cards",
-        params={
-            "team_id": team_id,
-            "user_id": user_id,
-            "space_id": space_id,
-        },
+        params={"space_id": space_id},
     )
     assert memory_list.status_code == 200
     assert len(memory_list.json()) >= 1
@@ -261,23 +182,31 @@ def test_promote_favorite_to_memory_and_conclusion(client) -> None:
         client,
         favorite_id=favorite_id,
         target="conclusion",
-        team_id=team_id,
-        user_id=user_id,
         space_id=space_id,
     )
     assert conclusion_promote.status_code in {200, 201}
 
+    conclusion_list = client.get(
+        "/api/v1/conclusions",
+        params={"space_id": space_id, "limit": 20},
+    )
+    assert conclusion_list.status_code == 200
+    assert len(conclusion_list.json()) >= 1
+
 
 def test_conclusion_confirm_and_archive(client) -> None:
     suffix = uuid4().hex[:8]
-    team_id, user_id = _create_team_and_user(client, suffix)
-    space_id = _create_space(client, team_id=team_id, user_id=user_id, name="Conclusion Space")
+    register_workspace_user(
+        client,
+        prefix=f"phase3_conclusion_{suffix}",
+        display_name="Phase3 Conclusion User",
+    )
+    conversation = _create_conversation(client, title="Conclusion Space")
+    space_id = conversation["space_id"]
 
     create_response = client.post(
         "/api/v1/conclusions",
         json={
-            "team_id": team_id,
-            "user_id": user_id,
             "space_id": space_id,
             "title": "Release decision",
             "topic": "release",
@@ -290,10 +219,7 @@ def test_conclusion_confirm_and_archive(client) -> None:
 
     confirm_response = client.post(
         f"/api/v1/conclusions/{conclusion_id}/confirm",
-        json={
-            "team_id": team_id,
-            "user_id": user_id,
-        },
+        json={},
     )
     assert confirm_response.status_code == 200
     confirmed = confirm_response.json()
@@ -302,10 +228,7 @@ def test_conclusion_confirm_and_archive(client) -> None:
 
     archive_response = client.post(
         f"/api/v1/conclusions/{conclusion_id}/archive",
-        json={
-            "team_id": team_id,
-            "user_id": user_id,
-        },
+        json={},
     )
     assert archive_response.status_code == 200
     assert archive_response.json()["status"] == "archived"

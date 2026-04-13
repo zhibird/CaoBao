@@ -7,8 +7,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class ConclusionCreate(BaseModel):
-    team_id: str = Field(min_length=1, max_length=64)
-    user_id: str = Field(min_length=1, max_length=64)
+    team_id: str | None = Field(default=None, min_length=1, max_length=64)
+    user_id: str | None = Field(default=None, min_length=1, max_length=64)
     space_id: str = Field(min_length=1, max_length=36)
     title: str = Field(min_length=1, max_length=128)
     topic: str | None = Field(default=None, max_length=128)
@@ -25,8 +25,8 @@ class ConclusionCreate(BaseModel):
 
 
 class ConclusionUpdate(BaseModel):
-    team_id: str = Field(min_length=1, max_length=64)
-    user_id: str = Field(min_length=1, max_length=64)
+    team_id: str | None = Field(default=None, min_length=1, max_length=64)
+    user_id: str | None = Field(default=None, min_length=1, max_length=64)
     title: str | None = Field(default=None, min_length=1, max_length=128)
     topic: str | None = Field(default=None, max_length=128)
     content: str | None = Field(default=None, min_length=1, max_length=12000)
@@ -40,14 +40,14 @@ class ConclusionUpdate(BaseModel):
 
 
 class ConclusionConfirmRequest(BaseModel):
-    team_id: str = Field(min_length=1, max_length=64)
-    user_id: str = Field(min_length=1, max_length=64)
+    team_id: str | None = Field(default=None, min_length=1, max_length=64)
+    user_id: str | None = Field(default=None, min_length=1, max_length=64)
     target_status: str = Field(default="effective", min_length=1, max_length=16)
 
 
 class ConclusionArchiveRequest(BaseModel):
-    team_id: str = Field(min_length=1, max_length=64)
-    user_id: str = Field(min_length=1, max_length=64)
+    team_id: str | None = Field(default=None, min_length=1, max_length=64)
+    user_id: str | None = Field(default=None, min_length=1, max_length=64)
 
 
 class ConclusionResponse(BaseModel):

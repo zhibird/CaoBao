@@ -101,7 +101,7 @@ class ConversationService:
             raise EntityNotFoundError(f"Conversation '{conversation_id}' not found.")
 
         if conversation.team_id != team_id or conversation.user_id != user_id:
-            raise DomainValidationError("Conversation does not belong to the provided team/user.")
+            raise EntityNotFoundError(f"Conversation '{conversation_id}' not found.")
 
         if not conversation.space_id:
             default_space = self.space_service.ensure_default_space(team_id=team_id, user_id=user_id)

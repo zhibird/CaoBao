@@ -3,6 +3,7 @@ import sys
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -32,6 +33,15 @@ class Settings(BaseSettings):
     app_env: str = "dev"
     api_prefix: str = "/api/v1"
     database_url: str
+    auth_jwt_secret: str = "dev-auth-secret-change-me"
+    auth_jwt_algorithm: str = "HS256"
+    auth_access_token_ttl_minutes: int = 15
+    auth_refresh_token_ttl_days: int = 14
+    auth_cookie_secure: bool = False
+    auth_cookie_domain: str | None = None
+    auth_cookie_samesite: str = "lax"
+    auth_access_cookie_name: str = "caibao_access_token"
+    auth_refresh_cookie_name: str = "caibao_refresh_token"
     dev_admin_enabled: bool = True
     dev_admin_account_id: str = "dev_admin"
     dev_admin_display_name: str = "Developer Admin"
@@ -76,6 +86,13 @@ class Settings(BaseSettings):
         # Keep standard priority: init args > env vars > .env > file secrets.
         # Root .env path is fixed via model_config.env_file above.
         return init_settings, env_settings, dotenv_settings, file_secret_settings
+
+    @field_validator("auth_cookie_domain", mode="before")
+    @classmethod
+    def _normalize_auth_cookie_domain(cls, value):
+        if value == "":
+            return None
+        return value
 
 
 @lru_cache

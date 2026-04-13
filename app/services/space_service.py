@@ -98,7 +98,7 @@ class SpaceService:
         if space is None or space.status == "deleted":
             raise EntityNotFoundError(f"Space '{space_id}' not found.")
         if space.team_id != team_id or space.owner_user_id != user_id:
-            raise DomainValidationError("Space does not belong to the provided team/user.")
+            raise EntityNotFoundError(f"Space '{space_id}' not found.")
         return space
 
     def update(self, *, space_id: str, payload: SpaceUpdate) -> ProjectSpace:

@@ -214,7 +214,7 @@ class FavoriteService:
         if favorite is None:
             raise EntityNotFoundError(f"Favorite '{favorite_id}' not found.")
         if favorite.team_id != team_id or favorite.user_id != user_id:
-            raise DomainValidationError("Favorite does not belong to the provided team/user.")
+            raise EntityNotFoundError(f"Favorite '{favorite_id}' not found.")
         self.space_service.ensure_access(
             space_id=favorite.space_id,
             team_id=team_id,
@@ -231,9 +231,9 @@ class FavoriteService:
     ) -> ChatHistory:
         history = self.db.get(ChatHistory, message_id)
         if history is None:
-            raise EntityNotFoundError(f"Message '{message_id}' does not exist.")
+            raise EntityNotFoundError(f"Message '{message_id}' not found.")
         if history.team_id != team_id or history.user_id != user_id:
-            raise DomainValidationError("Message does not belong to the provided team/user.")
+            raise EntityNotFoundError(f"Message '{message_id}' not found.")
         if history.channel not in {"ask", "echo"}:
             raise DomainValidationError("Only ask/echo messages can be favorited.")
         return history

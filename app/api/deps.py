@@ -1,4 +1,4 @@
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings, reload_settings
@@ -6,6 +6,7 @@ from app.core.exceptions import DomainValidationError
 from app.db.session import get_db_session
 from app.services.action_chat_service import ActionChatService
 from app.services.admin_service import AdminService
+from app.services.auth_service import AuthService
 from app.services.chat_history_service import ChatHistoryService
 from app.services.chat_service import ChatService
 from app.services.chunk_service import ChunkService
@@ -30,6 +31,26 @@ def get_team_service(db: Session = Depends(get_db_session)) -> TeamService:
 
 def get_user_service(db: Session = Depends(get_db_session)) -> UserService:
     return UserService(db)
+
+
+def get_auth_service(db: Session = Depends(get_db_session)) -> AuthService:
+    return AuthService(db=db, settings=get_settings())
+
+
+def require_current_user(
+    request: Request,
+    auth_service: AuthService = Depends(get_auth_service),
+):
+    try:
+        return auth_service.get_current_user_from_request(request)
+    except DomainValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+
+
+def require_current_active_user(current_user=Depends(require_current_user)):
+    if not current_user.is_active:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User account is inactive.")
+    return current_user
 
 
 def get_admin_service(db: Session = Depends(get_db_session)) -> AdminService:

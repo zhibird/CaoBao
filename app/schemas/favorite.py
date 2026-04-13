@@ -7,8 +7,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class FavoriteCreate(BaseModel):
-    team_id: str = Field(min_length=1, max_length=64)
-    user_id: str = Field(min_length=1, max_length=64)
+    team_id: str | None = Field(default=None, min_length=1, max_length=64)
+    user_id: str | None = Field(default=None, min_length=1, max_length=64)
     space_id: str = Field(min_length=1, max_length=36)
     message_id: str = Field(min_length=1, max_length=36)
     title: str | None = Field(default=None, max_length=128)
@@ -17,16 +17,16 @@ class FavoriteCreate(BaseModel):
 
 
 class FavoriteUpdate(BaseModel):
-    team_id: str = Field(min_length=1, max_length=64)
-    user_id: str = Field(min_length=1, max_length=64)
+    team_id: str | None = Field(default=None, min_length=1, max_length=64)
+    user_id: str | None = Field(default=None, min_length=1, max_length=64)
     title: str | None = Field(default=None, max_length=128)
     note: str | None = Field(default=None, max_length=4000)
     tags: list[str] | None = None
 
 
 class FavoritePromoteToMemoryRequest(BaseModel):
-    team_id: str = Field(min_length=1, max_length=64)
-    user_id: str = Field(min_length=1, max_length=64)
+    team_id: str | None = Field(default=None, min_length=1, max_length=64)
+    user_id: str | None = Field(default=None, min_length=1, max_length=64)
     space_id: str | None = Field(default=None, min_length=1, max_length=36)
     category: str = Field(default="fact", min_length=1, max_length=32)
     title: str | None = Field(default=None, max_length=128)
@@ -38,8 +38,8 @@ class FavoritePromoteToMemoryRequest(BaseModel):
 
 
 class FavoritePromoteToConclusionRequest(BaseModel):
-    team_id: str = Field(min_length=1, max_length=64)
-    user_id: str = Field(min_length=1, max_length=64)
+    team_id: str | None = Field(default=None, min_length=1, max_length=64)
+    user_id: str | None = Field(default=None, min_length=1, max_length=64)
     space_id: str | None = Field(default=None, min_length=1, max_length=36)
     title: str | None = Field(default=None, max_length=128)
     topic: str | None = Field(default=None, max_length=128)

@@ -3,6 +3,7 @@
 # Re-export model modules for static discovery and Alembic metadata loading.
 from . import (  # noqa: F401
     answer_favorite,
+    auth_refresh_session,
     chat_history,
     chunk_embedding,
     conclusion,

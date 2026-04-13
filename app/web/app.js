@@ -12,6 +12,17 @@ const CHAT_MODE_CHAT = "chat";
 const CHAT_MODE_DOCS = "docs";
 const WORKSPACE_VIEW_CHAT = "chat";
 const WORKSPACE_VIEW_FAVORITES = "favorites";
+const AUTH_MODE_LOGIN = "login";
+const AUTH_MODE_REGISTER = "register";
+const VALIDATION_FIELD_LABELS = {
+  user_id: "账号 ID",
+  display_name: "显示名称",
+  password: "密码",
+  confirm_password: "确认密码",
+  current_password: "当前密码",
+  new_password: "新密码",
+  confirm_new_password: "确认新密码",
+};
 
 function createEmptyMessageCaptureState() {
   return {
@@ -28,11 +39,11 @@ function createEmptyFavoriteWorkspaceAssetState() {
 }
 
 const STORAGE_KEYS = {
-  teamId: "caibao.teamId",
-  teamName: "caibao.teamName",
-  userId: "caibao.userId",
-  displayName: "caibao.displayName",
   conversationId: "caibao.conversationId",
+  legacyTeamId: "caibao.teamId",
+  legacyTeamName: "caibao.teamName",
+  legacyUserId: "caibao.userId",
+  legacyDisplayName: "caibao.displayName",
   selectedModelPrefix: "caibao.selectedModel",
   selectedEmbeddingPrefix: "caibao.selectedEmbedding",
 };
@@ -55,6 +66,7 @@ const state = {
   selectedDocumentIds: [],
   chatMode: CHAT_MODE_CHAT,
   workspaceView: WORKSPACE_VIEW_CHAT,
+  authMode: AUTH_MODE_LOGIN,
   sending: false,
   importing: false,
   dragCounter: 0,
@@ -67,6 +79,7 @@ const state = {
 const els = {};
 let toastTimer = null;
 let pendingAssistantRow = null;
+let refreshSessionPromise = null;
 
 document.addEventListener("DOMContentLoaded", () => {
   bindElements();
@@ -78,12 +91,7 @@ document.addEventListener("DOMContentLoaded", () => {
   renderAttachmentStrip();
   syncSendButtonState();
   refreshWorkspaceUi();
-
-  if (state.teamId && state.userId) {
-    loadAllData().catch((error) => showToast(error.message, true));
-  } else {
-    openAuthModal();
-  }
+  bootstrapAuthSession().catch((error) => showToast(error.message, true));
 });
 
 function bindElements() {
@@ -111,7 +119,8 @@ function bindElements() {
   els.workspaceSettingsBtn = document.getElementById("workspaceSettingsBtn");
   els.settingsModal = document.getElementById("settingsModal");
   els.closeSettingsBtn = document.getElementById("closeSettingsBtn");
-  els.switchWorkspaceBtn = document.getElementById("switchWorkspaceBtn");
+  els.switchAccountBtn = document.getElementById("switchAccountBtn");
+  els.logoutBtn = document.getElementById("logoutBtn");
   els.settingsWorkspaceSummary = document.getElementById("settingsWorkspaceSummary");
   els.addModelBtn = document.getElementById("addModelBtn");
   els.addEmbeddingBtn = document.getElementById("addEmbeddingBtn");
@@ -170,10 +179,20 @@ function bindElements() {
   els.openOriginalImageBtn = document.getElementById("openOriginalImageBtn");
   els.closeImageViewerBtn = document.getElementById("closeImageViewerBtn");
   els.authModal = document.getElementById("authModal");
-  els.accountIdInput = document.getElementById("accountIdInput");
-  els.accountNameInput = document.getElementById("accountNameInput");
+  els.authLoginTab = document.getElementById("authLoginTab");
+  els.authRegisterTab = document.getElementById("authRegisterTab");
+  els.authError = document.getElementById("authError");
+  els.loginAuthForm = document.getElementById("loginAuthForm");
+  els.registerAuthForm = document.getElementById("registerAuthForm");
+  els.loginUserIdInput = document.getElementById("loginUserIdInput");
+  els.loginPasswordInput = document.getElementById("loginPasswordInput");
+  els.registerUserIdInput = document.getElementById("registerUserIdInput");
+  els.registerDisplayNameInput = document.getElementById("registerDisplayNameInput");
+  els.registerPasswordInput = document.getElementById("registerPasswordInput");
+  els.registerConfirmPasswordInput = document.getElementById("registerConfirmPasswordInput");
   els.cancelAuthBtn = document.getElementById("cancelAuthBtn");
-  els.saveAuthBtn = document.getElementById("saveAuthBtn");
+  els.loginAuthBtn = document.getElementById("loginAuthBtn");
+  els.registerAuthBtn = document.getElementById("registerAuthBtn");
   els.customModelModal = document.getElementById("customModelModal");
   els.customModelNameInput = document.getElementById("customModelNameInput");
   els.customModelBaseUrlInput = document.getElementById("customModelBaseUrlInput");
@@ -195,17 +214,28 @@ function bindElements() {
 }
 
 function bindEvents() {
-  els.profileBtn.addEventListener("click", openAuthModal);
+  els.profileBtn.addEventListener("click", () => {
+    if (ensureIdentity()) {
+      openSettingsModal();
+      return;
+    }
+    openAuthModal(AUTH_MODE_LOGIN);
+  });
   if (els.workspaceSettingsBtn) {
     els.workspaceSettingsBtn.addEventListener("click", openSettingsModal);
   }
   if (els.closeSettingsBtn) {
     els.closeSettingsBtn.addEventListener("click", closeSettingsModal);
   }
-  if (els.switchWorkspaceBtn) {
-    els.switchWorkspaceBtn.addEventListener("click", () => {
+  if (els.switchAccountBtn) {
+    els.switchAccountBtn.addEventListener("click", () => {
       closeSettingsModal();
-      openAuthModal();
+      openAuthModal(AUTH_MODE_LOGIN);
+    });
+  }
+  if (els.logoutBtn) {
+    els.logoutBtn.addEventListener("click", () => {
+      handleLogout().catch((error) => showToast(error.message, true));
     });
   }
   if (els.addModelBtn) {
@@ -214,14 +244,35 @@ function bindEvents() {
   if (els.addEmbeddingBtn) {
     els.addEmbeddingBtn.addEventListener("click", openCustomEmbeddingModal);
   }
+  if (els.authLoginTab) {
+    els.authLoginTab.addEventListener("click", () => {
+      setAuthMode(AUTH_MODE_LOGIN);
+    });
+  }
+  if (els.authRegisterTab) {
+    els.authRegisterTab.addEventListener("click", () => {
+      setAuthMode(AUTH_MODE_REGISTER);
+    });
+  }
   els.cancelAuthBtn.addEventListener("click", () => {
     if (!state.teamId || !state.userId) {
-      showToast("请先设置工作台后再开始聊天", true);
+      showToast("请先登录后再开始聊天", true);
       return;
     }
     closeAuthModal();
   });
-  els.saveAuthBtn.addEventListener("click", handleSaveAuth);
+  if (els.loginAuthForm) {
+    els.loginAuthForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      handleLoginSubmit().catch((error) => showToast(error.message, true));
+    });
+  }
+  if (els.registerAuthForm) {
+    els.registerAuthForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      handleRegisterSubmit().catch((error) => showToast(error.message, true));
+    });
+  }
   if (els.closeCustomModelBtn) {
     els.closeCustomModelBtn.addEventListener("click", closeCustomModelModal);
   }
@@ -353,38 +404,143 @@ function handleGlobalDocumentClick(event) {
 }
 
 function hydrateState() {
-  state.teamId = localStorage.getItem(STORAGE_KEYS.teamId) || "";
-  state.teamName = localStorage.getItem(STORAGE_KEYS.teamName) || "";
-  state.userId = localStorage.getItem(STORAGE_KEYS.userId) || "";
-  state.displayName = localStorage.getItem(STORAGE_KEYS.displayName) || "";
+  clearLegacyIdentityStorage();
+  state.teamId = "";
+  state.teamName = "";
+  state.userId = "";
+  state.displayName = "";
   state.conversationId = localStorage.getItem(STORAGE_KEYS.conversationId) || "";
   state.selectedModel = loadSelectedModelFromStorage();
   state.selectedEmbedding = loadSelectedEmbeddingFromStorage();
-
-  // Backfill old localStorage shape so older sessions do not appear half-logged-in.
-  if (state.teamId && !state.userId) {
-    state.userId = state.teamId;
-  }
-  if (!state.displayName && state.teamName) {
-    state.displayName = state.teamName;
-  }
-  if (!state.teamName && state.displayName) {
-    state.teamName = state.displayName;
-  }
-  if (state.teamId || state.userId || state.displayName || state.teamName) {
-    persistIdentity();
-  }
+  state.authMode = AUTH_MODE_LOGIN;
 }
 
-function persistIdentity() {
-  localStorage.setItem(STORAGE_KEYS.teamId, state.teamId);
-  localStorage.setItem(STORAGE_KEYS.teamName, state.teamName);
-  localStorage.setItem(STORAGE_KEYS.userId, state.userId);
-  localStorage.setItem(STORAGE_KEYS.displayName, state.displayName);
+function clearLegacyIdentityStorage() {
+  localStorage.removeItem(STORAGE_KEYS.legacyTeamId);
+  localStorage.removeItem(STORAGE_KEYS.legacyTeamName);
+  localStorage.removeItem(STORAGE_KEYS.legacyUserId);
+  localStorage.removeItem(STORAGE_KEYS.legacyDisplayName);
 }
 
 function persistConversation() {
   localStorage.setItem(STORAGE_KEYS.conversationId, state.conversationId || "");
+}
+
+function normalizeAuthUserId(value) {
+  return String(value || "").trim().replace(/\s+/g, "_").slice(0, 64);
+}
+
+function setAuthError(message = "") {
+  if (!els.authError) {
+    return;
+  }
+  const normalized = String(message || "").trim();
+  els.authError.textContent = normalized;
+  els.authError.classList.toggle("hidden", !normalized);
+}
+
+function setAuthMode(mode) {
+  state.authMode = mode === AUTH_MODE_REGISTER ? AUTH_MODE_REGISTER : AUTH_MODE_LOGIN;
+  if (els.authLoginTab) {
+    els.authLoginTab.classList.toggle("active", state.authMode === AUTH_MODE_LOGIN);
+  }
+  if (els.authRegisterTab) {
+    els.authRegisterTab.classList.toggle("active", state.authMode === AUTH_MODE_REGISTER);
+  }
+  if (els.loginAuthForm) {
+    els.loginAuthForm.classList.toggle("hidden", state.authMode !== AUTH_MODE_LOGIN);
+  }
+  if (els.registerAuthForm) {
+    els.registerAuthForm.classList.toggle("hidden", state.authMode !== AUTH_MODE_REGISTER);
+  }
+  setAuthError("");
+}
+
+function applyAuthSession(session, { resetConversation = false } = {}) {
+  state.teamId = session?.team_id || "";
+  state.teamName = session?.team_name || "";
+  state.userId = session?.user_id || "";
+  state.displayName = session?.display_name || session?.team_name || session?.user_id || "";
+  state.selectedDocumentIds = [];
+  state.chatMode = CHAT_MODE_CHAT;
+  if (resetConversation) {
+    state.conversationId = "";
+    persistConversation();
+  }
+  clearLegacyIdentityStorage();
+  state.selectedModel = loadSelectedModelFromStorage();
+  state.selectedEmbedding = loadSelectedEmbeddingFromStorage();
+}
+
+function resetAuthenticatedWorkspace() {
+  state.conversations = [];
+  state.history = [];
+  state.documents = [];
+  state.favoriteItems = [];
+  state.favoriteWorkspaceAssets = createEmptyFavoriteWorkspaceAssetState();
+  state.selectedDocumentIds = [];
+  state.modelConfigs = [];
+  state.embeddingConfigs = [];
+  state.chatMode = CHAT_MODE_CHAT;
+  state.workspaceView = WORKSPACE_VIEW_CHAT;
+  state.sending = false;
+  state.importing = false;
+  resetMessageCaptureState();
+  clearConversation();
+  renderConversationList();
+  renderDocuments();
+  renderAttachmentStrip();
+  renderFavoriteWorkspace();
+  initModelOptions();
+  initEmbeddingOptions();
+  syncSendButtonState();
+}
+
+function handleSignedOutState({ openAuthDialog = false } = {}) {
+  state.teamId = "";
+  state.teamName = "";
+  state.userId = "";
+  state.displayName = "";
+  state.conversationId = "";
+  persistConversation();
+  state.selectedModel = loadSelectedModelFromStorage();
+  state.selectedEmbedding = loadSelectedEmbeddingFromStorage();
+  resetAuthenticatedWorkspace();
+  closeSettingsModal();
+  updateIdentityCard();
+  if (openAuthDialog) {
+    openAuthModal(AUTH_MODE_LOGIN);
+    return;
+  }
+  closeAuthModal();
+}
+
+async function finalizeAuthSuccess(session, toastMessage) {
+  applyAuthSession(session, { resetConversation: true });
+  closeSettingsModal();
+  closeAuthModal();
+  updateIdentityCard();
+  clearConversation();
+  await loadAllData();
+  if (toastMessage) {
+    showToast(toastMessage);
+  }
+}
+
+async function bootstrapAuthSession() {
+  try {
+    const session = await apiRequest("/auth/me");
+    applyAuthSession(session);
+    closeAuthModal();
+    updateIdentityCard();
+    await loadAllData();
+  } catch (error) {
+    if (error?.status === 401) {
+      handleSignedOutState({ openAuthDialog: true });
+      return;
+    }
+    throw error;
+  }
 }
 
 function selectedModelStorageKey() {
@@ -418,14 +574,7 @@ function persistSelectedEmbedding() {
 }
 
 function legacyUpdateIdentityCard() {
-  const name = state.displayName || state.teamName || "未设置工作台";
-  const accountId = state.teamId || state.userId;
-  els.profileName.textContent = name;
-  els.profileTeam.textContent = accountId ? `工作台 ID · ${accountId}` : "点击设置工作台";
-  els.avatarText.textContent = name.slice(0, 1) || "未";
-  els.accountIdInput.value = accountId || "";
-  els.accountNameInput.value = state.displayName || state.teamName || "";
-  refreshWorkspaceUi();
+  updateIdentityCard();
 }
 
 function getActiveConversation() {
@@ -907,7 +1056,7 @@ async function legacyHandleModelChange() {
 
   if (!ensureIdentity()) {
     openSettingsModal();
-    showToast("请先设置工作台", true);
+      showToast("请先登录", true);
     els.modelSelect.value = state.selectedModel;
     return;
   }
@@ -932,7 +1081,7 @@ async function legacyHandleEmbeddingChange() {
 
   if (!ensureIdentity()) {
     openSettingsModal();
-    showToast("请先设置工作台", true);
+      showToast("请先登录", true);
     els.embeddingSelect.value = state.selectedEmbedding;
     return;
   }
@@ -1029,64 +1178,7 @@ async function legacySaveCustomEmbeddingConfig() {
 }
 
 async function legacyHandleSaveAuth() {
-  const rawAccountId = els.accountIdInput.value.trim();
-  const accountId = rawAccountId.replace(/\s+/g, "_").slice(0, 64);
-  const accountName = els.accountNameInput.value.trim() || accountId;
-
-  if (!accountId) {
-    showToast("工作台 ID 不能为空", true);
-    return;
-  }
-
-  setButtonLoading(els.saveAuthBtn, true, "进入中...");
-
-  try {
-    const team = await ensureTeam(accountId, accountName);
-    const user = await ensureUser(accountId, accountId, accountName);
-    const resolvedWorkspaceName = (user && user.display_name) || (team && team.name) || accountName;
-
-    state.teamId = (team && team.team_id) || accountId;
-    state.teamName = (team && team.name) || resolvedWorkspaceName;
-    state.userId = (user && user.user_id) || accountId;
-    state.displayName = resolvedWorkspaceName;
-    state.conversationId = "";
-    state.selectedDocumentIds = [];
-    state.chatMode = CHAT_MODE_CHAT;
-    persistIdentity();
-    persistConversation();
-    state.selectedModel = loadSelectedModelFromStorage();
-    state.selectedEmbedding = loadSelectedEmbeddingFromStorage();
-
-    updateIdentityCard();
-    closeAuthModal();
-    clearConversation();
-    await loadAllData();
-    showToast(`已进入工作台：${accountName}`);
-  } catch (error) {
-    showToast(error.message, true);
-  } finally {
-    setButtonLoading(els.saveAuthBtn, false, "进入工作台");
-  }
-}
-
-async function ensureTeam(teamId, teamName) {
-  return apiRequest(`/teams/${encodeURIComponent(teamId)}`, {
-    method: "PUT",
-    body: {
-      name: teamName,
-      description: null,
-    },
-  });
-}
-
-async function ensureUser(userId, teamId, displayName) {
-  return apiRequest(`/users/${encodeURIComponent(userId)}`, {
-    method: "PUT",
-    body: {
-      team_id: teamId,
-      display_name: displayName,
-    },
-  });
+  return handleLoginSubmit();
 }
 
 async function loadAllData() {
@@ -1286,7 +1378,7 @@ async function createConversation(title) {
 async function createAndSwitchConversation() {
   if (!ensureIdentity()) {
     openAuthModal();
-    showToast("请先设置工作台", true);
+      showToast("请先登录", true);
     return;
   }
 
@@ -2797,7 +2889,7 @@ async function handleSend() {
 
   if (!ensureIdentity()) {
     openAuthModal();
-    showToast("请先设置工作台", true);
+      showToast("请先登录", true);
     return;
   }
 
@@ -2965,7 +3057,7 @@ async function importDocumentWithContent({ sourceName, content, contentType }) {
   }
   if (!ensureIdentity()) {
     openAuthModal();
-    showToast("请先设置工作台", true);
+      showToast("请先登录", true);
     return;
   }
 
@@ -3054,7 +3146,7 @@ async function uploadDocumentFile(file) {
   inferUploadContentType(file.name);
   if (!ensureIdentity()) {
     openAuthModal();
-    showToast("请先设置工作台", true);
+      showToast("请先登录", true);
     return;
   }
 
@@ -3729,7 +3821,7 @@ function ensureIdentity() {
 }
 
 function getWorkspaceDisplayName() {
-  return state.displayName || state.teamName || "未进入工作区";
+  return state.displayName || state.teamName || "未登录";
 }
 
 function getWorkspaceId() {
@@ -3762,21 +3854,24 @@ function updateIdentityCard() {
     els.profileName.textContent = name;
   }
   if (els.profileTeam) {
-    els.profileTeam.textContent = workspaceId ? `工作区 ID · ${workspaceId}` : "点击进入或切换工作区";
+    els.profileTeam.textContent = workspaceId ? `账号 ID · ${workspaceId}` : "点击登录或注册";
   }
   if (els.avatarText) {
     els.avatarText.textContent = name.slice(0, 1) || "未";
   }
-  if (els.accountIdInput) {
-    els.accountIdInput.value = workspaceId;
+  if (els.loginUserIdInput) {
+    els.loginUserIdInput.value = state.userId || "";
   }
-  if (els.accountNameInput) {
-    els.accountNameInput.value = state.displayName || state.teamName || "";
+  if (els.registerUserIdInput) {
+    els.registerUserIdInput.value = state.userId || "";
+  }
+  if (els.registerDisplayNameInput) {
+    els.registerDisplayNameInput.value = state.displayName || state.teamName || "";
   }
   if (els.settingsWorkspaceSummary) {
     els.settingsWorkspaceSummary.textContent = workspaceId
-      ? `${name} · 工作区 ID ${workspaceId}`
-      : "未进入工作区";
+      ? `${name} · 账号 ID ${workspaceId}`
+      : "尚未登录";
   }
   refreshWorkspaceUi();
 }
@@ -3810,7 +3905,7 @@ function refreshWorkspaceUi() {
 
   if (els.workspaceEyebrow) {
     els.workspaceEyebrow.textContent = loggedIn
-      ? `当前工作区 · ${getWorkspaceId()}`
+      ? `当前账号 · ${getWorkspaceId()}`
       : "Personal AI Assistant";
   }
   if (els.workspaceDescription) {
@@ -3847,8 +3942,8 @@ function refreshWorkspaceUi() {
   }
   if (els.heroAccountHint) {
     els.heroAccountHint.textContent = loggedIn
-      ? `工作区 ID · ${getWorkspaceId()}`
-      : "点击左下角进入或切换工作区";
+      ? `账号 ID · ${getWorkspaceId()}`
+      : "点击左下角登录或注册";
   }
   if (els.heroSession) {
     els.heroSession.textContent = getResponseModeLabel();
@@ -3866,7 +3961,7 @@ function refreshWorkspaceUi() {
   if (els.composerPresence) {
     els.composerPresence.textContent = state.sending
       ? "CaiBao 正在整理回答"
-      : (loggedIn ? `工作区 · ${getWorkspaceDisplayName()}` : "尚未进入工作区");
+      : (loggedIn ? `账号 · ${getWorkspaceDisplayName()}` : "尚未登录");
   }
   if (els.composerScope) {
     els.composerScope.textContent = `资料范围 · ${scope.label}`;
@@ -3907,8 +4002,8 @@ function refreshWorkspaceUi() {
   }
   if (els.settingsWorkspaceSummary) {
     els.settingsWorkspaceSummary.textContent = loggedIn
-      ? `${getWorkspaceDisplayName()} · 工作区 ID ${getWorkspaceId()}`
-      : "未进入工作区";
+      ? `${getWorkspaceDisplayName()} · 账号 ID ${getWorkspaceId()}`
+      : "尚未登录";
   }
 
   syncWorkspaceView();
@@ -4079,94 +4174,134 @@ async function saveCustomEmbeddingConfig() {
 }
 
 async function legacyHandleSaveAuthV2() {
-  const rawAccountId = els.accountIdInput?.value.trim() || "";
-  const accountId = rawAccountId.replace(/\s+/g, "_").slice(0, 64);
-  const accountName = (els.accountNameInput?.value.trim() || accountId).slice(0, 64);
+  return handleLoginSubmit();
+}
 
-  if (!accountId) {
-    showToast("工作区 ID 不能为空", true);
+async function handleLoginSubmit() {
+  const userId = normalizeAuthUserId(els.loginUserIdInput?.value);
+  const password = String(els.loginPasswordInput?.value || "");
+
+  if (!userId || !password) {
+    setAuthError("请输入账号 ID 和密码。");
+    return;
+  }
+  if (password.length < 8) {
+    setAuthError("密码至少需要 8 个字符。");
     return;
   }
 
-  setButtonLoading(els.saveAuthBtn, true, "进入中...");
+  setAuthError("");
+  setButtonLoading(els.loginAuthBtn, true, "登录中...");
   try {
-    await ensureTeam(accountId, accountName);
-    await ensureUser(accountId, accountId, accountName);
-
-    state.teamId = accountId;
-    state.teamName = accountName;
-    state.userId = accountId;
-    state.displayName = accountName;
-    state.conversationId = "";
-    state.selectedDocumentIds = [];
-    state.chatMode = CHAT_MODE_CHAT;
-    persistIdentity();
-    persistConversation();
-    state.selectedModel = loadSelectedModelFromStorage();
-    state.selectedEmbedding = loadSelectedEmbeddingFromStorage();
-
-    closeSettingsModal();
-    closeAuthModal();
-    clearConversation();
-    updateIdentityCard();
-    await loadAllData();
-    showToast(`已进入工作区：${accountName}`);
+    const session = await apiRequest("/auth/login", {
+      method: "POST",
+      body: {
+        user_id: userId,
+        password,
+      },
+      retryOn401: false,
+    });
+    await finalizeAuthSuccess(session, `已登录：${session.display_name || session.user_id}`);
   } catch (error) {
-    showToast(error.message, true);
+    setAuthError(error.message);
   } finally {
-    setButtonLoading(els.saveAuthBtn, false, "进入工作区");
+    setButtonLoading(els.loginAuthBtn, false, "登录");
   }
 }
 
-async function handleSaveAuth() {
-  const rawAccountId = els.accountIdInput?.value.trim() || "";
-  const accountId = rawAccountId.replace(/\s+/g, "_").slice(0, 64);
-  const accountName = (els.accountNameInput?.value.trim() || accountId).slice(0, 64);
+async function handleRegisterSubmit() {
+  const userId = normalizeAuthUserId(els.registerUserIdInput?.value);
+  const displayName = String(els.registerDisplayNameInput?.value || "").trim().slice(0, 128);
+  const password = String(els.registerPasswordInput?.value || "");
+  const confirmPassword = String(els.registerConfirmPasswordInput?.value || "");
 
-  if (!accountId) {
-    showToast("工作区 ID 不能为空", true);
+  if (!userId || !displayName || !password || !confirmPassword) {
+    setAuthError("请完整填写注册信息。");
+    return;
+  }
+  if (password.length < 8) {
+    setAuthError("密码至少需要 8 个字符。");
+    return;
+  }
+  if (confirmPassword.length < 8) {
+    setAuthError("确认密码至少需要 8 个字符。");
+    return;
+  }
+  if (password !== confirmPassword) {
+    setAuthError("两次输入的密码不一致。");
     return;
   }
 
-  setButtonLoading(els.saveAuthBtn, true, "进入中...");
+  setAuthError("");
+  setButtonLoading(els.registerAuthBtn, true, "注册中...");
   try {
-    const team = await ensureTeam(accountId, accountName);
-    const user = await ensureUser(accountId, accountId, accountName);
-    const resolvedWorkspaceName = user?.display_name || team?.name || accountName;
-
-    state.teamId = team?.team_id || accountId;
-    state.teamName = team?.name || resolvedWorkspaceName;
-    state.userId = user?.user_id || accountId;
-    state.displayName = resolvedWorkspaceName;
-    state.conversationId = "";
-    state.selectedDocumentIds = [];
-    state.chatMode = CHAT_MODE_CHAT;
-    persistIdentity();
-    persistConversation();
-    state.selectedModel = loadSelectedModelFromStorage();
-    state.selectedEmbedding = loadSelectedEmbeddingFromStorage();
-
-    closeSettingsModal();
-    closeAuthModal();
-    clearConversation();
-    updateIdentityCard();
-    await loadAllData();
-    showToast(`已进入工作区：${resolvedWorkspaceName}`);
+    const session = await apiRequest("/auth/register", {
+      method: "POST",
+      body: {
+        user_id: userId,
+        display_name: displayName,
+        password,
+        confirm_password: confirmPassword,
+      },
+      retryOn401: false,
+    });
+    await finalizeAuthSuccess(session, `已创建账号：${session.display_name || session.user_id}`);
   } catch (error) {
-    showToast(error.message, true);
+    setAuthError(error.message);
   } finally {
-    setButtonLoading(els.saveAuthBtn, false, "进入工作区");
+    setButtonLoading(els.registerAuthBtn, false, "注册并进入");
   }
 }
 
-function openAuthModal() {
+async function handleLogout() {
+  if (!ensureIdentity()) {
+    handleSignedOutState({ openAuthDialog: true });
+    return;
+  }
+
+  setButtonLoading(els.logoutBtn, true, "退出中...");
+  try {
+    await apiRequest("/auth/logout", {
+      method: "POST",
+      retryOn401: false,
+    });
+  } catch (error) {
+    if (error?.status && error.status !== 401) {
+      throw error;
+    }
+  } finally {
+    setButtonLoading(els.logoutBtn, false, "退出登录");
+  }
+
+  handleSignedOutState({ openAuthDialog: true });
+  showToast("已退出登录");
+}
+
+function openAuthModal(mode = AUTH_MODE_LOGIN) {
   updateIdentityCard();
+  setAuthMode(mode);
+  if (els.loginPasswordInput) {
+    els.loginPasswordInput.value = "";
+  }
+  if (els.registerPasswordInput) {
+    els.registerPasswordInput.value = "";
+  }
+  if (els.registerConfirmPasswordInput) {
+    els.registerConfirmPasswordInput.value = "";
+  }
   if (els.authModal) {
     els.authModal.classList.remove("hidden");
+  }
+  const nextFocus = state.authMode === AUTH_MODE_REGISTER
+    ? els.registerUserIdInput
+    : (els.loginUserIdInput || els.loginPasswordInput);
+  if (nextFocus instanceof HTMLElement) {
+    window.setTimeout(() => nextFocus.focus(), 0);
   }
 }
 
 function closeAuthModal() {
+  setAuthError("");
   if (els.authModal) {
     els.authModal.classList.add("hidden");
   }
@@ -4174,7 +4309,7 @@ function closeAuthModal() {
 
 function openSettingsModal() {
   if (!ensureIdentity()) {
-    openAuthModal();
+    openAuthModal(AUTH_MODE_LOGIN);
     return;
   }
   updateIdentityCard();
@@ -4192,7 +4327,7 @@ function closeSettingsModal() {
 function openCustomModelModal() {
   if (!ensureIdentity()) {
     openAuthModal();
-    showToast("请先设置工作台", true);
+      showToast("请先登录", true);
     return;
   }
   if (els.customModelNameInput) {
@@ -4218,7 +4353,7 @@ function closeCustomModelModal() {
 function openCustomEmbeddingModal() {
   if (!ensureIdentity()) {
     openAuthModal();
-    showToast("请先设置工作台", true);
+      showToast("请先登录", true);
     return;
   }
   if (els.customEmbeddingNameInput) {
@@ -4407,10 +4542,74 @@ function inferUploadContentType(sourceName) {
   throw new Error("当前仅支持 .txt/.md/.pdf/.docx/.xlsx/.png/.jpg/.jpeg/.webp 文件。");
 }
 
-async function apiRequest(path, options = {}) {
+function extractResponseDetail(data, fallbackDetail) {
+  if (data && typeof data === "object" && "detail" in data) {
+    if (Array.isArray(data.detail)) {
+      const validationMessage = formatValidationErrors(data.detail);
+      if (validationMessage) {
+        return validationMessage;
+      }
+    }
+    return String(data.detail || fallbackDetail || "");
+  }
+  if (typeof data === "string" && data.trim()) {
+    return data.trim();
+  }
+  return String(fallbackDetail || "");
+}
+
+function formatValidationErrors(details) {
+  if (!Array.isArray(details)) {
+    return "";
+  }
+  const messages = [];
+  for (const item of details) {
+    const formatted = formatValidationErrorItem(item);
+    if (formatted && !messages.includes(formatted)) {
+      messages.push(formatted);
+    }
+  }
+  return messages.join("；");
+}
+
+function formatValidationErrorItem(item) {
+  if (!item || typeof item !== "object") {
+    return "";
+  }
+
+  const loc = Array.isArray(item.loc) ? item.loc : [];
+  const fieldName = String(loc[loc.length - 1] || "").trim();
+  const label = VALIDATION_FIELD_LABELS[fieldName] || fieldName;
+  const errorType = String(item.type || "").trim();
+  const msg = String(item.msg || "").trim();
+
+  if (errorType === "string_too_short") {
+    const minLength = item.ctx && typeof item.ctx === "object" ? item.ctx.min_length : "";
+    return label && minLength ? `${label}至少需要 ${minLength} 个字符。` : msg;
+  }
+
+  if (errorType === "missing") {
+    return label ? `${label}不能为空。` : msg;
+  }
+
+  if (errorType === "json_invalid") {
+    return "请求格式不正确，请刷新页面后重试。";
+  }
+
+  return label && msg ? `${label}：${msg}` : msg;
+}
+
+function createRequestError(status, detail) {
+  const error = new Error(String(detail || `请求失败（${status}）`));
+  error.status = status;
+  return error;
+}
+
+async function requestJson(path, options = {}) {
   const useFormData = options.formData instanceof FormData;
   const requestOptions = {
     method: options.method || "GET",
+    credentials: "same-origin",
     headers: {
       Accept: "application/json",
       ...(!useFormData && options.body ? { "Content-Type": "application/json" } : {}),
@@ -4431,12 +4630,82 @@ async function apiRequest(path, options = {}) {
     }
   }
 
-  if (!response.ok) {
-    const detail = data && typeof data === "object" && "detail" in data ? data.detail : response.statusText;
-    throw new Error(String(detail || `请求失败（${response.status}）`));
+  return { response, data };
+}
+
+function canRetryWithRefresh(path, options, status) {
+  if (status !== 401 || options.retryOn401 === false) {
+    return false;
+  }
+  return ![
+    "/auth/login",
+    "/auth/register",
+    "/auth/refresh",
+    "/auth/logout",
+  ].some((prefix) => path.startsWith(prefix));
+}
+
+function shouldHandleUnauthorizedAsSignedOut(path) {
+  if (!path.startsWith("/auth/")) {
+    return true;
+  }
+  return path.startsWith("/auth/me") || path.startsWith("/auth/refresh");
+}
+
+async function refreshAuthSession() {
+  if (refreshSessionPromise) {
+    return refreshSessionPromise;
   }
 
-  return data;
+  refreshSessionPromise = (async () => {
+    const { response, data } = await requestJson("/auth/refresh", {
+      method: "POST",
+      retryOn401: false,
+    });
+    if (!response.ok) {
+      throw createRequestError(response.status, extractResponseDetail(data, response.statusText));
+    }
+    applyAuthSession(data);
+    updateIdentityCard();
+    return data;
+  })().finally(() => {
+    refreshSessionPromise = null;
+  });
+
+  return refreshSessionPromise;
+}
+
+async function apiRequest(path, options = {}) {
+  const { response, data } = await requestJson(path, options);
+  if (response.ok) {
+    return data;
+  }
+
+  if (canRetryWithRefresh(path, options, response.status)) {
+    try {
+      await refreshAuthSession();
+    } catch (error) {
+      handleSignedOutState({ openAuthDialog: true });
+      throw createRequestError(401, error.message || "登录状态已失效，请重新登录。");
+    }
+
+    const retried = await requestJson(path, { ...options, retryOn401: false });
+    if (retried.response.ok) {
+      return retried.data;
+    }
+    if (retried.response.status === 401 && shouldHandleUnauthorizedAsSignedOut(path)) {
+      handleSignedOutState({ openAuthDialog: true });
+    }
+    throw createRequestError(
+      retried.response.status,
+      extractResponseDetail(retried.data, retried.response.statusText),
+    );
+  }
+
+  if (response.status === 401 && shouldHandleUnauthorizedAsSignedOut(path)) {
+    handleSignedOutState({ openAuthDialog: true });
+  }
+  throw createRequestError(response.status, extractResponseDetail(data, response.statusText));
 }
 
 function setButtonLoading(button, loading, loadingText) {

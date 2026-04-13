@@ -1,10 +1,11 @@
 import json
 from uuid import uuid4
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import DomainValidationError, EntityNotFoundError
+from app.models.conversation import Conversation
 from app.models.chunk_embedding import ChunkEmbedding
 from app.models.document import Document
 from app.models.document_chunk import DocumentChunk
@@ -42,10 +43,12 @@ class RetrievalService:
         target_documents = self._load_target_documents(
             team_id=team_id,
             conversation_id=conversation_id,
+            user_id=user_id,
             document_ids=scoped_document_ids,
         )
         if not target_documents:
             raise EntityNotFoundError("No documents found for indexing scope.")
+        target_document_ids = [document.document_id for document in target_documents]
 
         for document in target_documents:
             document.status = "indexing"
@@ -62,18 +65,22 @@ class RetrievalService:
             if rebuild:
                 self._delete_scope_embeddings(
                     team_id=team_id,
-                    document_id=document_id,
-                    document_ids=scoped_document_ids,
-                    conversation_id=conversation_id,
+                    document_ids=target_document_ids,
                 )
 
             stmt = select(DocumentChunk).where(DocumentChunk.team_id == team_id)
             if conversation_id is not None:
+                if user_id is not None:
+                    self._ensure_conversation_access(
+                        team_id=team_id,
+                        conversation_id=conversation_id,
+                        user_id=user_id,
+                    )
                 stmt = stmt.join(Document, Document.document_id == DocumentChunk.document_id).where(
                     Document.conversation_id == conversation_id
                 )
-            if scoped_document_ids is not None:
-                stmt = stmt.where(DocumentChunk.document_id.in_(scoped_document_ids))
+            if target_document_ids:
+                stmt = stmt.where(DocumentChunk.document_id.in_(target_document_ids))
 
             chunks = list(self.db.scalars(stmt).all())
             if not chunks:
@@ -158,7 +165,17 @@ class RetrievalService:
             .join(Document, Document.document_id == ChunkEmbedding.document_id)
             .where(ChunkEmbedding.team_id == team_id)
         )
+        if user_id is not None:
+            stmt = stmt.outerjoin(Conversation, Conversation.conversation_id == Document.conversation_id).where(
+                or_(Document.conversation_id.is_(None), Conversation.user_id == user_id)
+            )
         if conversation_id is not None:
+            if user_id is not None:
+                self._ensure_conversation_access(
+                    team_id=team_id,
+                    conversation_id=conversation_id,
+                    user_id=user_id,
+                )
             stmt = stmt.where(Document.conversation_id == conversation_id)
         if scoped_document_ids is not None:
             stmt = stmt.where(ChunkEmbedding.document_id.in_(scoped_document_ids))
@@ -203,6 +220,7 @@ class RetrievalService:
         document_id: str | None = None,
         document_ids: list[str] | None = None,
         conversation_id: str | None = None,
+        user_id: str | None = None,
     ) -> bool:
         self._ensure_team_exists(team_id=team_id)
         scoped_document_ids = self._resolve_document_ids(
@@ -210,11 +228,23 @@ class RetrievalService:
             document_ids=document_ids,
         )
 
-        stmt = select(ChunkEmbedding.embedding_id).where(ChunkEmbedding.team_id == team_id)
-        if conversation_id is not None:
-            stmt = stmt.join(Document, Document.document_id == ChunkEmbedding.document_id).where(
-                Document.conversation_id == conversation_id
+        stmt = (
+            select(ChunkEmbedding.embedding_id)
+            .join(Document, Document.document_id == ChunkEmbedding.document_id)
+            .where(ChunkEmbedding.team_id == team_id)
+        )
+        if user_id is not None:
+            stmt = stmt.outerjoin(Conversation, Conversation.conversation_id == Document.conversation_id).where(
+                or_(Document.conversation_id.is_(None), Conversation.user_id == user_id)
             )
+        if conversation_id is not None:
+            if user_id is not None:
+                self._ensure_conversation_access(
+                    team_id=team_id,
+                    conversation_id=conversation_id,
+                    user_id=user_id,
+                )
+            stmt = stmt.where(Document.conversation_id == conversation_id)
         if scoped_document_ids is not None:
             stmt = stmt.where(ChunkEmbedding.document_id.in_(scoped_document_ids))
 
@@ -253,40 +283,15 @@ class RetrievalService:
         self,
         *,
         team_id: str,
-        document_id: str | None,
         document_ids: list[str] | None,
-        conversation_id: str | None,
     ) -> None:
-        scoped_document_ids = self._resolve_document_ids(
-            document_id=document_id,
-            document_ids=document_ids,
-        )
-
-        if scoped_document_ids is not None:
+        if document_ids is not None:
             self.db.execute(
                 delete(ChunkEmbedding).where(
                     ChunkEmbedding.team_id == team_id,
-                    ChunkEmbedding.document_id.in_(scoped_document_ids),
+                    ChunkEmbedding.document_id.in_(document_ids),
                 )
             )
-            return
-
-        if conversation_id is not None:
-            conversation_document_ids = list(
-                self.db.scalars(
-                    select(Document.document_id).where(
-                        Document.team_id == team_id,
-                        Document.conversation_id == conversation_id,
-                    )
-                ).all()
-            )
-            if conversation_document_ids:
-                self.db.execute(
-                    delete(ChunkEmbedding).where(
-                        ChunkEmbedding.team_id == team_id,
-                        ChunkEmbedding.document_id.in_(conversation_document_ids),
-                    )
-                )
             return
 
         self.db.execute(delete(ChunkEmbedding).where(ChunkEmbedding.team_id == team_id))
@@ -315,11 +320,37 @@ class RetrievalService:
         *,
         team_id: str,
         conversation_id: str | None,
+        user_id: str | None,
         document_ids: list[str] | None,
     ) -> list[Document]:
+        if conversation_id is not None and user_id is not None:
+            self._ensure_conversation_access(
+                team_id=team_id,
+                conversation_id=conversation_id,
+                user_id=user_id,
+            )
+
         stmt = select(Document).where(Document.team_id == team_id)
+        if user_id is not None:
+            stmt = stmt.outerjoin(Conversation, Conversation.conversation_id == Document.conversation_id).where(
+                or_(Document.conversation_id.is_(None), Conversation.user_id == user_id)
+            )
         if conversation_id is not None:
             stmt = stmt.where(Document.conversation_id == conversation_id)
         if document_ids is not None:
             stmt = stmt.where(Document.document_id.in_(document_ids))
         return list(self.db.scalars(stmt).all())
+
+    def _ensure_conversation_access(
+        self,
+        *,
+        team_id: str,
+        conversation_id: str,
+        user_id: str | None,
+    ) -> Conversation:
+        conversation = self.db.get(Conversation, conversation_id)
+        if conversation is None or conversation.team_id != team_id:
+            raise EntityNotFoundError(f"Conversation '{conversation_id}' not found.")
+        if user_id is not None and conversation.user_id != user_id:
+            raise EntityNotFoundError(f"Conversation '{conversation_id}' not found.")
+        return conversation

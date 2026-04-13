@@ -13,7 +13,7 @@ from sqlalchemy.engine import Engine, make_url
 from app.db.base import Base
 from app.models import *  # noqa: F401,F403
 
-HEAD_REVISION = "20260330_02"
+HEAD_REVISION = "20260412_00"
 EXPECTED_TABLES = {
     "teams",
     "users",
@@ -21,6 +21,7 @@ EXPECTED_TABLES = {
     "memory_cards",
     "answer_favorites",
     "conclusions",
+    "auth_refresh_sessions",
 }
 
 
@@ -117,6 +118,26 @@ def test_migration_upgrade_from_half_upgraded_database(tmp_path) -> None:
 
     command.upgrade(config, "head")
     assert _current_revision(database_url) == HEAD_REVISION
+
+
+def test_auth_migration_adds_auth_tables_and_user_columns(tmp_path) -> None:
+    db_file = tmp_path / "auth.db"
+    database_url = _sqlite_database_url(db_file)
+    config = _make_alembic_config(database_url)
+
+    command.upgrade(config, "head")
+
+    engine = _create_engine(database_url)
+    try:
+        with engine.connect() as connection:
+            inspector = inspect(connection)
+            users_columns = {col["name"] for col in inspector.get_columns("users")}
+            refresh_columns = {col["name"] for col in inspector.get_columns("auth_refresh_sessions")}
+    finally:
+        engine.dispose()
+
+    assert {"password_hash", "is_active", "password_updated_at"} <= users_columns
+    assert {"session_id", "user_id", "refresh_token_hash", "expires_at", "revoked_at"} <= refresh_columns
 
 
 @pytest.mark.skipif(

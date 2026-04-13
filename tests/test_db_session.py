@@ -1,4 +1,7 @@
+import app.db.session as session_module
 import pytest
+from sqlalchemy import create_engine
+from sqlalchemy import inspect
 
 from app.db.session import _is_sqlite_url
 from app.db.session import _should_run_legacy_init
@@ -47,3 +50,32 @@ def test_legacy_init_defaults_to_false_for_postgresql_in_dev():
         )
         is False
     )
+
+
+def test_ensure_phase1_columns_adds_auth_columns_to_legacy_users_table(tmp_path, monkeypatch):
+    db_file = tmp_path / "legacy-auth.db"
+    database_url = f"sqlite:///{db_file.resolve().as_posix()}"
+    engine = create_engine(database_url, future=True)
+    try:
+        with engine.begin() as connection:
+            connection.exec_driver_sql(
+                """
+                CREATE TABLE users (
+                    user_id VARCHAR(64) PRIMARY KEY,
+                    team_id VARCHAR(64) NOT NULL,
+                    display_name VARCHAR(128) NOT NULL,
+                    role VARCHAR(32) NOT NULL,
+                    created_at DATETIME
+                )
+                """
+            )
+
+        monkeypatch.setattr(session_module, "engine", engine)
+        session_module._ensure_phase1_columns()
+
+        with engine.connect() as connection:
+            users_columns = {col["name"] for col in inspect(connection).get_columns("users")}
+    finally:
+        engine.dispose()
+
+    assert {"password_hash", "is_active", "password_updated_at"} <= users_columns

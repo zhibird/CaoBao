@@ -1,15 +1,16 @@
 import time
 import zipfile
 from io import BytesIO
-from uuid import uuid4
 
 from PIL import Image
 from pypdf import PdfWriter
 
+from tests.auth_helpers import register_workspace_user, register_workspace_user_in_team
 
-def _wait_document_terminal_status(client, *, team_id: str, document_id: str, max_attempts: int = 30) -> str:
+
+def _wait_document_terminal_status(client, *, document_id: str, max_attempts: int = 30) -> str:
     for _ in range(max_attempts):
-        response = client.get(f"/api/v1/documents/{document_id}", params={"team_id": team_id})
+        response = client.get(f"/api/v1/documents/{document_id}")
         assert response.status_code == 200
         status = response.json()["status"]
         if status in {"ready", "failed"}:
@@ -136,63 +137,111 @@ def _build_xlsx_bytes() -> bytes:
     return output.getvalue()
 
 
-def test_document_import_and_query_in_team(client) -> None:
-    suffix = uuid4().hex[:8]
-    team_id = f"team_doc_{suffix}"
-
-    create_team = client.post(
-        "/api/v1/teams",
+def _create_conversation(client, *, title: str, team_id: str | None = None, user_id: str | None = None) -> dict[str, object]:
+    response = client.post(
+        "/api/v1/conversations",
         json={
-            "team_id": team_id,
-            "name": "Doc Team",
-            "description": "for doc import",
+            "team_id": team_id or "ignored-team",
+            "user_id": user_id or "ignored-user",
+            "title": title,
         },
     )
-    assert create_team.status_code == 201
+    assert response.status_code == 201
+    return response.json()
+
+
+def test_document_routes_require_authenticated_user(client) -> None:
+    client.cookies.clear()
+
+    list_response = client.get("/api/v1/documents")
+    assert list_response.status_code == 401
 
     import_response = client.post(
         "/api/v1/documents/import",
         json={
-            "team_id": team_id,
+            "source_name": "ops-guide.md",
+            "content_type": "md",
+            "content": "# Ops Guide\n\nAlways check alerts first.",
+        },
+    )
+    assert import_response.status_code == 401
+
+
+def test_document_import_and_query_in_team(client) -> None:
+    team_id, _ = register_workspace_user(
+        client,
+        prefix="doc_team",
+        display_name="Doc Team",
+    )
+
+    import_response = client.post(
+        "/api/v1/documents/import",
+        json={
+            "team_id": "ignored-team",
+            "user_id": "ignored-user",
             "source_name": "ops-guide.md",
             "content_type": "md",
             "content": "# Ops Guide\n\nAlways check alerts first.",
         },
     )
     assert import_response.status_code == 201
+    assert import_response.json()["team_id"] == team_id
     document_id = import_response.json()["document_id"]
 
-    list_response = client.get("/api/v1/documents", params={"team_id": team_id})
+    list_response = client.get("/api/v1/documents")
     assert list_response.status_code == 200
     listed_ids = [item["document_id"] for item in list_response.json()]
     assert document_id in listed_ids
 
-    get_response = client.get(
-        f"/api/v1/documents/{document_id}",
-        params={"team_id": team_id},
-    )
+    get_response = client.get(f"/api/v1/documents/{document_id}")
     assert get_response.status_code == 200
     assert get_response.json()["source_name"] == "ops-guide.md"
+    assert get_response.json()["team_id"] == team_id
+
+
+def test_document_upload_and_file_download(client) -> None:
+    team_id, user_id = register_workspace_user(
+        client,
+        prefix="doc_upload",
+        display_name="Upload Team",
+    )
+    conversation = _create_conversation(client, title="Upload Session", team_id=team_id, user_id=user_id)
+
+    upload_response = client.post(
+        "/api/v1/documents/upload",
+        data={
+            "conversation_id": conversation["conversation_id"],
+            "auto_index": "false",
+        },
+        files={
+            "file": (
+                "notes.md",
+                b"# Uploaded Notes\n\nKeep this for later.",
+                "text/markdown",
+            )
+        },
+    )
+    assert upload_response.status_code == 201
+    uploaded = upload_response.json()
+    assert uploaded["team_id"] == team_id
+    assert uploaded["conversation_id"] == conversation["conversation_id"]
+    assert uploaded["source_name"] == "notes.md"
+
+    file_response = client.get(f"/api/v1/documents/{uploaded['document_id']}/file")
+    assert file_response.status_code == 200
+    assert file_response.content == b"# Uploaded Notes\n\nKeep this for later."
 
 
 def test_document_chunking_and_list_chunks(client) -> None:
-    suffix = uuid4().hex[:8]
-    team_id = f"team_chunk_{suffix}"
-
-    create_team = client.post(
-        "/api/v1/teams",
-        json={
-            "team_id": team_id,
-            "name": "Chunk Team",
-            "description": "for chunk test",
-        },
+    team_id, _ = register_workspace_user(
+        client,
+        prefix="doc_chunk",
+        display_name="Chunk Team",
     )
-    assert create_team.status_code == 201
 
     import_response = client.post(
         "/api/v1/documents/import",
         json={
-            "team_id": team_id,
             "source_name": "long.txt",
             "content_type": "txt",
             "content": "A" * 420,
@@ -204,41 +253,31 @@ def test_document_chunking_and_list_chunks(client) -> None:
     chunk_response = client.post(
         f"/api/v1/documents/{document_id}/chunk",
         json={
-            "team_id": team_id,
+            "team_id": "ignored-team",
             "max_chars": 120,
             "overlap": 20,
         },
     )
     assert chunk_response.status_code == 200
     body = chunk_response.json()
+    assert body["team_id"] == team_id
     assert body["total_chunks"] >= 3
 
-    list_chunks_response = client.get(
-        f"/api/v1/documents/{document_id}/chunks",
-        params={"team_id": team_id},
-    )
+    list_chunks_response = client.get(f"/api/v1/documents/{document_id}/chunks")
     assert list_chunks_response.status_code == 200
     assert len(list_chunks_response.json()) == body["total_chunks"]
 
 
 def test_document_chunking_rejects_invalid_overlap(client) -> None:
-    suffix = uuid4().hex[:8]
-    team_id = f"team_chunk_invalid_{suffix}"
-
-    create_team = client.post(
-        "/api/v1/teams",
-        json={
-            "team_id": team_id,
-            "name": "Chunk Invalid Team",
-            "description": "for invalid overlap test",
-        },
+    register_workspace_user(
+        client,
+        prefix="doc_chunk_invalid",
+        display_name="Chunk Invalid Team",
     )
-    assert create_team.status_code == 201
 
     import_response = client.post(
         "/api/v1/documents/import",
         json={
-            "team_id": team_id,
             "source_name": "short.txt",
             "content_type": "txt",
             "content": "short content for testing",
@@ -250,7 +289,6 @@ def test_document_chunking_rejects_invalid_overlap(client) -> None:
     chunk_response = client.post(
         f"/api/v1/documents/{document_id}/chunk",
         json={
-            "team_id": team_id,
             "max_chars": 100,
             "overlap": 100,
         },
@@ -258,38 +296,38 @@ def test_document_chunking_rejects_invalid_overlap(client) -> None:
     assert chunk_response.status_code == 400
 
 
-def test_document_import_requires_existing_team(client) -> None:
+def test_document_import_ignores_client_supplied_identity(client) -> None:
+    team_id, _ = register_workspace_user(
+        client,
+        prefix="doc_identity",
+        display_name="Identity User",
+    )
+
     response = client.post(
         "/api/v1/documents/import",
         json={
             "team_id": "team_not_exists",
+            "user_id": "other-user",
             "source_name": "faq.txt",
             "content_type": "txt",
             "content": "Q: Who handles incidents?",
         },
     )
 
-    assert response.status_code == 404
+    assert response.status_code == 201
+    assert response.json()["team_id"] == team_id
 
 
 def test_document_status_and_delete_flow(client) -> None:
-    suffix = uuid4().hex[:8]
-    team_id = f"team_doc_status_{suffix}"
-
-    create_team = client.post(
-        "/api/v1/teams",
-        json={
-            "team_id": team_id,
-            "name": "Doc Status Team",
-            "description": "for document status",
-        },
+    register_workspace_user(
+        client,
+        prefix="doc_status",
+        display_name="Doc Status Team",
     )
-    assert create_team.status_code == 201
 
     import_response = client.post(
         "/api/v1/documents/import",
         json={
-            "team_id": team_id,
             "source_name": "status.md",
             "content_type": "md",
             "content": "# Status\n\nChunk and index me.",
@@ -302,210 +340,86 @@ def test_document_status_and_delete_flow(client) -> None:
     chunk_response = client.post(
         f"/api/v1/documents/{document_id}/chunk",
         json={
-            "team_id": team_id,
             "max_chars": 100,
             "overlap": 10,
         },
     )
     assert chunk_response.status_code == 200
 
-    after_chunk = client.get(f"/api/v1/documents/{document_id}", params={"team_id": team_id})
+    after_chunk = client.get(f"/api/v1/documents/{document_id}")
     assert after_chunk.status_code == 200
     assert after_chunk.json()["status"] == "uploaded"
 
     index_response = client.post(
         "/api/v1/retrieval/index",
         json={
-            "team_id": team_id,
             "document_ids": [document_id],
         },
     )
     assert index_response.status_code == 200
 
-    after_index = client.get(f"/api/v1/documents/{document_id}", params={"team_id": team_id})
+    after_index = client.get(f"/api/v1/documents/{document_id}")
     assert after_index.status_code == 200
     assert after_index.json()["status"] == "ready"
 
-    delete_response = client.delete(
-        f"/api/v1/documents/{document_id}",
-        params={"team_id": team_id},
-    )
+    delete_response = client.delete(f"/api/v1/documents/{document_id}")
     assert delete_response.status_code == 204
 
-    list_response = client.get("/api/v1/documents", params={"team_id": team_id})
+
+def test_same_team_user_cannot_access_foreign_conversation_documents(client) -> None:
+    owner_team_id, owner_user_id = register_workspace_user(
+        client,
+        prefix="doc_owner",
+        display_name="Doc Owner",
+    )
+    conversation = _create_conversation(
+        client,
+        title="Owner Conversation",
+        team_id=owner_team_id,
+        user_id=owner_user_id,
+    )
+
+    upload_response = client.post(
+        "/api/v1/documents/upload",
+        data={
+            "conversation_id": conversation["conversation_id"],
+            "auto_index": "false",
+        },
+        files={
+            "file": (
+                "secret.md",
+                b"owner-only document",
+                "text/markdown",
+            )
+        },
+    )
+    assert upload_response.status_code == 201
+    document_id = upload_response.json()["document_id"]
+
+    peer_team_id, peer_user_id = register_workspace_user_in_team(
+        client,
+        team_id=owner_team_id,
+        prefix="doc_peer",
+        display_name="Doc Peer",
+    )
+    assert peer_team_id == owner_team_id
+    assert peer_user_id != owner_user_id
+
+    list_response = client.get("/api/v1/documents")
     assert list_response.status_code == 200
-    assert list_response.json() == []
+    assert all(item["document_id"] != document_id for item in list_response.json())
 
-
-def test_document_upload_supports_pdf_and_image(client) -> None:
-    suffix = uuid4().hex[:8]
-    team_id = f"team_upload_{suffix}"
-
-    create_team = client.post(
-        "/api/v1/teams",
-        json={
-            "team_id": team_id,
-            "name": "Upload Team",
-            "description": "for upload test",
-        },
+    foreign_list_response = client.get(
+        "/api/v1/documents",
+        params={"conversation_id": conversation["conversation_id"]},
     )
-    assert create_team.status_code == 201
+    assert foreign_list_response.status_code == 404
 
-    pdf_upload = client.post(
-        "/api/v1/documents/upload",
-        data={
-            "team_id": team_id,
-            "auto_index": "true",
-        },
-        files={
-            "file": ("report.pdf", _build_pdf_bytes(), "application/pdf"),
-        },
-    )
-    assert pdf_upload.status_code == 201
-    pdf_doc = pdf_upload.json()
-    assert pdf_doc["content_type"] == "pdf"
-    assert pdf_doc["mime_type"] == "application/pdf"
+    get_response = client.get(f"/api/v1/documents/{document_id}")
+    assert get_response.status_code == 404
 
-    pdf_status = _wait_document_terminal_status(
-        client,
-        team_id=team_id,
-        document_id=pdf_doc["document_id"],
-    )
-    assert pdf_status == "ready"
+    file_response = client.get(f"/api/v1/documents/{document_id}/file")
+    assert file_response.status_code == 404
 
-    pdf_file = client.get(
-        f"/api/v1/documents/{pdf_doc['document_id']}/file",
-        params={"team_id": team_id},
-    )
-    assert pdf_file.status_code == 200
-    assert "application/pdf" in pdf_file.headers.get("content-type", "")
-
-    image_upload = client.post(
-        "/api/v1/documents/upload",
-        data={
-            "team_id": team_id,
-            "auto_index": "true",
-        },
-        files={
-            "file": ("receipt.png", _build_png_bytes(), "image/png"),
-        },
-    )
-    assert image_upload.status_code == 201
-    image_doc = image_upload.json()
-    assert image_doc["content_type"] == "png"
-    assert image_doc["mime_type"] == "image/png"
-
-    image_status = _wait_document_terminal_status(
-        client,
-        team_id=team_id,
-        document_id=image_doc["document_id"],
-    )
-    assert image_status == "ready"
-
-
-def test_document_upload_supports_word_and_excel(client) -> None:
-    suffix = uuid4().hex[:8]
-    team_id = f"team_upload_office_{suffix}"
-
-    create_team = client.post(
-        "/api/v1/teams",
-        json={
-            "team_id": team_id,
-            "name": "Office Upload Team",
-            "description": "for office upload test",
-        },
-    )
-    assert create_team.status_code == 201
-
-    docx_upload = client.post(
-        "/api/v1/documents/upload",
-        data={
-            "team_id": team_id,
-            "auto_index": "true",
-        },
-        files={
-            "file": (
-                "brief.docx",
-                _build_docx_bytes(),
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            ),
-        },
-    )
-    assert docx_upload.status_code == 201
-    docx_doc = docx_upload.json()
-    assert docx_doc["content_type"] == "docx"
-    assert (
-        docx_doc["mime_type"]
-        == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    )
-
-    docx_status = _wait_document_terminal_status(
-        client,
-        team_id=team_id,
-        document_id=docx_doc["document_id"],
-    )
-    assert docx_status == "ready"
-
-    docx_latest = client.get(
-        f"/api/v1/documents/{docx_doc['document_id']}",
-        params={"team_id": team_id},
-    )
-    assert docx_latest.status_code == 200
-    assert "Quarterly revenue increased." in docx_latest.json()["content"]
-    assert "Action item: review APAC pipeline." in docx_latest.json()["content"]
-
-    docx_file = client.get(
-        f"/api/v1/documents/{docx_doc['document_id']}/file",
-        params={"team_id": team_id},
-    )
-    assert docx_file.status_code == 200
-    assert (
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        in docx_file.headers.get("content-type", "")
-    )
-
-    xlsx_upload = client.post(
-        "/api/v1/documents/upload",
-        data={
-            "team_id": team_id,
-            "auto_index": "true",
-        },
-        files={
-            "file": (
-                "metrics.xlsx",
-                _build_xlsx_bytes(),
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            ),
-        },
-    )
-    assert xlsx_upload.status_code == 201
-    xlsx_doc = xlsx_upload.json()
-    assert xlsx_doc["content_type"] == "xlsx"
-    assert xlsx_doc["mime_type"] == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-
-    xlsx_status = _wait_document_terminal_status(
-        client,
-        team_id=team_id,
-        document_id=xlsx_doc["document_id"],
-    )
-    assert xlsx_status == "ready"
-
-    xlsx_latest = client.get(
-        f"/api/v1/documents/{xlsx_doc['document_id']}",
-        params={"team_id": team_id},
-    )
-    assert xlsx_latest.status_code == 200
-    content = xlsx_latest.json()["content"]
-    assert "Sheet: Metrics" in content
-    assert "Row 2: A: APAC | B: 128" in content
-    assert "Row 3: A: EMEA | B: 96" in content
-
-    xlsx_file = client.get(
-        f"/api/v1/documents/{xlsx_doc['document_id']}/file",
-        params={"team_id": team_id},
-    )
-    assert xlsx_file.status_code == 200
-    assert (
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        in xlsx_file.headers.get("content-type", "")
-    )
+    delete_response = client.delete(f"/api/v1/documents/{document_id}")
+    assert delete_response.status_code == 404

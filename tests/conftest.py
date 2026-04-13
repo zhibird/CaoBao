@@ -40,6 +40,7 @@ os.environ["DEV_ADMIN_ENABLED"] = "true"
 os.environ["DEV_ADMIN_ACCOUNT_ID"] = "dev_admin_test"
 os.environ["DEV_ADMIN_DISPLAY_NAME"] = "Developer Admin Test"
 os.environ["DEV_ADMIN_TOKEN"] = "test-admin-token"
+os.environ["AUTH_JWT_SECRET"] = "test-auth-secret"
 
 from app.core.config import reload_settings
 
@@ -56,3 +57,16 @@ def client() -> TestClient:
     app = create_app()
     with TestClient(app) as test_client:
         yield test_client
+
+
+@pytest.fixture(autouse=True)
+def reset_cached_settings() -> None:
+    reload_settings()
+    yield
+
+
+@pytest.fixture(autouse=True)
+def clear_client_cookies(client: TestClient):
+    client.cookies.clear()
+    yield
+    client.cookies.clear()

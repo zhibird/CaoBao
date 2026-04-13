@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.api.deps import get_llm_model_service
+from app.api.deps import get_llm_model_service, require_current_active_user
 from app.core.exceptions import DomainValidationError, EntityNotFoundError
+from app.models.user import User
 from app.schemas.llm_model import (
     LLMModelConfigItem,
     LLMModelConfigListResponse,
@@ -14,20 +15,22 @@ router = APIRouter(prefix="/llm/models")
 
 @router.get("", response_model=LLMModelConfigListResponse)
 def list_llm_models(
-    team_id: str = Query(min_length=1, max_length=64),
-    user_id: str = Query(min_length=1, max_length=64),
+    current_user: User = Depends(require_current_active_user),
     llm_model_service: LLMModelService = Depends(get_llm_model_service),
 ) -> LLMModelConfigListResponse:
     try:
-        items = llm_model_service.list_configs(team_id=team_id, user_id=user_id)
+        items = llm_model_service.list_configs(
+            team_id=current_user.team_id,
+            user_id=current_user.user_id,
+        )
     except EntityNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except DomainValidationError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     return LLMModelConfigListResponse(
-        team_id=team_id,
-        user_id=user_id,
+        team_id=current_user.team_id,
+        user_id=current_user.user_id,
         items=[
             LLMModelConfigItem(
                 config_id=item.config_id,
@@ -48,12 +51,13 @@ def list_llm_models(
 @router.post("", response_model=LLMModelConfigItem)
 def upsert_llm_model(
     payload: LLMModelConfigUpsertRequest,
+    current_user: User = Depends(require_current_active_user),
     llm_model_service: LLMModelService = Depends(get_llm_model_service),
 ) -> LLMModelConfigItem:
     try:
         item = llm_model_service.upsert_config(
-            team_id=payload.team_id,
-            user_id=payload.user_id,
+            team_id=current_user.team_id,
+            user_id=current_user.user_id,
             model_name=payload.model_name,
             base_url=payload.base_url,
             api_key=payload.api_key,
@@ -79,14 +83,13 @@ def upsert_llm_model(
 @router.delete("/{model_name}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_llm_model(
     model_name: str,
-    team_id: str = Query(min_length=1, max_length=64),
-    user_id: str = Query(min_length=1, max_length=64),
+    current_user: User = Depends(require_current_active_user),
     llm_model_service: LLMModelService = Depends(get_llm_model_service),
 ) -> None:
     try:
         llm_model_service.delete_config(
-            team_id=team_id,
-            user_id=user_id,
+            team_id=current_user.team_id,
+            user_id=current_user.user_id,
             model_name=model_name,
         )
     except EntityNotFoundError as exc:

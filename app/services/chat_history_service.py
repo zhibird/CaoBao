@@ -37,11 +37,9 @@ class ChatHistoryService:
         if conversation_id is not None:
             conversation = self.db.get(Conversation, conversation_id)
             if conversation is None:
-                raise EntityNotFoundError(f"Conversation '{conversation_id}' does not exist.")
+                raise EntityNotFoundError(f"Conversation '{conversation_id}' not found.")
             if conversation.team_id != team_id or conversation.user_id != user_id:
-                raise DomainValidationError(
-                    f"Conversation '{conversation_id}' does not belong to team/user."
-                )
+                raise EntityNotFoundError(f"Conversation '{conversation_id}' not found.")
             space_id = conversation.space_id
 
         message = ChatHistory(
@@ -137,15 +135,13 @@ class ChatHistoryService:
     ) -> ChatHistory:
         message = self.db.get(ChatHistory, message_id)
         if message is None:
-            raise EntityNotFoundError(f"Message '{message_id}' does not exist.")
+            raise EntityNotFoundError(f"Message '{message_id}' not found.")
 
         if message.team_id != team_id or message.user_id != user_id:
-            raise DomainValidationError("Message does not belong to the provided team/user.")
+            raise EntityNotFoundError(f"Message '{message_id}' not found.")
 
         if conversation_id is not None and message.conversation_id != conversation_id:
-            raise DomainValidationError(
-                f"Message '{message_id}' does not belong to conversation '{conversation_id}'."
-            )
+            raise EntityNotFoundError(f"Message '{message_id}' not found.")
 
         return message
 
@@ -261,13 +257,9 @@ class ChatHistoryService:
     ) -> Conversation:
         conversation = self.db.get(Conversation, conversation_id)
         if conversation is None:
-            raise EntityNotFoundError(f"Conversation '{conversation_id}' does not exist.")
+            raise EntityNotFoundError(f"Conversation '{conversation_id}' not found.")
         if conversation.team_id != team_id:
-            raise DomainValidationError(
-                f"Conversation '{conversation_id}' does not belong to team '{team_id}'."
-            )
+            raise EntityNotFoundError(f"Conversation '{conversation_id}' not found.")
         if user_id is not None and conversation.user_id != user_id:
-            raise DomainValidationError(
-                f"Conversation '{conversation_id}' does not belong to user '{user_id}'."
-            )
+            raise EntityNotFoundError(f"Conversation '{conversation_id}' not found.")
         return conversation

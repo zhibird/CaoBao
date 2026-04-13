@@ -224,7 +224,7 @@ class ConclusionService:
         if item is None:
             raise EntityNotFoundError(f"Conclusion '{conclusion_id}' not found.")
         if item.team_id != team_id or item.user_id != user_id:
-            raise DomainValidationError("Conclusion does not belong to the provided team/user.")
+            raise EntityNotFoundError(f"Conclusion '{conclusion_id}' not found.")
         self.space_service.ensure_access(space_id=item.space_id, team_id=team_id, user_id=user_id)
         return item
 
@@ -253,9 +253,9 @@ class ConclusionService:
             return
         message = self.db.get(ChatHistory, normalized_id)
         if message is None:
-            raise EntityNotFoundError(f"Message '{normalized_id}' does not exist.")
+            raise EntityNotFoundError(f"Message '{normalized_id}' not found.")
         if message.team_id != team_id or message.user_id != user_id:
-            raise DomainValidationError("Source message does not belong to the provided team/user.")
+            raise EntityNotFoundError(f"Message '{normalized_id}' not found.")
 
     def _upsert_sync_document(self, item: Conclusion) -> Document:
         markdown_content = self._build_conclusion_markdown(item)

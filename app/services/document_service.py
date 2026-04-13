@@ -14,7 +14,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from pypdf import PdfReader
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import PROJECT_ROOT, get_settings
@@ -90,16 +90,22 @@ class DocumentService:
         self.settings = get_settings()
         self.upload_root = self._resolve_upload_root()
 
-    def import_document(self, payload: DocumentImportRequest) -> Document:
+    def import_document(
+        self,
+        *,
+        team_id: str,
+        user_id: str | None,
+        payload: DocumentImportRequest,
+    ) -> Document:
         self._ensure_team_and_conversation(
-            team_id=payload.team_id,
+            team_id=team_id,
             conversation_id=payload.conversation_id,
         )
         space_id = self.resolve_space_id(
-            team_id=payload.team_id,
+            team_id=team_id,
             conversation_id=payload.conversation_id,
             space_id=payload.space_id,
-            user_id=payload.user_id,
+            user_id=user_id,
         )
 
         now = datetime.now(timezone.utc)
@@ -110,7 +116,7 @@ class DocumentService:
 
         document = Document(
             document_id=str(uuid4()),
-            team_id=payload.team_id,
+            team_id=team_id,
             conversation_id=payload.conversation_id,
             space_id=space_id,
             source_name=payload.source_name,
@@ -223,6 +229,7 @@ class DocumentService:
             document_id=document_id,
             team_id=team_id,
             conversation_id=conversation_id,
+            user_id=user_id,
         )
         self._clear_failure(document)
 
@@ -260,6 +267,7 @@ class DocumentService:
                 document_id=document_id,
                 team_id=team_id,
                 conversation_id=conversation_id,
+                user_id=user_id,
             )
             self._mark_failed(document=document, error=index_error)
 
@@ -268,6 +276,7 @@ class DocumentService:
         team_id: str,
         conversation_id: str | None = None,
         space_id: str | None = None,
+        user_id: str | None = None,
         visibility: str | None = None,
         asset_kind: str | None = None,
         status: str | None = None,
@@ -275,10 +284,16 @@ class DocumentService:
         limit: int = 50,
     ) -> list[Document]:
         stmt = select(Document).where(Document.team_id == team_id)
+        if conversation_id is not None and user_id is not None:
+            self._ensure_conversation_access(team_id=team_id, conversation_id=conversation_id, user_id=user_id)
         if conversation_id is not None:
             stmt = stmt.where(Document.conversation_id == conversation_id)
         if space_id is not None:
             stmt = stmt.where(Document.space_id == space_id)
+        if user_id is not None:
+            stmt = stmt.outerjoin(Conversation, Conversation.conversation_id == Document.conversation_id).where(
+                or_(Document.conversation_id.is_(None), Conversation.user_id == user_id)
+            )
         if visibility is not None:
             stmt = stmt.where(Document.visibility == visibility.strip().lower())
         if asset_kind is not None:
@@ -297,6 +312,7 @@ class DocumentService:
         team_id: str,
         conversation_id: str | None,
         space_id: str | None,
+        user_id: str | None = None,
         document_ids: list[str] | None = None,
         include_library: bool = False,
         include_conclusions: bool = False,
@@ -310,6 +326,7 @@ class DocumentService:
                     item = self.get_document_in_team(
                         document_id=document_id,
                         team_id=team_id,
+                        user_id=user_id,
                     )
                 except EntityNotFoundError:
                     continue
@@ -338,6 +355,7 @@ class DocumentService:
                 self.list_documents(
                     team_id=team_id,
                     conversation_id=conversation_id,
+                    user_id=user_id,
                     status="ready" if ready_only else None,
                     limit=limit,
                 )
@@ -347,6 +365,7 @@ class DocumentService:
                 self.list_documents(
                     team_id=team_id,
                     space_id=space_id,
+                    user_id=user_id,
                     visibility="space",
                     status="ready" if ready_only else None,
                     retrieval_enabled=True,
@@ -358,6 +377,7 @@ class DocumentService:
                 self.list_documents(
                     team_id=team_id,
                     space_id=space_id,
+                    user_id=user_id,
                     visibility="space",
                     asset_kind="conclusion_note",
                     status="ready" if ready_only else None,
@@ -391,15 +411,11 @@ class DocumentService:
         if conversation_id is not None:
             conversation = self.db.get(Conversation, conversation_id)
             if conversation is None:
-                raise EntityNotFoundError(f"Conversation '{conversation_id}' does not exist.")
+                raise EntityNotFoundError(f"Conversation '{conversation_id}' not found.")
             if conversation.team_id != team_id:
-                raise EntityNotFoundError(
-                    f"Conversation '{conversation_id}' does not belong to team '{team_id}'."
-                )
+                raise EntityNotFoundError(f"Conversation '{conversation_id}' not found.")
             if user_id is not None and conversation.user_id != user_id:
-                raise DomainValidationError(
-                    f"Conversation '{conversation_id}' does not belong to user '{user_id}'."
-                )
+                raise EntityNotFoundError(f"Conversation '{conversation_id}' not found.")
             if space_id is not None and conversation.space_id and conversation.space_id != space_id:
                 raise DomainValidationError("space_id does not match the conversation's space.")
 
@@ -409,11 +425,11 @@ class DocumentService:
 
         target_space = self.db.get(ProjectSpace, target_space_id)
         if target_space is None or target_space.status == "deleted":
-            raise EntityNotFoundError(f"Space '{target_space_id}' does not exist.")
+            raise EntityNotFoundError(f"Space '{target_space_id}' not found.")
         if target_space.team_id != team_id:
-            raise DomainValidationError(f"Space '{target_space_id}' does not belong to team '{team_id}'.")
+            raise EntityNotFoundError(f"Space '{target_space_id}' not found.")
         if user_id is not None and target_space.owner_user_id != user_id:
-            raise DomainValidationError(f"Space '{target_space_id}' does not belong to user '{user_id}'.")
+            raise EntityNotFoundError(f"Space '{target_space_id}' not found.")
         return target_space.space_id
 
     def build_chat_image_attachments(
@@ -447,6 +463,7 @@ class DocumentService:
         document_id: str,
         team_id: str,
         conversation_id: str | None = None,
+        user_id: str | None = None,
     ) -> Document:
         stmt = select(Document).where(
             Document.document_id == document_id,
@@ -457,6 +474,12 @@ class DocumentService:
         document = self.db.scalar(stmt)
         if document is None:
             raise EntityNotFoundError(f"Document '{document_id}' not found in team '{team_id}'.")
+        if user_id is not None and document.conversation_id is not None:
+            self._ensure_conversation_access(
+                team_id=team_id,
+                conversation_id=document.conversation_id,
+                user_id=user_id,
+            )
         return document
 
     def update_document_status(
@@ -485,11 +508,13 @@ class DocumentService:
         document_id: str,
         team_id: str,
         conversation_id: str | None,
+        user_id: str | None = None,
     ) -> tuple[Path, Document]:
         document = self.get_document_in_team(
             document_id=document_id,
             team_id=team_id,
             conversation_id=conversation_id,
+            user_id=user_id,
         )
         if document.storage_key.startswith("inline://"):
             raise EntityNotFoundError(f"Document '{document_id}' has no uploaded original file.")
@@ -504,11 +529,13 @@ class DocumentService:
         document_id: str,
         team_id: str,
         conversation_id: str | None = None,
+        user_id: str | None = None,
     ) -> None:
         document = self.get_document_in_team(
             document_id=document_id,
             team_id=team_id,
             conversation_id=conversation_id,
+            user_id=user_id,
         )
 
         self._best_effort_delete_file(document)
@@ -536,6 +563,7 @@ class DocumentService:
         self,
         *,
         team_id: str,
+        user_id: str | None,
         document_id: str,
         conversation_id: str | None,
         space_id: str | None,
@@ -545,6 +573,7 @@ class DocumentService:
             document_id=document_id,
             team_id=team_id,
             conversation_id=conversation_id,
+            user_id=user_id,
         )
         if source_document.status != "ready":
             raise DomainValidationError("Only ready documents can be published to the library.")
@@ -553,6 +582,7 @@ class DocumentService:
             team_id=team_id,
             conversation_id=source_document.conversation_id,
             space_id=space_id,
+            user_id=user_id,
         )
         if target_space_id is None:
             raise DomainValidationError("space_id is required to publish a library document.")
@@ -989,6 +1019,20 @@ class DocumentService:
             raise EntityNotFoundError(
                 f"Conversation '{conversation_id}' does not belong to team '{team_id}'."
             )
+
+    def _ensure_conversation_access(
+        self,
+        *,
+        team_id: str,
+        conversation_id: str,
+        user_id: str | None,
+    ) -> Conversation:
+        conversation = self.db.get(Conversation, conversation_id)
+        if conversation is None or conversation.team_id != team_id:
+            raise EntityNotFoundError(f"Conversation '{conversation_id}' not found.")
+        if user_id is not None and conversation.user_id != user_id:
+            raise EntityNotFoundError(f"Conversation '{conversation_id}' not found.")
+        return conversation
 
     def _detect_content_type(self, *, source_name: str) -> str:
         normalized = source_name.strip()

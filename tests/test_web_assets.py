@@ -63,16 +63,28 @@ def test_homepage_uses_workspace_settings_instead_of_exposing_admin_entry(client
     assert ">Admin<" not in html
 
 
-def test_workspace_modal_uses_product_language_instead_of_account_fields(client) -> None:
+def test_auth_modal_uses_login_and_register_forms(client) -> None:
     html = _get_web_index(client)
 
-    assert "进入 / 切换工作台" in html
-    assert 'for="accountIdInput">工作台 ID<' in html
-    assert 'for="accountNameInput">工作台名称<' in html
-    assert "系统会按这个工作台隔离会话、资料和偏好设置。" in html
-    assert "account_id" not in html
-    assert "account_name" not in html
-    assert "登录 / 切换账户" not in html
+    assert 'id="authLoginTab"' in html
+    assert 'id="authRegisterTab"' in html
+    assert 'id="loginUserIdInput"' in html
+    assert 'id="loginPasswordInput"' in html
+    assert 'id="registerUserIdInput"' in html
+    assert 'id="registerDisplayNameInput"' in html
+    assert 'id="registerPasswordInput"' in html
+    assert 'id="registerConfirmPasswordInput"' in html
+    assert 'id="accountIdInput"' not in html
+    assert 'id="accountNameInput"' not in html
+    assert 'id="saveAuthBtn"' not in html
+
+
+def test_settings_modal_exposes_account_controls(client) -> None:
+    html = _get_web_index(client)
+
+    assert 'id="switchAccountBtn"' in html
+    assert 'id="logoutBtn"' in html
+    assert 'id="switchWorkspaceBtn"' not in html
 
 
 def test_advanced_model_configuration_moves_out_of_main_topbar(client) -> None:
@@ -97,20 +109,41 @@ def test_model_configuration_uses_settings_modals_instead_of_prompt_flows(client
     assert 'window.prompt("输入 Embedding API Key")' not in script
 
 
-def test_workspace_bootstrap_uses_idempotent_ensure_routes(client) -> None:
+def test_frontend_bootstrap_uses_auth_session_routes(client) -> None:
     script = _get_web_app_script(client)
 
-    ensure_team_block = re.search(r"async function ensureTeam\(.*?\n\}", script, re.DOTALL)
-    assert ensure_team_block is not None
-    assert 'method: "PUT"' in ensure_team_block.group(0)
-    assert "/teams/${encodeURIComponent(teamId)}" in ensure_team_block.group(0)
+    assert "bootstrapAuthSession" in script
+    assert "/auth/me" in script
+    assert "/auth/login" in script
+    assert "/auth/register" in script
+    assert "/auth/logout" in script
+    assert "/auth/refresh" in script
+    assert 'credentials: "same-origin"' in script
+    assert "retryOn401" in script
 
-    ensure_user_block = re.search(r"async function ensureUser\(.*?\n\}", script, re.DOTALL)
-    assert ensure_user_block is not None
-    assert 'method: "PUT"' in ensure_user_block.group(0)
-    assert "/users/${encodeURIComponent(userId)}" in ensure_user_block.group(0)
 
-    assert "already exists" not in script
+def test_frontend_formats_fastapi_validation_errors_for_auth_forms(client) -> None:
+    script = _get_web_app_script(client)
+
+    assert "Array.isArray(data.detail)" in script
+    assert "VALIDATION_FIELD_LABELS" in script
+    assert "string_too_short" in script
+    assert "min_length" in script
+
+
+def test_auth_forms_validate_password_rules_before_submit(client) -> None:
+    script = _get_web_app_script(client)
+
+    assert "password.length < 8" in script
+    assert "confirmPassword.length < 8" in script
+    assert "password !== confirmPassword" in script
+
+
+def test_frontend_bootstrap_no_longer_depends_on_team_user_upserts(client) -> None:
+    script = _get_web_app_script(client)
+
+    assert "/teams/${encodeURIComponent" not in script
+    assert "/users/${encodeURIComponent" not in script
 
 
 def test_favorite_workflow_supports_toggle_and_secondary_actions(client) -> None:

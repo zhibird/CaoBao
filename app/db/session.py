@@ -127,6 +127,18 @@ def _ensure_phase1_columns() -> None:
     inspector = inspect(engine)
     table_names = set(inspector.get_table_names())
 
+    if "users" in table_names:
+        user_cols = {item["name"] for item in inspector.get_columns("users")}
+        if "password_hash" not in user_cols:
+            with engine.begin() as conn:
+                conn.exec_driver_sql("ALTER TABLE users ADD COLUMN password_hash VARCHAR(255)")
+        if "is_active" not in user_cols:
+            with engine.begin() as conn:
+                conn.exec_driver_sql("ALTER TABLE users ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT 1")
+        if "password_updated_at" not in user_cols:
+            with engine.begin() as conn:
+                conn.exec_driver_sql("ALTER TABLE users ADD COLUMN password_updated_at DATETIME")
+
     if "conversations" in table_names:
         conversation_cols = {item["name"] for item in inspector.get_columns("conversations")}
         if "is_pinned" not in conversation_cols:

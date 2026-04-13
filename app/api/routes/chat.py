@@ -8,8 +8,10 @@ from app.api.deps import (
     get_chat_history_service,
     get_chat_service,
     get_rag_chat_service,
+    require_current_active_user,
 )
 from app.core.exceptions import DomainValidationError, EntityNotFoundError
+from app.models.user import User
 from app.schemas.chat import (
     ChatActionRequest,
     ChatActionResponse,
@@ -32,19 +34,23 @@ router = APIRouter(prefix="/chat")
 @router.post("/echo", response_model=ChatEchoResponse)
 def chat_echo(
     payload: ChatEchoRequest,
+    current_user: User = Depends(require_current_active_user),
     chat_service: ChatService = Depends(get_chat_service),
     chat_history_service: ChatHistoryService = Depends(get_chat_history_service),
 ) -> ChatEchoResponse:
     try:
-        response = chat_service.echo(payload)
+        effective_payload = payload.model_copy(
+            update={"team_id": current_user.team_id, "user_id": current_user.user_id}
+        )
+        response = chat_service.echo(effective_payload)
         chat_history_service.record_message(
-            team_id=payload.team_id,
-            user_id=payload.user_id,
-            conversation_id=payload.conversation_id,
+            team_id=current_user.team_id,
+            user_id=current_user.user_id,
+            conversation_id=effective_payload.conversation_id,
             channel="echo",
-            request_text=payload.message,
+            request_text=effective_payload.message,
             response_text=response.answer,
-            request_payload=payload.model_dump(),
+            request_payload=effective_payload.model_dump(),
             response_payload=response.model_dump(),
         )
         return response
@@ -57,19 +63,23 @@ def chat_echo(
 @router.post("/ask", response_model=ChatAskResponse)
 def chat_ask(
     payload: ChatAskRequest,
+    current_user: User = Depends(require_current_active_user),
     rag_chat_service: RagChatService = Depends(get_rag_chat_service),
     chat_history_service: ChatHistoryService = Depends(get_chat_history_service),
 ) -> ChatAskResponse:
     try:
-        response = rag_chat_service.ask(payload)
+        effective_payload = payload.model_copy(
+            update={"team_id": current_user.team_id, "user_id": current_user.user_id}
+        )
+        response = rag_chat_service.ask(effective_payload)
         chat_history_service.record_message(
-            team_id=payload.team_id,
-            user_id=payload.user_id,
-            conversation_id=payload.conversation_id,
+            team_id=current_user.team_id,
+            user_id=current_user.user_id,
+            conversation_id=effective_payload.conversation_id,
             channel="ask",
-            request_text=payload.question,
+            request_text=effective_payload.question,
             response_text=response.answer,
-            request_payload=payload.model_dump(),
+            request_payload=effective_payload.model_dump(),
             response_payload=response.model_dump(),
         )
         return response
@@ -82,24 +92,28 @@ def chat_ask(
 @router.post("/action", response_model=ChatActionResponse)
 def chat_action(
     payload: ChatActionRequest,
+    current_user: User = Depends(require_current_active_user),
     action_chat_service: ActionChatService = Depends(get_action_chat_service),
     chat_history_service: ChatHistoryService = Depends(get_chat_history_service),
 ) -> ChatActionResponse:
     try:
-        response = action_chat_service.execute(payload)
+        effective_payload = payload.model_copy(
+            update={"team_id": current_user.team_id, "user_id": current_user.user_id}
+        )
+        response = action_chat_service.execute(effective_payload)
 
         response_text = str(response.result.get("message", "")).strip()
         if not response_text:
             response_text = str(response.result)
 
         chat_history_service.record_message(
-            team_id=payload.team_id,
-            user_id=payload.user_id,
-            conversation_id=payload.conversation_id,
+            team_id=current_user.team_id,
+            user_id=current_user.user_id,
+            conversation_id=effective_payload.conversation_id,
             channel="action",
-            request_text=payload.action,
+            request_text=effective_payload.action,
             response_text=response_text,
-            request_payload=payload.model_dump(),
+            request_payload=effective_payload.model_dump(),
             response_payload=response.model_dump(),
         )
         return response
@@ -112,16 +126,15 @@ def chat_action(
 @router.delete("/history/{message_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_chat_history_message(
     message_id: str,
-    team_id: str = Query(min_length=1, max_length=64),
-    user_id: str = Query(min_length=1, max_length=64),
     conversation_id: str | None = Query(default=None, min_length=1, max_length=36),
+    current_user: User = Depends(require_current_active_user),
     chat_history_service: ChatHistoryService = Depends(get_chat_history_service),
 ) -> None:
     try:
         chat_history_service.delete_message(
             message_id=message_id,
-            team_id=team_id,
-            user_id=user_id,
+            team_id=current_user.team_id,
+            user_id=current_user.user_id,
             conversation_id=conversation_id,
         )
     except EntityNotFoundError as exc:
@@ -134,6 +147,7 @@ def delete_chat_history_message(
 def edit_chat_history_message(
     message_id: str,
     payload: ChatHistoryEditRequest,
+    current_user: User = Depends(require_current_active_user),
     chat_service: ChatService = Depends(get_chat_service),
     rag_chat_service: RagChatService = Depends(get_rag_chat_service),
     chat_history_service: ChatHistoryService = Depends(get_chat_history_service),
@@ -141,8 +155,8 @@ def edit_chat_history_message(
     try:
         message = chat_history_service.ensure_latest_message(
             message_id=message_id,
-            team_id=payload.team_id,
-            user_id=payload.user_id,
+            team_id=current_user.team_id,
+            user_id=current_user.user_id,
         )
 
         channel = message.channel.strip().lower()
@@ -151,8 +165,8 @@ def edit_chat_history_message(
 
         if channel == "echo":
             echo_payload = ChatEchoRequest(
-                user_id=payload.user_id,
-                team_id=payload.team_id,
+                user_id=current_user.user_id,
+                team_id=current_user.team_id,
                 conversation_id=message.conversation_id,
                 message=payload.request_text,
             )
@@ -199,8 +213,8 @@ def edit_chat_history_message(
             )
 
             ask_payload = ChatAskRequest(
-                user_id=payload.user_id,
-                team_id=payload.team_id,
+                user_id=current_user.user_id,
+                team_id=current_user.team_id,
                 conversation_id=message.conversation_id,
                 question=payload.request_text,
                 top_k=top_k,
@@ -225,8 +239,8 @@ def edit_chat_history_message(
 
         updated = chat_history_service.update_message(
             message_id=message_id,
-            team_id=payload.team_id,
-            user_id=payload.user_id,
+            team_id=current_user.team_id,
+            user_id=current_user.user_id,
             request_text=request_text,
             response_text=response_text,
             request_payload=request_payload,
@@ -241,23 +255,22 @@ def edit_chat_history_message(
 
 @router.get("/history", response_model=ChatHistoryListResponse)
 def chat_history(
-    team_id: str = Query(min_length=1, max_length=64),
-    user_id: str | None = Query(default=None, min_length=1, max_length=64),
     conversation_id: str | None = Query(default=None, min_length=1, max_length=36),
     limit: int = Query(default=20, ge=1, le=200),
+    current_user: User = Depends(require_current_active_user),
     chat_history_service: ChatHistoryService = Depends(get_chat_history_service),
 ) -> ChatHistoryListResponse:
     try:
         records = chat_history_service.list_history(
-            team_id=team_id,
-            user_id=user_id,
+            team_id=current_user.team_id,
+            user_id=current_user.user_id,
             conversation_id=conversation_id,
             limit=limit,
         )
         items = [ChatHistoryItem.from_record(item) for item in records]
         return ChatHistoryListResponse.from_result(
-            team_id=team_id,
-            user_id=user_id,
+            team_id=current_user.team_id,
+            user_id=current_user.user_id,
             conversation_id=conversation_id,
             limit=limit,
             items=items,

@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CaiBao Chat</title>
-  <link rel="stylesheet" href="/web/styles.css?v=0.15.0&build=20260407-1" />
+  <link rel="stylesheet" href="/web/styles.css?v=0.15.0&build=20260413-2" />
 </head>
 <body>
   <div class="bg-orb orb-a" aria-hidden="true"></div>
@@ -241,21 +241,58 @@
 
   <div id="authModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="authTitle">
     <div class="modal-card">
-      <h2 id="authTitle">进入 / 切换工作台</h2>
-      <p class="modal-tip">系统会按这个工作台隔离会话、资料和偏好设置。</p>
-
-      <div class="field">
-        <label for="accountIdInput">工作台 ID</label>
-        <input id="accountIdInput" type="text" placeholder="例如：hibirdw" />
-      </div>
-      <div class="field">
-        <label for="accountNameInput">工作台名称</label>
-        <input id="accountNameInput" type="text" placeholder="例如：一只长角的鸟" />
+      <div class="modal-head">
+        <div>
+          <h2 id="authTitle">登录 / 注册</h2>
+          <p class="modal-tip">使用账号密码进入个人工作台。登录状态以后端会话为准，不再依赖浏览器本地身份缓存。</p>
+        </div>
       </div>
 
-      <div class="modal-actions">
+      <div class="auth-mode-switch" role="tablist" aria-label="认证方式">
+        <button id="authLoginTab" class="auth-mode-btn active" type="button" data-auth-mode="login">登录</button>
+        <button id="authRegisterTab" class="auth-mode-btn" type="button" data-auth-mode="register">注册</button>
+      </div>
+
+      <p id="authError" class="auth-error hidden" role="alert"></p>
+
+      <form id="loginAuthForm" class="auth-panel" novalidate>
+        <div class="field">
+          <label for="loginUserIdInput">账号 ID</label>
+          <input id="loginUserIdInput" type="text" placeholder="例如：libirdw" autocomplete="username" />
+        </div>
+        <div class="field">
+          <label for="loginPasswordInput">密码</label>
+          <input id="loginPasswordInput" type="password" placeholder="请输入密码" autocomplete="current-password" />
+        </div>
+        <div class="modal-actions auth-panel-actions">
+          <button id="loginAuthBtn" class="primary-btn compact-primary-btn" type="submit">登录</button>
+        </div>
+      </form>
+
+      <form id="registerAuthForm" class="auth-panel hidden" novalidate>
+        <div class="field">
+          <label for="registerUserIdInput">账号 ID</label>
+          <input id="registerUserIdInput" type="text" placeholder="例如：libirdw" autocomplete="username" />
+        </div>
+        <div class="field">
+          <label for="registerDisplayNameInput">显示名称</label>
+          <input id="registerDisplayNameInput" type="text" placeholder="例如：一只长角的鸟" autocomplete="nickname" />
+        </div>
+        <div class="field">
+          <label for="registerPasswordInput">密码</label>
+          <input id="registerPasswordInput" type="password" placeholder="至少 8 位" autocomplete="new-password" />
+        </div>
+        <div class="field">
+          <label for="registerConfirmPasswordInput">确认密码</label>
+          <input id="registerConfirmPasswordInput" type="password" placeholder="请再次输入密码" autocomplete="new-password" />
+        </div>
+        <div class="modal-actions auth-panel-actions">
+          <button id="registerAuthBtn" class="primary-btn compact-primary-btn" type="submit">注册并进入</button>
+        </div>
+      </form>
+
+      <div class="modal-actions auth-secondary-actions">
         <button id="cancelAuthBtn" class="ghost-btn compact-btn" type="button">取消</button>
-        <button id="saveAuthBtn" class="primary-btn compact-primary-btn" type="button">进入工作台</button>
       </div>
     </div>
   </div>
@@ -271,15 +308,18 @@
       </div>
 
       <div class="settings-grid">
-        <section class="settings-section">
-          <div class="settings-section-head">
-            <div>
-              <h3>当前工作台</h3>
-              <p id="settingsWorkspaceSummary" class="settings-note">未进入工作台</p>
+          <section class="settings-section">
+            <div class="settings-section-head">
+              <div>
+                <h3>当前账号</h3>
+                <p id="settingsWorkspaceSummary" class="settings-note">尚未登录</p>
+              </div>
+              <div class="settings-inline-actions">
+                <button id="switchAccountBtn" class="ghost-btn compact-btn" type="button">切换账号</button>
+                <button id="logoutBtn" class="ghost-btn compact-btn danger-btn" type="button">退出登录</button>
+              </div>
             </div>
-            <button id="switchWorkspaceBtn" class="ghost-btn compact-btn" type="button">切换工作台</button>
-          </div>
-        </section>
+          </section>
 
         <section class="settings-section">
           <div class="settings-section-head">
@@ -389,6 +429,6 @@
 
   <div id="toast" class="toast hidden"></div>
 
-  <script src="/web/app.js?v=0.15.0&build=20260407-1" defer></script>
+  <script src="/web/app.js?v=0.15.0&build=20260413-2" defer></script>
 </body>
 </html>

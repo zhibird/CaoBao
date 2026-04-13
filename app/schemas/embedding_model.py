@@ -4,8 +4,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class EmbeddingModelConfigUpsertRequest(BaseModel):
-    team_id: str = Field(min_length=1, max_length=64)
-    user_id: str = Field(min_length=1, max_length=64)
+    team_id: str | None = Field(default=None, min_length=1, max_length=64)
+    user_id: str | None = Field(default=None, min_length=1, max_length=64)
     model_name: str = Field(min_length=1, max_length=128)
     provider: str = Field(default="openai", min_length=1, max_length=32)
     base_url: str | None = Field(default=None, max_length=255)

@@ -4,8 +4,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class LLMModelConfigUpsertRequest(BaseModel):
-    team_id: str = Field(min_length=1, max_length=64)
-    user_id: str = Field(min_length=1, max_length=64)
+    team_id: str | None = Field(default=None, min_length=1, max_length=64)
+    user_id: str | None = Field(default=None, min_length=1, max_length=64)
     model_name: str = Field(min_length=1, max_length=128)
     base_url: str = Field(min_length=1, max_length=255)
     api_key: str = Field(min_length=1, max_length=2048)

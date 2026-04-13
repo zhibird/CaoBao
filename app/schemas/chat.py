@@ -8,8 +8,8 @@ from app.schemas.retrieval import RetrievalHit
 
 
 class ChatEchoRequest(BaseModel):
-    user_id: str = Field(min_length=1, max_length=64)
-    team_id: str = Field(min_length=1, max_length=64)
+    user_id: str | None = Field(default=None, min_length=1, max_length=64)
+    team_id: str | None = Field(default=None, min_length=1, max_length=64)
     conversation_id: str | None = Field(default=None, min_length=1, max_length=36)
     message: str = Field(min_length=1, max_length=2000)
 
@@ -39,8 +39,8 @@ class ChatEchoResponse(BaseModel):
 
 
 class ChatAskRequest(BaseModel):
-    user_id: str = Field(min_length=1, max_length=64)
-    team_id: str = Field(min_length=1, max_length=64)
+    user_id: str | None = Field(default=None, min_length=1, max_length=64)
+    team_id: str | None = Field(default=None, min_length=1, max_length=64)
     conversation_id: str | None = Field(default=None, min_length=1, max_length=36)
     space_id: str | None = Field(default=None, min_length=1, max_length=36)
     question: str = Field(min_length=1, max_length=2000)
@@ -121,8 +121,8 @@ class ChatAskResponse(BaseModel):
 
 
 class ChatActionRequest(BaseModel):
-    user_id: str = Field(min_length=1, max_length=64)
-    team_id: str = Field(min_length=1, max_length=64)
+    user_id: str | None = Field(default=None, min_length=1, max_length=64)
+    team_id: str | None = Field(default=None, min_length=1, max_length=64)
     conversation_id: str | None = Field(default=None, min_length=1, max_length=36)
     action: str = Field(min_length=1, max_length=64)
     arguments: dict[str, Any] = Field(default_factory=dict)
@@ -213,8 +213,8 @@ class ChatHistoryListResponse(BaseModel):
 
 
 class ChatHistoryEditRequest(BaseModel):
-    team_id: str = Field(min_length=1, max_length=64)
-    user_id: str = Field(min_length=1, max_length=64)
+    team_id: str | None = Field(default=None, min_length=1, max_length=64)
+    user_id: str | None = Field(default=None, min_length=1, max_length=64)
     request_text: str = Field(min_length=1, max_length=2000)
     top_k: int | None = Field(default=None, ge=1, le=20)
     document_id: str | None = Field(default=None, min_length=1, max_length=36)
