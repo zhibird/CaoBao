@@ -13,59 +13,72 @@
   <div class="noise" aria-hidden="true"></div>
 
   <div class="shell">
-    <aside class="sidebar">
-      <section class="brand-panel">
-        <div class="product-badge-row">
-          <div class="product-badge">CaiBao</div>
-        </div>
-        <div class="brand-copy">
-          <p class="brand-kicker">Personal AI Assistant</p>
-          <h2 class="brand-title">先完成任务，再按需引入资料和长期资产</h2>
-          <p class="brand-desc">主界面只保留聊天、资料增强和收藏整理。开发者配置被收进二级设置，不打扰终端用户。</p>
-        </div>
-        <div class="sidebar-stats">
-          <article class="sidebar-stat">
-            <span>会话</span>
-            <strong id="conversationCountValue">0</strong>
-          </article>
-          <article class="sidebar-stat">
-            <span>文件</span>
-            <strong id="documentCountValue">0</strong>
-          </article>
-          <article class="sidebar-stat">
-            <span>可检索</span>
-            <strong id="readyDocumentCountValue">0</strong>
-          </article>
-        </div>
-        <button id="newSessionBtn" class="primary-btn" type="button">+ 新会话</button>
-      </section>
+    <aside id="workspaceRail" class="workspace-rail" aria-label="Workspace navigation">
+      <button id="railNewChatBtn" class="rail-btn rail-btn-primary" type="button" title="New chat" onclick="document.getElementById('newSessionBtn').click()">+</button>
+      <button id="railConversationsBtn" class="rail-btn" type="button" title="Conversations" onclick="const drawer=document.getElementById('conversationDrawer'); const fileDrawer=document.getElementById('fileDrawer'); const shouldOpen=drawer.classList.contains('hidden'); drawer.classList.toggle('hidden', !shouldOpen); drawer.setAttribute('aria-hidden', shouldOpen ? 'false' : 'true'); fileDrawer.classList.add('hidden'); fileDrawer.setAttribute('aria-hidden', 'true');">C</button>
+      <button id="railFilesBtn" class="rail-btn" type="button" title="Files" onclick="const drawer=document.getElementById('fileDrawer'); const conversationDrawer=document.getElementById('conversationDrawer'); const shouldOpen=drawer.classList.contains('hidden'); drawer.classList.toggle('hidden', !shouldOpen); drawer.setAttribute('aria-hidden', shouldOpen ? 'false' : 'true'); conversationDrawer.classList.add('hidden'); conversationDrawer.setAttribute('aria-hidden', 'true');">F</button>
+      <button id="railSettingsBtn" class="rail-btn rail-btn-bottom" type="button" title="Me / Settings" onclick="document.getElementById('workspaceSettingsBtn').click()">Me</button>
 
-      <div class="sidebar-top">
-        <section class="sidebar-block">
-          <div class="sidebar-block-head">
-            <p id="historySectionTitle" class="section-title">会话列表</p>
-            <span class="section-chip">最近</span>
+      <div class="hidden" aria-hidden="true">
+        <section class="brand-panel">
+          <div class="product-badge-row">
+            <div class="product-badge">CaiBao</div>
+          </div>
+          <div class="brand-copy">
+            <p class="brand-kicker">Personal AI Assistant</p>
+            <h2 class="brand-title">先完成任务，再按需引入资料和长期资产</h2>
+            <p class="brand-desc">主界面只保留聊天、资料增强和收藏整理。开发者配置被收进二级设置，不打扰终端用户。</p>
+          </div>
+          <div class="sidebar-stats">
+            <article class="sidebar-stat">
+              <span>会话</span>
+              <strong id="conversationCountValue">0</strong>
+            </article>
+            <article class="sidebar-stat">
+              <span>文件</span>
+              <strong id="documentCountValue">0</strong>
+            </article>
+            <article class="sidebar-stat">
+              <span>可检索</span>
+              <strong id="readyDocumentCountValue">0</strong>
+            </article>
+          </div>
+          <button id="newSessionBtn" class="primary-btn" type="button">+ 新会话</button>
+        </section>
+
+        <button id="workspaceSettingsBtn" class="ghost-btn" type="button">工作台设置</button>
+        <button id="refreshAllBtn" class="ghost-btn" type="button">刷新数据</button>
+        <button id="profileBtn" class="profile-card" type="button">
+          <div class="avatar" id="avatarText">未</div>
+          <div class="profile-meta">
+            <strong id="profileName">未进入工作台</strong>
+            <span id="profileTeam">点击进入或切换工作台</span>
+          </div>
+        </button>
+      </div>
+    </aside>
+
+    <div class="workspace-shell">
+      <aside id="conversationDrawer" class="surface-drawer conversation-drawer hidden" aria-hidden="true">
+        <section class="surface-panel">
+          <div class="surface-head">
+            <p id="historySectionTitle" class="section-title">Conversations</p>
+            <button id="drawerNewChatBtn" class="primary-btn compact-primary-btn" type="button" onclick="document.getElementById('newSessionBtn').click()">New chat</button>
           </div>
           <ul id="historyList" class="history-list"></ul>
         </section>
+      </aside>
 
-        <details class="sidebar-section" open>
-          <summary id="documentSectionTitle" class="section-summary">本会话文件</summary>
+      <aside id="fileDrawer" class="surface-drawer file-drawer hidden" aria-hidden="true">
+        <section class="surface-panel">
+          <div class="surface-head">
+            <p id="documentSectionTitle" class="section-title">Files</p>
+          </div>
           <ul id="documentList" class="document-list"></ul>
-        </details>
-      </div>
+        </section>
+      </aside>
 
-      <button id="profileBtn" class="profile-card" type="button">
-        <div class="avatar" id="avatarText">未</div>
-        <div class="profile-meta">
-          <strong id="profileName">未进入工作台</strong>
-          <span id="profileTeam">点击进入或切换工作台</span>
-        </div>
-      </button>
-    </aside>
-
-    <main class="main-pane">
-      <header class="main-topbar">
+      <main class="main-pane">
         <div class="workspace-intro">
           <div id="workspaceEyebrow" class="workspace-eyebrow">Personal AI Assistant</div>
           <h1 class="workspace-title">先完成任务，再按需引入资料和长期资产</h1>
@@ -75,24 +88,18 @@
             <button id="favoritesWorkspaceBtn" class="workspace-view-btn" type="button" aria-pressed="false">收藏夹</button>
           </div>
         </div>
-        <div class="topbar-controls">
-          <button id="workspaceSettingsBtn" class="ghost-btn" type="button">工作台设置</button>
-          <button id="refreshAllBtn" class="ghost-btn" type="button">刷新数据</button>
-        </div>
-      </header>
 
-      <section class="conversation">
-        <div class="conversation-glow" aria-hidden="true"></div>
-        <div class="conversation-inner">
-          <section id="chatWorkspacePanel" class="workspace-panel">
-            <section id="heroPanel" class="hero-panel">
+        <section class="conversation">
+          <div class="conversation-glow" aria-hidden="true"></div>
+          <div class="conversation-inner">
+            <section id="chatWorkspacePanel" class="workspace-panel">
+            <section id="heroPanel" class="hero-panel launch-panel">
               <div class="hero-copy">
                 <div class="hero-kicker">CaiBao Assistant</div>
-                <h2 id="heroTitle">进入工作台后就能直接开聊，需要时再补充资料</h2>
-                <p id="heroSubtitle" class="hero-subtitle">不用先上传文件。只有当你需要更稳妥的依据、引用和范围控制时，才打开资料增强。</p>
+                <h2 id="heroTitle">Start with a question, then add files only when needed.</h2>
+                <p id="heroSubtitle" class="hero-subtitle">Use a starter card below or type directly into the composer.</p>
               </div>
-
-              <div class="hero-metrics">
+              <div class="hero-metrics hidden" aria-hidden="true">
                 <article class="hero-metric">
                   <span>工作台</span>
                   <strong id="heroAccount">未进入工作台</strong>
@@ -109,93 +116,92 @@
                   <small id="heroScopeHint">不上传也能直接聊天；有资料时可按文件范围检索</small>
                 </article>
               </div>
-
               <div id="scenarioCards" class="scenario-cards">
                 <button class="scenario-card" type="button" data-scene="direct">
-                  <strong>直接聊聊</strong>
-                  <span>先提问、头脑风暴、润色表达，或拆解一个任务</span>
+                  <strong>Direct Chat</strong>
+                  <span>Ask immediately, brainstorm, or refine an expression.</span>
                 </button>
                 <button class="scenario-card" type="button" data-scene="plan">
-                  <strong>写方案</strong>
-                  <span>生成目标、里程碑、资源投入、风险与验收标准</span>
+                  <strong>Plan Writing</strong>
+                  <span>Start from goals, milestones, risks, and acceptance criteria.</span>
                 </button>
                 <button class="scenario-card" type="button" data-scene="qa">
-                  <strong>资料增强问答</strong>
-                  <span>当你需要依据时，再结合当前会话资料检索回答</span>
+                  <strong>Doc Assist</strong>
+                  <span>Use attached files only when grounding or retrieval is needed.</span>
                 </button>
               </div>
             </section>
 
-            <div id="messageList" class="message-list"></div>
-          </section>
+              <div id="messageList" class="message-list"></div>
+            </section>
 
-          <section id="favoritesPanel" class="workspace-panel favorites-panel hidden">
-            <div class="favorites-panel-head">
-              <div>
-                <div class="hero-kicker">Favorites Workspace</div>
-                <h2 class="favorites-panel-title">先收藏，再沉淀为长期资产</h2>
-                <p class="favorites-panel-subtitle">收藏夹承接“长期记忆 / 结论 / 资料库”的二级整理动作，聊天首屏只保留收藏。</p>
+            <section id="favoritesPanel" class="workspace-panel favorites-panel hidden">
+              <div class="favorites-panel-head">
+                <div>
+                  <div class="hero-kicker">Favorites Workspace</div>
+                  <h2 class="favorites-panel-title">先收藏，再沉淀为长期资产</h2>
+                  <p class="favorites-panel-subtitle">收藏夹承接“长期记忆 / 结论 / 资料库”的二级整理动作，聊天首屏只保留收藏。</p>
+                </div>
+              </div>
+              <div id="favoriteList" class="favorite-list"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="composer-zone composer-dock">
+          <div id="composerContextRow" class="composer-context-row">
+            <div id="composerPresence" class="composer-status-pill">尚未设置工作台</div>
+            <div id="composerScope" class="composer-status-pill">资料范围 · 0 个文件</div>
+            <div id="composerSession" class="composer-status-pill">智能配置 · 默认</div>
+          </div>
+
+          <div class="chat-mode-row">
+            <div class="chat-mode-switch" role="tablist" aria-label="回答模式">
+              <button id="chatOnlyBtn" class="chat-mode-btn active" type="button" aria-pressed="true">直接聊天</button>
+              <button id="docAssistBtn" class="chat-mode-btn" type="button" aria-pressed="false">资料增强</button>
+            </div>
+            <p id="chatModeHint" class="chat-mode-hint">默认不检索资料；需要依据时再显式开启。</p>
+          </div>
+
+          <div id="attachmentStrip" class="attachment-strip"></div>
+
+          <div id="attachMenu" class="attach-menu hidden" role="menu" aria-label="添加附件">
+            <button id="uploadFileBtn" class="attach-menu-item" type="button">上传文件</button>
+            <button id="pasteTextBtn" class="attach-menu-item" type="button">粘贴文本</button>
+          </div>
+
+          <div id="importComposer" class="import-composer hidden">
+            <div class="field import-title-field">
+              <label for="sourceName">文件名</label>
+              <input id="sourceName" type="text" placeholder="例如：需求说明.md" />
+            </div>
+            <div class="field">
+              <label for="fileContent">内容</label>
+              <textarea id="fileContent" rows="6" placeholder="粘贴文本内容，导入后会自动切块并建立索引"></textarea>
+            </div>
+            <div class="import-actions">
+              <button id="cancelImportBtn" class="ghost-btn compact-btn" type="button">取消</button>
+              <button id="importBtn" class="primary-btn compact-primary-btn" type="button">导入</button>
+            </div>
+          </div>
+
+          <input id="fileInput" class="hidden-file-input" type="file" multiple accept=".txt,.md,.pdf,.docx,.xlsx,.png,.jpg,.jpeg,.webp,text/plain,text/markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,image/png,image/jpeg,image/webp" />
+
+          <div class="composer">
+            <button id="toggleImportBtn" class="icon-btn" type="button" title="Add attachment">+</button>
+            <div class="composer-input-shell">
+              <textarea id="messageInput" rows="1" placeholder="Type your request. Press Enter to send, Shift+Enter for newline."></textarea>
+              <div class="composer-footnote">
+                <span id="composerHint">Use the dock to chat first; attach files only when needed.</span>
+                <span class="composer-shortcut">Enter Send / Shift+Enter New line</span>
               </div>
             </div>
-            <div id="favoriteList" class="favorite-list"></div>
-          </section>
-        </div>
-      </section>
-
-      <section class="composer-zone">
-        <div class="composer-status-row">
-          <div id="composerPresence" class="composer-status-pill">尚未设置工作台</div>
-          <div id="composerScope" class="composer-status-pill">资料范围 · 0 个文件</div>
-          <div id="composerSession" class="composer-status-pill">智能配置 · 默认</div>
-        </div>
-
-        <div class="chat-mode-row">
-          <div class="chat-mode-switch" role="tablist" aria-label="回答模式">
-            <button id="chatOnlyBtn" class="chat-mode-btn active" type="button" aria-pressed="true">直接聊天</button>
-            <button id="docAssistBtn" class="chat-mode-btn" type="button" aria-pressed="false">资料增强</button>
+            <button id="sendBtn" class="send-btn" type="button">Send</button>
           </div>
-          <p id="chatModeHint" class="chat-mode-hint">默认不检索资料；需要依据时再显式开启。</p>
-        </div>
-
-        <div id="attachmentStrip" class="attachment-strip"></div>
-
-        <div id="attachMenu" class="attach-menu hidden" role="menu" aria-label="添加附件">
-          <button id="uploadFileBtn" class="attach-menu-item" type="button">上传文件</button>
-          <button id="pasteTextBtn" class="attach-menu-item" type="button">粘贴文本</button>
-        </div>
-
-        <div id="importComposer" class="import-composer hidden">
-          <div class="field import-title-field">
-            <label for="sourceName">文件名</label>
-            <input id="sourceName" type="text" placeholder="例如：需求说明.md" />
-          </div>
-          <div class="field">
-            <label for="fileContent">内容</label>
-            <textarea id="fileContent" rows="6" placeholder="粘贴文本内容，导入后会自动切块并建立索引"></textarea>
-          </div>
-          <div class="import-actions">
-            <button id="cancelImportBtn" class="ghost-btn compact-btn" type="button">取消</button>
-            <button id="importBtn" class="primary-btn compact-primary-btn" type="button">导入</button>
-          </div>
-        </div>
-
-        <input id="fileInput" class="hidden-file-input" type="file" multiple accept=".txt,.md,.pdf,.docx,.xlsx,.png,.jpg,.jpeg,.webp,text/plain,text/markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,image/png,image/jpeg,image/webp" />
-
-        <div class="composer">
-          <button id="toggleImportBtn" class="icon-btn" type="button" title="添加附件">+</button>
-          <div class="composer-input-shell">
-            <textarea id="messageInput" rows="1" placeholder="输入你的问题，Enter 发送，Shift+Enter 换行"></textarea>
-            <div class="composer-footnote">
-              <span id="composerHint">支持直接聊天、拖拽上传、粘贴文本和双击附件预览</span>
-              <span class="composer-shortcut">Enter 发送 / Shift+Enter 换行</span>
-            </div>
-          </div>
-          <button id="sendBtn" class="send-btn" type="button">发送</button>
-        </div>
-      </section>
-    </main>
+        </section>
+      </main>
+    </div>
   </div>
-
   <div id="previewDrawer" class="drawer hidden" aria-hidden="true">
     <div id="previewBackdrop" class="drawer-backdrop"></div>
     <aside class="drawer-panel" role="dialog" aria-modal="true" aria-labelledby="previewTitle">

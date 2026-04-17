@@ -63,6 +63,50 @@ def test_homepage_uses_workspace_settings_instead_of_exposing_admin_entry(client
     assert ">Admin<" not in html
 
 
+def test_homepage_uses_workspace_rail_and_recall_drawers(client) -> None:
+    html = _get_web_index(client)
+
+    assert 'id="workspaceRail"' in html
+    assert 'id="railNewChatBtn"' in html
+    assert """onclick="document.getElementById('newSessionBtn').click()" """[:-1] in html
+    assert 'id="railConversationsBtn" class="rail-btn" type="button" title="Conversations" onclick="' in html
+    assert 'id="railFilesBtn" class="rail-btn" type="button" title="Files" onclick="' in html
+    assert """id="railSettingsBtn" class="rail-btn rail-btn-bottom" type="button" title="Me / Settings" onclick="document.getElementById('workspaceSettingsBtn').click()" """[:-1] in html
+    assert 'id="conversationDrawer"' in html
+    assert 'id="fileDrawer"' in html
+    assert """id="drawerNewChatBtn" class="primary-btn compact-primary-btn" type="button" onclick="document.getElementById('newSessionBtn').click()" """[:-1] in html
+    assert "conversationDrawer'); const shouldOpen=drawer.classList.contains('hidden')" in html
+    assert "fileDrawer'); const shouldOpen=drawer.classList.contains('hidden')" in html
+
+
+def test_homepage_uses_launch_panel_and_dock_context_row(client) -> None:
+    html = _get_web_index(client)
+
+    assert 'id="heroPanel" class="hero-panel launch-panel"' in html
+    context_start = html.find('<div id="composerContextRow" class="composer-context-row">')
+    assert context_start != -1
+    context_end = html.find('<div class="chat-mode-row">', context_start)
+    assert context_end != -1
+    context_body = html[context_start:context_end]
+    assert 'id="composerPresence"' in context_body
+    assert 'id="composerScope"' in context_body
+    assert 'id="composerSession"' in context_body
+    assert 'class="composer-context-row hidden"' not in html
+    assert 'class="composer-status-row"' not in html
+    assert '<section id="heroPanel" class="hero-panel launch-panel">' in html
+    assert '<div class="launch-panel">' not in html
+
+
+def test_homepage_keeps_workspace_switch_visible(client) -> None:
+    html = _get_web_index(client)
+
+    assert 'class="workspace-intro hidden"' not in html
+    assert 'id="workspaceEyebrow"' in html
+    assert 'id="workspaceDescription"' in html
+    assert 'id="chatWorkspaceBtn"' in html
+    assert 'id="favoritesWorkspaceBtn"' in html
+
+
 def test_auth_modal_uses_login_and_register_forms(client) -> None:
     html = _get_web_index(client)
 
