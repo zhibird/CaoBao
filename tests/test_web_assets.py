@@ -13,6 +13,12 @@ def _get_web_index(client) -> str:
     return response.text
 
 
+def _get_web_styles(client) -> str:
+    response = client.get("/web/styles.css")
+    assert response.status_code == 200
+    return response.text
+
+
 def test_chat_message_card_exposes_favorite_as_only_capture_action(client) -> None:
     script = _get_web_app_script(client)
     capture_guard = 'if (assistantCaptureContext && assistantCaptureContext.channel !== "action") {'
@@ -79,6 +85,34 @@ def test_homepage_uses_workspace_rail_and_recall_drawers(client) -> None:
     assert """id="drawerNewChatBtn" class="primary-btn compact-primary-btn" type="button" onclick="document.getElementById('newSessionBtn').click()" """[:-1] in html
     assert 'id="conversationDrawer" class="surface-drawer conversation-drawer hidden" aria-hidden="true"' in html
     assert 'id="fileDrawer" class="surface-drawer file-drawer hidden" aria-hidden="true"' in html
+
+
+def test_styles_define_workspace_rail_drawers_and_dock(client) -> None:
+    css = _get_web_styles(client)
+    drawer_list_start = css.find(".surface-panel .history-list,")
+    drawer_list_end = css.find(".launch-panel", drawer_list_start)
+
+    assert ".workspace-rail" in css
+    assert ".surface-drawer" in css
+    assert ".surface-panel" in css
+    assert ".composer-dock" in css
+    assert ".composer-context-row" in css
+    assert ".composer-context-chip" in css
+    assert drawer_list_start != -1
+    assert drawer_list_end != -1
+    drawer_list_block = css[drawer_list_start:drawer_list_end]
+    assert ".surface-panel .document-list" in drawer_list_block
+    assert "flex: 1 1 auto;" in drawer_list_block
+    assert "overflow-y: auto;" in drawer_list_block
+
+
+def test_styles_define_motion_and_reduced_motion_rules(client) -> None:
+    css = _get_web_styles(client)
+
+    assert ".launch-panel" in css
+    assert ".workspace-stage-chat" in css
+    assert "@media (prefers-reduced-motion: reduce)" in css
+    assert "transition:" in css
 
 
 def test_frontend_binds_rail_drawer_and_settings_controls(client) -> None:
