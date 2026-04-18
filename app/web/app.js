@@ -12,6 +12,12 @@ const CHAT_MODE_CHAT = "chat";
 const CHAT_MODE_DOCS = "docs";
 const WORKSPACE_VIEW_CHAT = "chat";
 const WORKSPACE_VIEW_FAVORITES = "favorites";
+const WORKSPACE_STAGE_LAUNCH = "launch";
+const WORKSPACE_STAGE_CHAT = "chat";
+const ACTIVE_SURFACE_NONE = "none";
+const ACTIVE_SURFACE_CONVERSATIONS = "conversations";
+const ACTIVE_SURFACE_FILES = "files";
+const ACTIVE_SURFACE_SETTINGS = "settings";
 const AUTH_MODE_LOGIN = "login";
 const AUTH_MODE_REGISTER = "register";
 const VALIDATION_FIELD_LABELS = {
@@ -44,6 +50,7 @@ const STORAGE_KEYS = {
   legacyTeamName: "caibao.teamName",
   legacyUserId: "caibao.userId",
   legacyDisplayName: "caibao.displayName",
+  pendingFreshConversationPrefix: "caibao.pendingFreshConversation",
   selectedModelPrefix: "caibao.selectedModel",
   selectedEmbeddingPrefix: "caibao.selectedEmbedding",
 };
@@ -66,6 +73,9 @@ const state = {
   selectedDocumentIds: [],
   chatMode: CHAT_MODE_CHAT,
   workspaceView: WORKSPACE_VIEW_CHAT,
+  workspaceStage: WORKSPACE_STAGE_LAUNCH,
+  activeSurface: ACTIVE_SURFACE_NONE,
+  requiresFreshConversation: false,
   authMode: AUTH_MODE_LOGIN,
   sending: false,
   importing: false,
@@ -112,6 +122,10 @@ function bindElements() {
   els.workspaceDescription = document.getElementById("workspaceDescription");
   els.chatWorkspaceBtn = document.getElementById("chatWorkspaceBtn");
   els.favoritesWorkspaceBtn = document.getElementById("favoritesWorkspaceBtn");
+  els.railConversationsBtn = document.getElementById("railConversationsBtn");
+  els.railFilesBtn = document.getElementById("railFilesBtn");
+  els.conversationDrawer = document.getElementById("conversationDrawer");
+  els.fileDrawer = document.getElementById("fileDrawer");
   els.chatWorkspacePanel = document.getElementById("chatWorkspacePanel");
   els.favoritesPanel = document.getElementById("favoritesPanel");
   els.favoriteList = document.getElementById("favoriteList");
@@ -304,6 +318,28 @@ function bindEvents() {
       setWorkspaceView(WORKSPACE_VIEW_FAVORITES).catch((error) => showToast(error.message, true));
     });
   }
+  if (els.railConversationsBtn) {
+    els.railConversationsBtn.addEventListener("click", () => {
+      window.requestAnimationFrame(() => {
+        const nextSurface = state.activeSurface === ACTIVE_SURFACE_CONVERSATIONS
+          ? ACTIVE_SURFACE_NONE
+          : ACTIVE_SURFACE_CONVERSATIONS;
+        setActiveSurface(nextSurface);
+        refreshWorkspaceUi();
+      });
+    });
+  }
+  if (els.railFilesBtn) {
+    els.railFilesBtn.addEventListener("click", () => {
+      window.requestAnimationFrame(() => {
+        const nextSurface = state.activeSurface === ACTIVE_SURFACE_FILES
+          ? ACTIVE_SURFACE_NONE
+          : ACTIVE_SURFACE_FILES;
+        setActiveSurface(nextSurface);
+        refreshWorkspaceUi();
+      });
+    });
+  }
 
   els.newSessionBtn.addEventListener("click", () => {
     createAndSwitchConversation().catch((error) => showToast(error.message, true));
@@ -375,7 +411,8 @@ function bindEvents() {
       closeAttachMenu();
       closePreviewDrawer();
       closeImageViewer();
-      closeSettingsModal();
+      setActiveSurface(ACTIVE_SURFACE_NONE);
+      refreshWorkspaceUi();
       closeAuthModal();
       closeCustomModelModal();
       closeCustomEmbeddingModal();
@@ -426,6 +463,30 @@ function persistConversation() {
   localStorage.setItem(STORAGE_KEYS.conversationId, state.conversationId || "");
 }
 
+function freshConversationStorageKey() {
+  if (state.teamId && state.userId) {
+    return `${STORAGE_KEYS.pendingFreshConversationPrefix}:${state.teamId}:${state.userId}`;
+  }
+  return STORAGE_KEYS.pendingFreshConversationPrefix;
+}
+
+function loadFreshConversationRequirement() {
+  return localStorage.getItem(freshConversationStorageKey()) === "1";
+}
+
+function persistFreshConversationRequirement() {
+  if (state.requiresFreshConversation) {
+    localStorage.setItem(freshConversationStorageKey(), "1");
+    return;
+  }
+  localStorage.removeItem(freshConversationStorageKey());
+}
+
+function setRequiresFreshConversation(required) {
+  state.requiresFreshConversation = Boolean(required);
+  persistFreshConversationRequirement();
+}
+
 function normalizeAuthUserId(value) {
   return String(value || "").trim().replace(/\s+/g, "_").slice(0, 64);
 }
@@ -463,6 +524,7 @@ function applyAuthSession(session, { resetConversation = false } = {}) {
   state.displayName = session?.display_name || session?.team_name || session?.user_id || "";
   state.selectedDocumentIds = [];
   state.chatMode = CHAT_MODE_CHAT;
+  state.requiresFreshConversation = loadFreshConversationRequirement();
   if (resetConversation) {
     state.conversationId = "";
     persistConversation();
@@ -483,6 +545,9 @@ function resetAuthenticatedWorkspace() {
   state.embeddingConfigs = [];
   state.chatMode = CHAT_MODE_CHAT;
   state.workspaceView = WORKSPACE_VIEW_CHAT;
+  setRequiresFreshConversation(false);
+  setWorkspaceStage(WORKSPACE_STAGE_LAUNCH);
+  setActiveSurface(ACTIVE_SURFACE_NONE);
   state.sending = false;
   state.importing = false;
   resetMessageCaptureState();
@@ -497,6 +562,7 @@ function resetAuthenticatedWorkspace() {
 }
 
 function handleSignedOutState({ openAuthDialog = false } = {}) {
+  setRequiresFreshConversation(false);
   state.teamId = "";
   state.teamName = "";
   state.userId = "";
@@ -506,7 +572,6 @@ function handleSignedOutState({ openAuthDialog = false } = {}) {
   state.selectedModel = loadSelectedModelFromStorage();
   state.selectedEmbedding = loadSelectedEmbeddingFromStorage();
   resetAuthenticatedWorkspace();
-  closeSettingsModal();
   updateIdentityCard();
   if (openAuthDialog) {
     openAuthModal(AUTH_MODE_LOGIN);
@@ -517,11 +582,25 @@ function handleSignedOutState({ openAuthDialog = false } = {}) {
 
 async function finalizeAuthSuccess(session, toastMessage) {
   applyAuthSession(session, { resetConversation: true });
-  closeSettingsModal();
+  setWorkspaceStage(WORKSPACE_STAGE_LAUNCH);
+  setActiveSurface(ACTIVE_SURFACE_NONE);
   closeAuthModal();
   updateIdentityCard();
   clearConversation();
-  await loadAllData();
+  await Promise.all([loadModelConfigs(), loadEmbeddingConfigs(), loadConversations()]);
+  state.conversationId = "";
+  state.history = [];
+  state.documents = [];
+  state.selectedDocumentIds = [];
+  setRequiresFreshConversation(true);
+  persistConversation();
+  resetMessageCaptureState();
+  renderConversationList();
+  renderDocuments();
+  renderAttachmentStrip();
+  renderFavoriteWorkspace();
+  refreshWorkspaceUi();
+  els.messageInput.focus();
   if (toastMessage) {
     showToast(toastMessage);
   }
@@ -758,6 +837,27 @@ function setChatMode(mode, { silent = false } = {}) {
   renderAttachmentStrip();
 }
 
+function setWorkspaceStage(stage) {
+  state.workspaceStage = stage === WORKSPACE_STAGE_CHAT
+    ? WORKSPACE_STAGE_CHAT
+    : WORKSPACE_STAGE_LAUNCH;
+  syncWorkspaceStage();
+}
+
+function syncWorkspaceStage() {
+  const isChatStage = state.workspaceStage === WORKSPACE_STAGE_CHAT;
+  if (els.shell) {
+    els.shell.classList.toggle("workspace-stage-launch", !isChatStage);
+    els.shell.classList.toggle("workspace-stage-chat", isChatStage);
+  }
+  if (els.heroPanel) {
+    els.heroPanel.classList.toggle("hidden", isChatStage);
+  }
+  if (els.conversation) {
+    els.conversation.classList.toggle("has-messages", isChatStage);
+  }
+}
+
 function getDocumentScopeSummary() {
   const readyCount = getReadyDocumentCount();
   const processingCount = getProcessingDocumentCount();
@@ -807,6 +907,45 @@ async function setWorkspaceView(view) {
   if (nextView === WORKSPACE_VIEW_FAVORITES) {
     renderFavoriteWorkspace();
     await loadFavoriteWorkspaceAssets();
+  }
+}
+
+function setActiveSurface(surface) {
+  if (surface === ACTIVE_SURFACE_CONVERSATIONS) {
+    state.activeSurface = ACTIVE_SURFACE_CONVERSATIONS;
+    syncActiveSurface();
+    return;
+  }
+  if (surface === ACTIVE_SURFACE_FILES) {
+    state.activeSurface = ACTIVE_SURFACE_FILES;
+    syncActiveSurface();
+    return;
+  }
+  if (surface === ACTIVE_SURFACE_SETTINGS) {
+    state.activeSurface = ACTIVE_SURFACE_SETTINGS;
+    syncActiveSurface();
+    return;
+  }
+  state.activeSurface = ACTIVE_SURFACE_NONE;
+  syncActiveSurface();
+}
+
+function syncActiveSurface() {
+  const isConversationSurface = state.activeSurface === ACTIVE_SURFACE_CONVERSATIONS;
+  const isFileSurface = state.activeSurface === ACTIVE_SURFACE_FILES;
+  const isSettingsSurface = state.activeSurface === ACTIVE_SURFACE_SETTINGS;
+
+  if (els.conversationDrawer) {
+    els.conversationDrawer.classList.toggle("hidden", !isConversationSurface);
+    els.conversationDrawer.setAttribute("aria-hidden", String(!isConversationSurface));
+  }
+  if (els.fileDrawer) {
+    els.fileDrawer.classList.toggle("hidden", !isFileSurface);
+    els.fileDrawer.setAttribute("aria-hidden", String(!isFileSurface));
+  }
+  if (els.settingsModal) {
+    els.settingsModal.classList.toggle("hidden", !isSettingsSurface);
+    els.settingsModal.setAttribute("aria-hidden", String(!isSettingsSurface));
   }
 }
 
@@ -1190,6 +1329,23 @@ async function loadAllData() {
   initModelOptions();
   initEmbeddingOptions();
   await loadConversations();
+  if (state.requiresFreshConversation) {
+    state.conversationId = "";
+    state.history = [];
+    state.documents = [];
+    state.selectedDocumentIds = [];
+    persistConversation();
+    setWorkspaceStage(WORKSPACE_STAGE_LAUNCH);
+    setActiveSurface(ACTIVE_SURFACE_NONE);
+    clearConversation();
+    resetMessageCaptureState();
+    renderConversationList();
+    renderDocuments();
+    renderAttachmentStrip();
+    renderFavoriteWorkspace();
+    refreshWorkspaceUi();
+    return;
+  }
   await ensureActiveConversation();
   await Promise.all([loadHistory(), loadDocuments(), loadMessageCaptures()]);
   refreshWorkspaceUi();
@@ -1240,7 +1396,7 @@ async function loadConversations() {
 
 async function ensureActiveConversation() {
   if (!state.conversations.length) {
-    const created = await createConversation("新会话");
+    const created = await createConversation(DEFAULT_CONVERSATION_TITLE);
     state.conversations = [created];
   }
 
@@ -1249,6 +1405,7 @@ async function ensureActiveConversation() {
     state.conversationId = state.conversations[0].conversation_id;
     persistConversation();
   }
+  setRequiresFreshConversation(false);
   renderConversationList();
 }
 
@@ -1375,14 +1532,15 @@ async function createConversation(title) {
   });
 }
 
-async function createAndSwitchConversation() {
+async function createAndSwitchConversation({ silent = false } = {}) {
   if (!ensureIdentity()) {
     openAuthModal();
       showToast("请先登录", true);
     return;
   }
 
-  const created = await createConversation("新会话");
+  const created = await createConversation(DEFAULT_CONVERSATION_TITLE);
+  setRequiresFreshConversation(false);
   state.conversationId = created.conversation_id;
   state.selectedDocumentIds = [];
   state.chatMode = CHAT_MODE_CHAT;
@@ -1390,7 +1548,9 @@ async function createAndSwitchConversation() {
   await loadConversations();
   clearConversation();
   await Promise.all([loadHistory(), loadDocuments(), loadMessageCaptures()]);
-  showToast("已创建新会话");
+  if (!silent) {
+    showToast("已创建新会话");
+  }
 }
 
 async function switchConversation(conversationId) {
@@ -1398,6 +1558,7 @@ async function switchConversation(conversationId) {
     return;
   }
   state.conversationId = conversationId;
+  setRequiresFreshConversation(false);
   state.selectedDocumentIds = [];
   state.chatMode = CHAT_MODE_CHAT;
   persistConversation();
@@ -2839,6 +3000,11 @@ function closeAttachMenu() {
 
 async function ensureConversationReady() {
   if (state.conversationId) {
+    setRequiresFreshConversation(false);
+    return;
+  }
+  if (state.requiresFreshConversation) {
+    await createAndSwitchConversation({ silent: true });
     return;
   }
   await loadConversations();
@@ -2894,6 +3060,8 @@ async function handleSend() {
   }
 
   await ensureConversationReady();
+  setWorkspaceStage(WORKSPACE_STAGE_CHAT);
+  setActiveSurface(ACTIVE_SURFACE_NONE);
   state.sending = true;
   syncSendButtonState();
 
@@ -3715,12 +3883,7 @@ function clearConversation() {
 }
 
 function setHeroVisible(visible) {
-  if (els.heroPanel) {
-    els.heroPanel.classList.toggle("hidden", !visible);
-  }
-  if (els.conversation) {
-    els.conversation.classList.toggle("has-messages", !visible);
-  }
+  setWorkspaceStage(visible ? WORKSPACE_STAGE_LAUNCH : WORKSPACE_STAGE_CHAT);
 }
 
 function applyScenarioCard(scene) {
@@ -3993,10 +4156,6 @@ function refreshWorkspaceUi() {
   if (els.chatModeHint) {
     els.chatModeHint.textContent = getChatModeHint(readyCount, getProcessingDocumentCount());
   }
-  if (els.heroPanel && els.conversation && !state.history.length && !pendingAssistantRow) {
-    els.heroPanel.classList.remove("hidden");
-    els.conversation.classList.remove("has-messages");
-  }
   if (els.shell) {
     els.shell.classList.toggle("has-history", Boolean(state.history.length || pendingAssistantRow));
   }
@@ -4006,6 +4165,8 @@ function refreshWorkspaceUi() {
       : "尚未登录";
   }
 
+  syncWorkspaceStage();
+  syncActiveSurface();
   syncWorkspaceView();
 }
 
@@ -4312,16 +4473,13 @@ function openSettingsModal() {
     openAuthModal(AUTH_MODE_LOGIN);
     return;
   }
+  setActiveSurface(ACTIVE_SURFACE_SETTINGS);
   updateIdentityCard();
-  if (els.settingsModal) {
-    els.settingsModal.classList.remove("hidden");
-  }
 }
 
 function closeSettingsModal() {
-  if (els.settingsModal) {
-    els.settingsModal.classList.add("hidden");
-  }
+  setActiveSurface(ACTIVE_SURFACE_NONE);
+  refreshWorkspaceUi();
 }
 
 function openCustomModelModal() {

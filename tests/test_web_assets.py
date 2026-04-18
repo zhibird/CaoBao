@@ -69,14 +69,16 @@ def test_homepage_uses_workspace_rail_and_recall_drawers(client) -> None:
     assert 'id="workspaceRail"' in html
     assert 'id="railNewChatBtn"' in html
     assert """onclick="document.getElementById('newSessionBtn').click()" """[:-1] in html
-    assert 'id="railConversationsBtn" class="rail-btn" type="button" title="Conversations" onclick="' in html
-    assert 'id="railFilesBtn" class="rail-btn" type="button" title="Files" onclick="' in html
+    assert 'id="railConversationsBtn" class="rail-btn" type="button" title="Conversations"' in html
+    assert 'id="railFilesBtn" class="rail-btn" type="button" title="Files"' in html
+    assert 'id="railConversationsBtn" class="rail-btn" type="button" title="Conversations" onclick="' not in html
+    assert 'id="railFilesBtn" class="rail-btn" type="button" title="Files" onclick="' not in html
     assert """id="railSettingsBtn" class="rail-btn rail-btn-bottom" type="button" title="Me / Settings" onclick="document.getElementById('workspaceSettingsBtn').click()" """[:-1] in html
     assert 'id="conversationDrawer"' in html
     assert 'id="fileDrawer"' in html
     assert """id="drawerNewChatBtn" class="primary-btn compact-primary-btn" type="button" onclick="document.getElementById('newSessionBtn').click()" """[:-1] in html
-    assert "conversationDrawer'); const shouldOpen=drawer.classList.contains('hidden')" in html
-    assert "fileDrawer'); const shouldOpen=drawer.classList.contains('hidden')" in html
+    assert 'id="conversationDrawer" class="surface-drawer conversation-drawer hidden" aria-hidden="true"' in html
+    assert 'id="fileDrawer" class="surface-drawer file-drawer hidden" aria-hidden="true"' in html
 
 
 def test_homepage_uses_launch_panel_and_dock_context_row(client) -> None:
@@ -202,3 +204,162 @@ def test_favorite_workflow_supports_toggle_and_secondary_actions(client) -> None
     assert "/promote-to-memory" in script
     assert "/promote-to-conclusion" in script
     assert "/documents/import" in script
+
+
+def test_frontend_tracks_workspace_stage_and_active_surface(client) -> None:
+    script = _get_web_app_script(client)
+    set_stage_start = script.find("function setWorkspaceStage(stage) {")
+    set_stage_end = script.find("function syncWorkspaceStage()", set_stage_start)
+    set_surface_start = script.find("function setActiveSurface(surface) {")
+    stage_sync_start = set_stage_end
+    sync_start = script.find("function syncActiveSurface() {")
+    sync_end = script.find("function syncWorkspaceView()", sync_start)
+
+    assert 'const WORKSPACE_STAGE_LAUNCH = "launch"' in script
+    assert 'const WORKSPACE_STAGE_CHAT = "chat"' in script
+    assert 'const ACTIVE_SURFACE_NONE = "none"' in script
+    assert 'const ACTIVE_SURFACE_CONVERSATIONS = "conversations"' in script
+    assert 'const ACTIVE_SURFACE_FILES = "files"' in script
+    assert 'const ACTIVE_SURFACE_SETTINGS = "settings"' in script
+    assert "workspaceStage:" in script
+    assert "activeSurface:" in script
+    assert "function setWorkspaceStage(stage)" in script
+    assert "function setActiveSurface(surface)" in script
+    assert "function syncWorkspaceStage()" in script
+    assert "function syncActiveSurface()" in script
+    assert set_stage_start != -1
+    assert set_stage_end != -1
+    assert set_surface_start != -1
+    assert sync_start != -1
+    assert sync_end != -1
+    set_stage_body = script[set_stage_start:set_stage_end]
+    stage_sync_body = script[stage_sync_start:sync_start]
+    set_surface_body = script[set_surface_start:sync_start]
+    assert "syncWorkspaceStage();" in set_stage_body
+    assert 'els.shell.classList.toggle("workspace-stage-launch", !isChatStage)' in stage_sync_body
+    assert 'els.shell.classList.toggle("workspace-stage-chat", isChatStage)' in stage_sync_body
+    assert "syncActiveSurface();" in set_surface_body
+    sync_body = script[sync_start:sync_end]
+    assert 'els.conversationDrawer.classList.toggle("hidden", !isConversationSurface)' in sync_body
+    assert 'els.conversationDrawer.setAttribute("aria-hidden", String(!isConversationSurface))' in sync_body
+    assert 'els.fileDrawer.classList.toggle("hidden", !isFileSurface)' in sync_body
+    assert 'els.fileDrawer.setAttribute("aria-hidden", String(!isFileSurface))' in sync_body
+
+
+def test_frontend_workspace_stage_rail_toggles_use_active_surface_state(client) -> None:
+    script = _get_web_app_script(client)
+
+    conv_start = script.find("if (els.railConversationsBtn) {")
+    conv_end = script.find("if (els.railFilesBtn) {", conv_start)
+    assert conv_start != -1
+    assert conv_end != -1
+    conv_body = script[conv_start:conv_end]
+    assert "state.activeSurface === ACTIVE_SURFACE_CONVERSATIONS" in conv_body
+    assert "? ACTIVE_SURFACE_NONE" in conv_body
+    assert ": ACTIVE_SURFACE_CONVERSATIONS" in conv_body
+    assert 'classList.contains("hidden")' not in conv_body
+
+    file_start = conv_end
+    file_end = script.find("els.newSessionBtn.addEventListener", file_start)
+    assert file_end != -1
+    file_body = script[file_start:file_end]
+    assert "state.activeSurface === ACTIVE_SURFACE_FILES" in file_body
+    assert "? ACTIVE_SURFACE_NONE" in file_body
+    assert ": ACTIVE_SURFACE_FILES" in file_body
+    assert 'classList.contains("hidden")' not in file_body
+
+
+def test_frontend_workspace_stage_auth_success_resets_to_launch_with_no_surface(client) -> None:
+    script = _get_web_app_script(client)
+
+    auth_start = script.find("async function finalizeAuthSuccess(session, toastMessage) {")
+    auth_end = script.find("async function bootstrapAuthSession()", auth_start)
+    assert auth_start != -1
+    assert auth_end != -1
+    auth_body = script[auth_start:auth_end]
+    assert "setWorkspaceStage(WORKSPACE_STAGE_LAUNCH);" in auth_body
+    assert "setActiveSurface(ACTIVE_SURFACE_NONE);" in auth_body
+    assert "setRequiresFreshConversation(true);" in auth_body
+    assert "loadAllData();" not in auth_body
+    assert "loadConversations()" in auth_body
+    assert "els.messageInput.focus();" in auth_body
+
+    send_start = script.find("async function handleSend() {")
+    send_end = script.find("function getExplicitSelectedDocumentIds()", send_start)
+    assert send_start != -1
+    assert send_end != -1
+    send_body = script[send_start:send_end]
+    assert "setWorkspaceStage(WORKSPACE_STAGE_CHAT);" in send_body
+    assert "setActiveSurface(ACTIVE_SURFACE_NONE);" in send_body
+
+
+def test_frontend_requires_a_fresh_conversation_after_auth_success(client) -> None:
+    script = _get_web_app_script(client)
+
+    assert "requiresFreshConversation:" in script
+    assert "function setRequiresFreshConversation(required)" in script
+
+    create_start = script.find("async function createAndSwitchConversation({ silent = false } = {}) {")
+    create_end = script.find("async function switchConversation(conversationId) {", create_start)
+    assert create_start != -1
+    assert create_end != -1
+    create_body = script[create_start:create_end]
+    assert "setRequiresFreshConversation(false);" in create_body
+    assert "await loadConversations();" in create_body
+    assert 'showToast("已创建新会话");' in create_body
+
+    switch_start = create_end
+    switch_end = script.find("async function renameConversation(conversation)", switch_start)
+    assert switch_end != -1
+    switch_body = script[switch_start:switch_end]
+    assert "setRequiresFreshConversation(false);" in switch_body
+
+    ready_start = script.find("async function ensureConversationReady() {")
+    ready_end = script.find("function syncSendButtonState()", ready_start)
+    assert ready_start != -1
+    assert ready_end != -1
+    ready_body = script[ready_start:ready_end]
+    assert "if (state.requiresFreshConversation) {" in ready_body
+    assert "await createAndSwitchConversation({ silent: true });" in ready_body
+    assert "await ensureActiveConversation();" in ready_body
+
+
+def test_frontend_persists_pending_fresh_conversation_across_reload(client) -> None:
+    script = _get_web_app_script(client)
+
+    assert 'pendingFreshConversationPrefix: "caibao.pendingFreshConversation"' in script
+    assert "function freshConversationStorageKey()" in script
+    assert "function loadFreshConversationRequirement()" in script
+    assert "function persistFreshConversationRequirement()" in script
+
+    apply_start = script.find("function applyAuthSession(session, { resetConversation = false } = {}) {")
+    apply_end = script.find("function resetAuthenticatedWorkspace()", apply_start)
+    assert apply_start != -1
+    assert apply_end != -1
+    apply_body = script[apply_start:apply_end]
+    assert "state.requiresFreshConversation = loadFreshConversationRequirement();" in apply_body
+
+    load_all_start = script.find("async function loadAllData() {")
+    load_all_end = script.find("async function loadModelConfigs()", load_all_start)
+    assert load_all_start != -1
+    assert load_all_end != -1
+    load_all_body = script[load_all_start:load_all_end]
+    assert "if (state.requiresFreshConversation) {" in load_all_body
+    assert "setWorkspaceStage(WORKSPACE_STAGE_LAUNCH);" in load_all_body
+    assert "setActiveSurface(ACTIVE_SURFACE_NONE);" in load_all_body
+    assert "clearConversation();" in load_all_body
+    assert "await ensureActiveConversation();" in load_all_body
+
+    signed_out_start = script.find("function handleSignedOutState({ openAuthDialog = false } = {}) {")
+    signed_out_end = script.find("async function finalizeAuthSuccess(session, toastMessage) {", signed_out_start)
+    assert signed_out_start != -1
+    assert signed_out_end != -1
+    signed_out_body = script[signed_out_start:signed_out_end]
+    assert "setRequiresFreshConversation(false);" in signed_out_body
+
+
+def test_frontend_supports_escape_to_close_recall_surfaces(client) -> None:
+    script = _get_web_app_script(client)
+
+    assert 'if (event.key === "Escape") {' in script
+    assert "setActiveSurface(ACTIVE_SURFACE_NONE)" in script

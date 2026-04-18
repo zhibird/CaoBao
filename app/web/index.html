@@ -15,8 +15,8 @@
   <div class="shell">
     <aside id="workspaceRail" class="workspace-rail" aria-label="Workspace navigation">
       <button id="railNewChatBtn" class="rail-btn rail-btn-primary" type="button" title="New chat" onclick="document.getElementById('newSessionBtn').click()">+</button>
-      <button id="railConversationsBtn" class="rail-btn" type="button" title="Conversations" onclick="const drawer=document.getElementById('conversationDrawer'); const fileDrawer=document.getElementById('fileDrawer'); const shouldOpen=drawer.classList.contains('hidden'); drawer.classList.toggle('hidden', !shouldOpen); drawer.setAttribute('aria-hidden', shouldOpen ? 'false' : 'true'); fileDrawer.classList.add('hidden'); fileDrawer.setAttribute('aria-hidden', 'true');">C</button>
-      <button id="railFilesBtn" class="rail-btn" type="button" title="Files" onclick="const drawer=document.getElementById('fileDrawer'); const conversationDrawer=document.getElementById('conversationDrawer'); const shouldOpen=drawer.classList.contains('hidden'); drawer.classList.toggle('hidden', !shouldOpen); drawer.setAttribute('aria-hidden', shouldOpen ? 'false' : 'true'); conversationDrawer.classList.add('hidden'); conversationDrawer.setAttribute('aria-hidden', 'true');">F</button>
+      <button id="railConversationsBtn" class="rail-btn" type="button" title="Conversations">C</button>
+      <button id="railFilesBtn" class="rail-btn" type="button" title="Files">F</button>
       <button id="railSettingsBtn" class="rail-btn rail-btn-bottom" type="button" title="Me / Settings" onclick="document.getElementById('workspaceSettingsBtn').click()">Me</button>
 
       <div class="hidden" aria-hidden="true">
