@@ -98,7 +98,7 @@ document.addEventListener("DOMContentLoaded", () => {
   updateIdentityCard();
   initModelOptions();
   initEmbeddingOptions();
-  renderAttachmentStrip();
+  refreshComposerChrome();
   syncSendButtonState();
   refreshWorkspaceUi();
   bootstrapAuthSession().catch((error) => showToast(error.message, true));
@@ -122,10 +122,13 @@ function bindElements() {
   els.workspaceDescription = document.getElementById("workspaceDescription");
   els.chatWorkspaceBtn = document.getElementById("chatWorkspaceBtn");
   els.favoritesWorkspaceBtn = document.getElementById("favoritesWorkspaceBtn");
+  els.railNewChatBtn = document.getElementById("railNewChatBtn");
   els.railConversationsBtn = document.getElementById("railConversationsBtn");
   els.railFilesBtn = document.getElementById("railFilesBtn");
+  els.railSettingsBtn = document.getElementById("railSettingsBtn");
   els.conversationDrawer = document.getElementById("conversationDrawer");
   els.fileDrawer = document.getElementById("fileDrawer");
+  els.drawerNewChatBtn = document.getElementById("drawerNewChatBtn");
   els.chatWorkspacePanel = document.getElementById("chatWorkspacePanel");
   els.favoritesPanel = document.getElementById("favoritesPanel");
   els.favoriteList = document.getElementById("favoriteList");
@@ -156,6 +159,7 @@ function bindElements() {
   els.composerScope = document.getElementById("composerScope");
   els.composerSession = document.getElementById("composerSession");
   els.composerHint = document.getElementById("composerHint");
+  els.composerContextRow = document.getElementById("composerContextRow");
   els.chatOnlyBtn = document.getElementById("chatOnlyBtn");
   els.docAssistBtn = document.getElementById("docAssistBtn");
   els.chatModeHint = document.getElementById("chatModeHint");
@@ -238,6 +242,10 @@ function bindEvents() {
   if (els.workspaceSettingsBtn) {
     els.workspaceSettingsBtn.addEventListener("click", openSettingsModal);
   }
+  if (els.railSettingsBtn) {
+    els.railSettingsBtn.onclick = null;
+    els.railSettingsBtn.addEventListener("click", openSettingsModal);
+  }
   if (els.closeSettingsBtn) {
     els.closeSettingsBtn.addEventListener("click", closeSettingsModal);
   }
@@ -316,6 +324,18 @@ function bindEvents() {
   if (els.favoritesWorkspaceBtn) {
     els.favoritesWorkspaceBtn.addEventListener("click", () => {
       setWorkspaceView(WORKSPACE_VIEW_FAVORITES).catch((error) => showToast(error.message, true));
+    });
+  }
+  if (els.railNewChatBtn) {
+    els.railNewChatBtn.onclick = null;
+    els.railNewChatBtn.addEventListener("click", () => {
+      createAndSwitchConversation().catch((error) => showToast(error.message, true));
+    });
+  }
+  if (els.drawerNewChatBtn) {
+    els.drawerNewChatBtn.onclick = null;
+    els.drawerNewChatBtn.addEventListener("click", () => {
+      createAndSwitchConversation().catch((error) => showToast(error.message, true));
     });
   }
   if (els.railConversationsBtn) {
@@ -554,7 +574,6 @@ function resetAuthenticatedWorkspace() {
   clearConversation();
   renderConversationList();
   renderDocuments();
-  renderAttachmentStrip();
   renderFavoriteWorkspace();
   initModelOptions();
   initEmbeddingOptions();
@@ -597,7 +616,6 @@ async function finalizeAuthSuccess(session, toastMessage) {
   resetMessageCaptureState();
   renderConversationList();
   renderDocuments();
-  renderAttachmentStrip();
   renderFavoriteWorkspace();
   refreshWorkspaceUi();
   els.messageInput.focus();
@@ -826,7 +844,8 @@ function setChatMode(mode, { silent = false } = {}) {
     if (!silent) {
       showToast("当前还没有可用资料，先上传并等待文件处理完成。", true);
     }
-    renderAttachmentStrip();
+    refreshComposerChrome();
+    refreshWorkspaceUi();
     return;
   }
 
@@ -834,7 +853,8 @@ function setChatMode(mode, { silent = false } = {}) {
   if (!wantsDocs) {
     state.selectedDocumentIds = [];
   }
-  renderAttachmentStrip();
+  refreshComposerChrome();
+  refreshWorkspaceUi();
 }
 
 function setWorkspaceStage(stage) {
@@ -1341,7 +1361,6 @@ async function loadAllData() {
     resetMessageCaptureState();
     renderConversationList();
     renderDocuments();
-    renderAttachmentStrip();
     renderFavoriteWorkspace();
     refreshWorkspaceUi();
     return;
@@ -1532,7 +1551,12 @@ async function createConversation(title) {
   });
 }
 
-async function createAndSwitchConversation({ silent = false } = {}) {
+async function createAndSwitchConversation({
+  silent = false,
+  restoreLaunch = true,
+  closeSurface = true,
+  focusComposer = true,
+} = {}) {
   if (!ensureIdentity()) {
     openAuthModal();
       showToast("请先登录", true);
@@ -1548,6 +1572,18 @@ async function createAndSwitchConversation({ silent = false } = {}) {
   await loadConversations();
   clearConversation();
   await Promise.all([loadHistory(), loadDocuments(), loadMessageCaptures()]);
+  if (restoreLaunch) {
+    setWorkspaceStage(WORKSPACE_STAGE_LAUNCH);
+  }
+  if (closeSurface) {
+    setActiveSurface(ACTIVE_SURFACE_NONE);
+  }
+  if (restoreLaunch || closeSurface) {
+    refreshWorkspaceUi();
+  }
+  if (focusComposer && els.messageInput) {
+    els.messageInput.focus();
+  }
   if (!silent) {
     showToast("已创建新会话");
   }
@@ -2420,7 +2456,6 @@ async function loadDocuments() {
     state.chatMode = CHAT_MODE_CHAT;
     resetMessageCaptureState();
     renderDocuments();
-    renderAttachmentStrip();
     return;
   }
 
@@ -2437,7 +2472,6 @@ async function loadDocuments() {
     state.chatMode = CHAT_MODE_CHAT;
   }
   renderDocuments();
-  renderAttachmentStrip();
 }
 
 function renderDocuments() {
@@ -2445,6 +2479,7 @@ function renderDocuments() {
 
   if (!state.documents.length) {
     appendEmpty(els.documentList, "还没有导入文件");
+    refreshComposerChrome();
     refreshWorkspaceUi();
     return;
   }
@@ -2511,7 +2546,60 @@ function renderDocuments() {
     li.appendChild(actions);
     els.documentList.appendChild(li);
   }
+  refreshComposerChrome();
   refreshWorkspaceUi();
+}
+
+function renderComposerContextRow() {
+  if (!els.composerContextRow) {
+    return;
+  }
+
+  els.composerContextRow.innerHTML = "";
+
+  const readyCount = getReadyDocumentCount();
+  const processingCount = getProcessingDocumentCount();
+  const chips = [
+    {
+      label: state.chatMode === CHAT_MODE_DOCS && readyCount ? "资料增强" : "直接聊天",
+      tone: state.chatMode === CHAT_MODE_DOCS ? "accent" : "neutral",
+    },
+    {
+      label: state.documents.length ? `${state.documents.length} 文档` : "暂无文档",
+      tone: state.documents.length ? "info" : "muted",
+    },
+  ];
+
+  if (readyCount) {
+    chips.push({
+      label: `${readyCount} ready`,
+      tone: "success",
+    });
+  } else if (processingCount) {
+    chips.push({
+      label: `${processingCount} 处理中`,
+      tone: "warning",
+    });
+  }
+
+  chips.push({
+    label: state.selectedDocumentIds.length
+      ? `${state.selectedDocumentIds.length} 已选`
+      : (state.chatMode === CHAT_MODE_DOCS ? "全量检索" : "未选文档"),
+    tone: state.selectedDocumentIds.length ? "accent" : "neutral",
+  });
+
+  for (const chip of chips) {
+    const span = document.createElement("span");
+    span.className = `composer-context-chip ${chip.tone}`;
+    span.textContent = chip.label;
+    els.composerContextRow.appendChild(span);
+  }
+}
+
+function refreshComposerChrome() {
+  renderAttachmentStrip();
+  renderComposerContextRow();
 }
 
 function renderAttachmentStrip() {
@@ -2519,7 +2607,6 @@ function renderAttachmentStrip() {
 
   if (!state.documents.length) {
     els.attachmentStrip.classList.add("hidden");
-    refreshWorkspaceUi();
     return;
   }
 
@@ -2600,7 +2687,6 @@ function renderAttachmentStrip() {
   }
 
   els.attachmentStrip.appendChild(list);
-  refreshWorkspaceUi();
 }
 
 function handleChipClick(doc) {
@@ -2627,7 +2713,8 @@ function toggleDocumentSelection(documentId) {
     state.selectedDocumentIds = [...state.selectedDocumentIds, documentId];
     state.chatMode = CHAT_MODE_DOCS;
   }
-  renderAttachmentStrip();
+  refreshComposerChrome();
+  refreshWorkspaceUi();
 }
 
 async function deleteDocument(documentId, sourceName) {
@@ -3004,7 +3091,12 @@ async function ensureConversationReady() {
     return;
   }
   if (state.requiresFreshConversation) {
-    await createAndSwitchConversation({ silent: true });
+    await createAndSwitchConversation({
+      silent: true,
+      restoreLaunch: false,
+      closeSurface: false,
+      focusComposer: false,
+    });
     return;
   }
   await loadConversations();
@@ -3251,7 +3343,6 @@ async function importDocumentWithContent({ sourceName, content, contentType }) {
 
     upsertDocumentState(doc);
     renderDocuments();
-    renderAttachmentStrip();
     await pollDocumentsUntilSettled([doc.document_id]);
     const latest = state.documents.find((item) => item.document_id === doc.document_id);
     if (latest && normalizeStatus(latest.status) === "failed") {
@@ -3286,7 +3377,6 @@ function setDocumentStatusLocal(documentId, status) {
     return doc;
   });
   renderDocuments();
-  renderAttachmentStrip();
 }
 
 async function handleFileInputChange(event) {
@@ -3339,7 +3429,6 @@ async function uploadDocumentFile(file) {
 
     upsertDocumentState(doc);
     renderDocuments();
-    renderAttachmentStrip();
 
     await pollDocumentsUntilSettled([doc.document_id]);
     const latest = state.documents.find((item) => item.document_id === doc.document_id);

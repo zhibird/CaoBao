@@ -81,6 +81,25 @@ def test_homepage_uses_workspace_rail_and_recall_drawers(client) -> None:
     assert 'id="fileDrawer" class="surface-drawer file-drawer hidden" aria-hidden="true"' in html
 
 
+def test_frontend_binds_rail_drawer_and_settings_controls(client) -> None:
+    script = _get_web_app_script(client)
+
+    assert 'els.railNewChatBtn = document.getElementById("railNewChatBtn");' in script
+    assert 'els.railSettingsBtn = document.getElementById("railSettingsBtn");' in script
+    assert 'els.drawerNewChatBtn = document.getElementById("drawerNewChatBtn");' in script
+    assert 'els.composerContextRow = document.getElementById("composerContextRow");' in script
+
+    bind_start = script.find("function bindEvents() {")
+    bind_end = script.find("function handleGlobalDocumentClick(event)", bind_start)
+    assert bind_start != -1
+    assert bind_end != -1
+    bind_body = script[bind_start:bind_end]
+    assert 'els.railNewChatBtn.addEventListener("click"' in bind_body
+    assert 'els.drawerNewChatBtn.addEventListener("click"' in bind_body
+    assert 'els.railSettingsBtn.addEventListener("click", openSettingsModal);' in bind_body
+    assert "createAndSwitchConversation()" in bind_body
+
+
 def test_homepage_uses_launch_panel_and_dock_context_row(client) -> None:
     html = _get_web_index(client)
 
@@ -97,6 +116,56 @@ def test_homepage_uses_launch_panel_and_dock_context_row(client) -> None:
     assert 'class="composer-status-row"' not in html
     assert '<section id="heroPanel" class="hero-panel launch-panel">' in html
     assert '<div class="launch-panel">' not in html
+
+
+def test_frontend_renders_composer_context_row_and_refresh_helper(client) -> None:
+    script = _get_web_app_script(client)
+
+    render_start = script.find("function renderComposerContextRow() {")
+    refresh_start = script.find("function refreshComposerChrome() {")
+    assert render_start != -1
+    assert refresh_start != -1
+    refresh_end = script.find("function refreshWorkspaceUi()", refresh_start)
+    assert refresh_end != -1
+
+    render_body = script[render_start:refresh_start]
+    assert 'if (!els.composerContextRow)' in render_body
+    assert "state.chatMode" in render_body
+    assert "state.documents.length" in render_body
+    assert "state.selectedDocumentIds.length" in render_body
+    assert "getReadyDocumentCount()" in render_body
+
+    refresh_body = script[refresh_start:refresh_end]
+    assert "renderComposerContextRow();" in refresh_body
+    assert "renderAttachmentStrip();" in refresh_body
+
+    set_chat_start = script.find("function setChatMode(mode, { silent = false } = {}) {")
+    set_chat_end = script.find("function setWorkspaceStage(stage) {", set_chat_start)
+    assert set_chat_start != -1
+    assert set_chat_end != -1
+    set_chat_body = script[set_chat_start:set_chat_end]
+    assert "refreshComposerChrome();" in set_chat_body
+
+    render_docs_start = script.find("function renderDocuments() {")
+    render_docs_end = script.find("function renderAttachmentStrip()", render_docs_start)
+    assert render_docs_start != -1
+    assert render_docs_end != -1
+    render_docs_body = script[render_docs_start:render_docs_end]
+    assert "refreshComposerChrome();" in render_docs_body
+
+    import_start = script.find("async function importDocumentWithContent({ sourceName, content, contentType }) {")
+    import_end = script.find("function upsertDocumentState(doc) {", import_start)
+    assert import_start != -1
+    assert import_end != -1
+    import_body = script[import_start:import_end]
+    assert "renderDocuments();" in import_body
+
+    upload_start = script.find("async function uploadDocumentFile(file) {")
+    upload_end = script.find("function hasDraggedFiles(event) {", upload_start)
+    assert upload_start != -1
+    assert upload_end != -1
+    upload_body = script[upload_start:upload_end]
+    assert "renderDocuments();" in upload_body
 
 
 def test_homepage_keeps_workspace_switch_visible(client) -> None:
@@ -293,13 +362,32 @@ def test_frontend_workspace_stage_auth_success_resets_to_launch_with_no_surface(
     assert "setActiveSurface(ACTIVE_SURFACE_NONE);" in send_body
 
 
+def test_frontend_new_chat_returns_to_launch_and_focuses_composer(client) -> None:
+    script = _get_web_app_script(client)
+
+    create_start = script.find("async function createAndSwitchConversation({")
+    create_end = script.find("async function switchConversation(conversationId) {", create_start)
+    assert create_start != -1
+    assert create_end != -1
+    create_body = script[create_start:create_end]
+    assert "restoreLaunch = true" in create_body
+    assert "closeSurface = true" in create_body
+    assert "focusComposer = true" in create_body
+    assert "if (restoreLaunch) {" in create_body
+    assert "setWorkspaceStage(WORKSPACE_STAGE_LAUNCH);" in create_body
+    assert "if (closeSurface) {" in create_body
+    assert "setActiveSurface(ACTIVE_SURFACE_NONE);" in create_body
+    assert "if (focusComposer && els.messageInput) {" in create_body
+    assert "els.messageInput.focus();" in create_body
+
+
 def test_frontend_requires_a_fresh_conversation_after_auth_success(client) -> None:
     script = _get_web_app_script(client)
 
     assert "requiresFreshConversation:" in script
     assert "function setRequiresFreshConversation(required)" in script
 
-    create_start = script.find("async function createAndSwitchConversation({ silent = false } = {}) {")
+    create_start = script.find("async function createAndSwitchConversation({")
     create_end = script.find("async function switchConversation(conversationId) {", create_start)
     assert create_start != -1
     assert create_end != -1
@@ -320,7 +408,11 @@ def test_frontend_requires_a_fresh_conversation_after_auth_success(client) -> No
     assert ready_end != -1
     ready_body = script[ready_start:ready_end]
     assert "if (state.requiresFreshConversation) {" in ready_body
-    assert "await createAndSwitchConversation({ silent: true });" in ready_body
+    assert "await createAndSwitchConversation({" in ready_body
+    assert "silent: true," in ready_body
+    assert "restoreLaunch: false," in ready_body
+    assert "closeSurface: false," in ready_body
+    assert "focusComposer: false," in ready_body
     assert "await ensureActiveConversation();" in ready_body
 
 
