@@ -484,6 +484,21 @@ def test_frontend_persists_pending_fresh_conversation_across_reload(client) -> N
     assert "setRequiresFreshConversation(false);" in signed_out_body
 
 
+def test_homepage_keeps_preview_auth_and_settings_surfaces_while_using_recall_shell(client) -> None:
+    html = _get_web_index(client)
+    script = _get_web_app_script(client)
+
+    assert 'id="previewDrawer"' in html
+    assert 'id="imageViewer"' in html
+    assert 'id="authModal"' in html
+    assert 'id="settingsModal"' in html
+    assert "openDocumentPreview(doc)" in script
+    assert "openSettingsModal()" in script
+    assert "openAuthModal(AUTH_MODE_LOGIN)" in script
+    assert 'showToast("当前还没有可用资料，先上传并等待文件处理完成。", true);' in script
+    assert "doc.error_message || doc.error_code" in script
+
+
 def test_frontend_supports_escape_to_close_recall_surfaces(client) -> None:
     script = _get_web_app_script(client)
 
