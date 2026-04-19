@@ -18,6 +18,90 @@ def _get_web_styles(client) -> str:
     assert response.status_code == 200
     return response.text
 
+def _get_web_admin_html(client) -> str:
+    response = client.get("/web/admin.html")
+    assert response.status_code == 200
+    return response.text
+
+
+def _get_web_theme_styles(client) -> str:
+    response = client.get("/web/theme.css")
+    assert response.status_code == 200
+    return response.text
+
+
+def _get_web_admin_styles(client) -> str:
+    response = client.get("/web/admin.css")
+    assert response.status_code == 200
+    return response.text
+
+
+def test_chat_and_admin_load_shared_theme_stylesheet(client) -> None:
+    index_html = _get_web_index(client)
+    admin_html = _get_web_admin_html(client)
+
+    assert 'href="/web/theme.css' in index_html
+    assert 'href="/web/theme.css' in admin_html
+
+
+def test_theme_styles_define_tokens_soft_grid_and_shared_motion(client) -> None:
+    css = _get_web_theme_styles(client)
+
+    assert "--accent: #15695f;" in css
+    assert ".soft-grid-field" in css
+    assert ".surface-card" in css
+    assert ".shared-pill" in css
+    assert "@keyframes grid-drift" in css
+    assert "@media (prefers-reduced-motion: reduce)" in css
+
+
+def test_workspace_specific_styles_consume_shared_foundation_tokens(client) -> None:
+    theme_css = _get_web_theme_styles(client)
+    chat_css = _get_web_styles(client)
+    admin_css = _get_web_admin_styles(client)
+
+    assert "--muted:" in theme_css
+    assert "--danger:" in theme_css
+
+    for token in (
+        "--bg:",
+        "--ink:",
+        "--ink-soft:",
+        "--line:",
+        "--accent:",
+        "--accent-strong:",
+        "--panel:",
+        "--panel-strong:",
+        "--muted:",
+        "--danger:",
+        "--radius-xl:",
+        "--radius-lg:",
+        "--radius-md:",
+        "--radius-sm:",
+        "--shadow-soft:",
+        "--shadow-strong:",
+    ):
+        assert token not in chat_css
+
+    for token in (
+        "--bg:",
+        "--ink:",
+        "--line:",
+        "--accent:",
+        "--panel:",
+        "--muted:",
+        "--danger:",
+    ):
+        assert token not in admin_css
+
+
+def test_workspace_specific_styles_do_not_redeclare_reduced_motion_foundation(client) -> None:
+    chat_css = _get_web_styles(client)
+    admin_css = _get_web_admin_styles(client)
+
+    assert "@media (prefers-reduced-motion: reduce)" not in chat_css
+    assert "@media (prefers-reduced-motion: reduce)" not in admin_css
+
 
 def test_chat_message_card_exposes_favorite_as_only_capture_action(client) -> None:
     script = _get_web_app_script(client)
