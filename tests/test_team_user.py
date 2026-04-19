@@ -1,5 +1,7 @@
 from uuid import uuid4
 
+from tests.auth_helpers import login_existing_user
+
 
 def test_create_team_and_user(client) -> None:
     suffix = uuid4().hex[:8]
@@ -196,30 +198,22 @@ def test_workspace_bootstrap_sequence_is_repeatable_without_conflicts(client) ->
     )
     assert second_user_response.status_code == 200
 
+    logged_in_team_id, logged_in_user_id = login_existing_user(client, user_id=workspace_id)
+    assert logged_in_team_id == workspace_id
+    assert logged_in_user_id == workspace_id
+
     llm_response = client.get(
         "/api/v1/llm/models",
-        params={
-            "team_id": workspace_id,
-            "user_id": workspace_id,
-        },
     )
     assert llm_response.status_code == 200
 
     embedding_response = client.get(
         "/api/v1/embedding/models",
-        params={
-            "team_id": workspace_id,
-            "user_id": workspace_id,
-        },
     )
     assert embedding_response.status_code == 200
 
     conversations_response = client.get(
         "/api/v1/conversations",
-        params={
-            "team_id": workspace_id,
-            "user_id": workspace_id,
-            "limit": 100,
-        },
+        params={"limit": 100},
     )
     assert conversations_response.status_code == 200

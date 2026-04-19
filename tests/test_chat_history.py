@@ -1,37 +1,19 @@
 from uuid import uuid4
 
+from tests.auth_helpers import register_workspace_user
+
 
 def test_chat_history_records_echo(client) -> None:
     suffix = uuid4().hex[:8]
-    team_id = f"team_history_echo_{suffix}"
-    user_id = f"u_history_echo_{suffix}"
-
-    create_team = client.post(
-        "/api/v1/teams",
-        json={
-            "team_id": team_id,
-            "name": "History Echo Team",
-            "description": "for history echo",
-        },
+    team_id, user_id = register_workspace_user(
+        client,
+        prefix=f"history_echo_{suffix}",
+        display_name="Echo User",
     )
-    assert create_team.status_code == 201
-
-    create_user = client.post(
-        "/api/v1/users",
-        json={
-            "user_id": user_id,
-            "team_id": team_id,
-            "display_name": "Echo User",
-            "role": "member",
-        },
-    )
-    assert create_user.status_code == 201
 
     chat_response = client.post(
         "/api/v1/chat/echo",
         json={
-            "user_id": user_id,
-            "team_id": team_id,
             "message": "hello history",
         },
     )
@@ -40,8 +22,6 @@ def test_chat_history_records_echo(client) -> None:
     history_response = client.get(
         "/api/v1/chat/history",
         params={
-            "team_id": team_id,
-            "user_id": user_id,
             "limit": 5,
         },
     )
@@ -61,29 +41,11 @@ def test_chat_history_records_echo(client) -> None:
 
 def test_chat_history_records_ask_and_action(client) -> None:
     suffix = uuid4().hex[:8]
-    team_id = f"team_history_flow_{suffix}"
-    user_id = f"u_history_flow_{suffix}"
-
-    create_team = client.post(
-        "/api/v1/teams",
-        json={
-            "team_id": team_id,
-            "name": "History Flow Team",
-            "description": "for history flow",
-        },
+    team_id, user_id = register_workspace_user(
+        client,
+        prefix=f"history_flow_{suffix}",
+        display_name="Flow User",
     )
-    assert create_team.status_code == 201
-
-    create_user = client.post(
-        "/api/v1/users",
-        json={
-            "user_id": user_id,
-            "team_id": team_id,
-            "display_name": "Flow User",
-            "role": "member",
-        },
-    )
-    assert create_user.status_code == 201
 
     import_response = client.post(
         "/api/v1/documents/import",
@@ -119,8 +81,6 @@ def test_chat_history_records_ask_and_action(client) -> None:
     ask_response = client.post(
         "/api/v1/chat/ask",
         json={
-            "user_id": user_id,
-            "team_id": team_id,
             "question": "alerts first?",
             "top_k": 3,
             "document_id": document_id,
@@ -131,8 +91,6 @@ def test_chat_history_records_ask_and_action(client) -> None:
     action_response = client.post(
         "/api/v1/chat/action",
         json={
-            "user_id": user_id,
-            "team_id": team_id,
             "action": "create_incident",
             "arguments": {
                 "title": "Service timeout spike",
@@ -145,8 +103,6 @@ def test_chat_history_records_ask_and_action(client) -> None:
     history_response = client.get(
         "/api/v1/chat/history",
         params={
-            "team_id": team_id,
-            "user_id": user_id,
             "limit": 10,
         },
     )
@@ -166,15 +122,9 @@ def test_chat_history_records_ask_and_action(client) -> None:
     assert "Incident created successfully." in action_item["response_text"]
 
 
-def test_chat_history_unknown_team_returns_404(client) -> None:
-    missing_team_id = f"team_missing_{uuid4().hex[:8]}"
+def test_chat_history_requires_authenticated_user(client) -> None:
+    client.cookies.clear()
 
-    response = client.get(
-        "/api/v1/chat/history",
-        params={
-            "team_id": missing_team_id,
-            "limit": 5,
-        },
-    )
+    response = client.get("/api/v1/chat/history", params={"limit": 5})
 
-    assert response.status_code == 404
+    assert response.status_code == 401

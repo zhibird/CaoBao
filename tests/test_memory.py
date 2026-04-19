@@ -1,58 +1,47 @@
 from uuid import uuid4
 
+from tests.auth_helpers import register_workspace_user
+
 
 def _create_team_and_user(client, suffix: str) -> tuple[str, str]:
-    team_id = f"team_memory_{suffix}"
-    user_id = f"user_memory_{suffix}"
-
-    team_response = client.post(
-        "/api/v1/teams",
-        json={
-            "team_id": team_id,
-            "name": "Memory Team",
-            "description": "for memory tests",
-        },
+    return register_workspace_user(
+        client,
+        prefix=f"memory_{suffix}",
+        display_name="Memory User",
     )
-    assert team_response.status_code == 201
-
-    user_response = client.post(
-        "/api/v1/users",
-        json={
-            "user_id": user_id,
-            "team_id": team_id,
-            "display_name": "Memory User",
-            "role": "member",
-        },
-    )
-    assert user_response.status_code == 201
-    return team_id, user_id
 
 
 def _create_space(client, *, team_id: str, user_id: str, name: str) -> str:
     response = client.post(
         "/api/v1/spaces",
         json={
-            "team_id": team_id,
-            "user_id": user_id,
+            "team_id": "ignored-team",
+            "user_id": "ignored-user",
             "name": name,
             "description": "space for memory isolation",
         },
     )
     assert response.status_code == 201
-    return response.json()["space_id"]
+    body = response.json()
+    assert body["team_id"] == team_id
+    assert body["owner_user_id"] == user_id
+    return body["space_id"]
 
 
 def _create_conversation(client, *, team_id: str, user_id: str, title: str) -> dict[str, object]:
     response = client.post(
         "/api/v1/conversations",
         json={
-            "team_id": team_id,
-            "user_id": user_id,
+            "team_id": "ignored-team",
+            "user_id": "ignored-user",
             "title": title,
         },
     )
     assert response.status_code == 201
-    return response.json()
+    body = response.json()
+    assert body["team_id"] == team_id
+    assert body["user_id"] == user_id
+    return body
 
 
 def _create_history_message(
@@ -65,8 +54,8 @@ def _create_history_message(
     echo_response = client.post(
         "/api/v1/chat/echo",
         json={
-            "team_id": team_id,
-            "user_id": user_id,
+            "team_id": "ignored-team",
+            "user_id": "ignored-user",
             "conversation_id": conversation_id,
             "message": "Remember this answer.",
         },
@@ -76,8 +65,6 @@ def _create_history_message(
     history_response = client.get(
         "/api/v1/chat/history",
         params={
-            "team_id": team_id,
-            "user_id": user_id,
             "conversation_id": conversation_id,
             "limit": 1,
         },
@@ -117,8 +104,6 @@ def test_memory_cards_crud_happy_path(client) -> None:
     list_response = client.get(
         "/api/v1/memory/cards",
         params={
-            "team_id": team_id,
-            "user_id": user_id,
             "space_id": space_id,
             "limit": 50,
         },
@@ -148,18 +133,12 @@ def test_memory_cards_crud_happy_path(client) -> None:
 
     delete_response = client.delete(
         f"/api/v1/memory/cards/{memory_id}",
-        params={
-            "team_id": team_id,
-            "user_id": user_id,
-        },
     )
     assert delete_response.status_code == 204
 
     list_after_delete = client.get(
         "/api/v1/memory/cards",
         params={
-            "team_id": team_id,
-            "user_id": user_id,
             "space_id": space_id,
             "limit": 50,
         },
@@ -209,8 +188,6 @@ def test_memory_cards_are_isolated_by_space(client) -> None:
     list_space_a = client.get(
         "/api/v1/memory/cards",
         params={
-            "team_id": team_id,
-            "user_id": user_id,
             "space_id": space_a,
         },
     )
@@ -220,8 +197,6 @@ def test_memory_cards_are_isolated_by_space(client) -> None:
     list_space_b = client.get(
         "/api/v1/memory/cards",
         params={
-            "team_id": team_id,
-            "user_id": user_id,
             "space_id": space_b,
         },
     )
@@ -265,8 +240,6 @@ def test_memory_cards_can_track_source_message(client) -> None:
     list_response = client.get(
         "/api/v1/memory/cards",
         params={
-            "team_id": team_id,
-            "user_id": user_id,
             "space_id": space_id,
             "limit": 50,
         },

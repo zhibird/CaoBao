@@ -58,3 +58,33 @@ def register_workspace_user_in_team(
     assert body["team_id"] == team_id
     assert body["user_id"] == user_id
     return body["team_id"], body["user_id"]
+
+
+def login_existing_user(
+    client,
+    *,
+    user_id: str,
+    password: str = "Str0ngPass!",
+) -> tuple[str, str]:
+    with SessionLocal() as db:
+        user = db.get(User, user_id)
+        assert user is not None
+        user.password_hash = hash_password(password)
+        user.is_active = True
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        team_id = user.team_id
+
+    login_response = client.post(
+        "/api/v1/auth/login",
+        json={
+            "user_id": user_id,
+            "password": password,
+        },
+    )
+    assert login_response.status_code == 200
+    body = login_response.json()
+    assert body["team_id"] == team_id
+    assert body["user_id"] == user_id
+    return body["team_id"], body["user_id"]
