@@ -194,6 +194,100 @@ def test_promote_favorite_to_memory_and_conclusion(client) -> None:
     assert len(conclusion_list.json()) >= 1
 
 
+def test_promoted_assets_can_be_removed_again(client) -> None:
+    suffix = uuid4().hex[:8]
+    register_workspace_user(
+        client,
+        prefix=f"phase3_reversible_{suffix}",
+        display_name="Phase3 Reversible User",
+    )
+    conversation = _create_conversation(client, title="Reversible Workspace")
+    space_id = conversation["space_id"]
+    conversation_id = conversation["conversation_id"]
+    message_id = _create_history_message(
+        client,
+        conversation_id=conversation_id,
+    )
+
+    favorite = _create_favorite(
+        client,
+        space_id=space_id,
+        message_id=message_id,
+    )
+    favorite_id = favorite["favorite_id"]
+
+    memory_promote = _promote(
+        client,
+        favorite_id=favorite_id,
+        target="memory",
+        space_id=space_id,
+    )
+    assert memory_promote.status_code in {200, 201}
+    memory_id = memory_promote.json()["result"]["memory_id"]
+    assert memory_id
+
+    delete_memory = client.delete(f"/api/v1/memory/cards/{memory_id}")
+    assert delete_memory.status_code == 204
+
+    memory_list = client.get(
+        "/api/v1/memory/cards",
+        params={"space_id": space_id},
+    )
+    assert memory_list.status_code == 200
+    assert all(item["memory_id"] != memory_id for item in memory_list.json())
+
+    conclusion_promote = _promote(
+        client,
+        favorite_id=favorite_id,
+        target="conclusion",
+        space_id=space_id,
+    )
+    assert conclusion_promote.status_code in {200, 201}
+    conclusion_id = conclusion_promote.json()["result"]["conclusion_id"]
+    assert conclusion_id
+
+    archive_conclusion = client.post(
+        f"/api/v1/conclusions/{conclusion_id}/archive",
+        json={},
+    )
+    assert archive_conclusion.status_code == 200
+    assert archive_conclusion.json()["status"] == "archived"
+
+    library_create = client.post(
+        "/api/v1/documents/import",
+        json={
+            "space_id": space_id,
+            "source_name": f"favorite-{message_id}.md",
+            "content_type": "md",
+            "content": "# 收藏沉淀\n\n这是一条可删除的资料库卡片。",
+            "meta": {
+                "source_message_id": message_id,
+                "capture_kind": "favorite_answer",
+                "favorite_id": favorite_id,
+            },
+        },
+    )
+    assert library_create.status_code == 201
+    library_document_id = library_create.json()["document_id"]
+
+    library_list = client.get(
+        "/api/v1/library/documents",
+        params={"space_id": space_id},
+    )
+    assert library_list.status_code == 200
+    assert any(item["document_id"] == library_document_id for item in library_list.json())
+
+    delete_library_document = client.delete(f"/api/v1/documents/{library_document_id}")
+    assert delete_library_document.status_code == 204
+
+    library_list_after_delete = client.get(
+        "/api/v1/library/documents",
+        params={"space_id": space_id},
+    )
+    assert library_list_after_delete.status_code == 200
+    assert all(item["document_id"] != library_document_id for item in library_list_after_delete.json())
+
+
 def test_conclusion_confirm_and_archive(client) -> None:
     suffix = uuid4().hex[:8]
     register_workspace_user(

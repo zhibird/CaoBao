@@ -12,6 +12,8 @@ const CHAT_MODE_CHAT = "chat";
 const CHAT_MODE_DOCS = "docs";
 const WORKSPACE_VIEW_CHAT = "chat";
 const WORKSPACE_VIEW_FAVORITES = "favorites";
+const RAIL_MODE_COLLAPSED = "collapsed";
+const RAIL_MODE_EXPANDED = "expanded";
 const WORKSPACE_STAGE_LAUNCH = "launch";
 const WORKSPACE_STAGE_CHAT = "chat";
 const ACTIVE_SURFACE_NONE = "none";
@@ -46,6 +48,7 @@ function createEmptyFavoriteWorkspaceAssetState() {
 
 const STORAGE_KEYS = {
   conversationId: "caibao.conversationId",
+  railMode: "caibao.railMode",
   legacyTeamId: "caibao.teamId",
   legacyTeamName: "caibao.teamName",
   legacyUserId: "caibao.userId",
@@ -70,9 +73,11 @@ const state = {
   documents: [],
   favoriteItems: [],
   favoriteWorkspaceAssets: createEmptyFavoriteWorkspaceAssetState(),
+  selectedFavoriteId: "",
   selectedDocumentIds: [],
   chatMode: CHAT_MODE_CHAT,
   workspaceView: WORKSPACE_VIEW_CHAT,
+  railMode: RAIL_MODE_COLLAPSED,
   workspaceStage: WORKSPACE_STAGE_LAUNCH,
   activeSurface: ACTIVE_SURFACE_NONE,
   requiresFreshConversation: false,
@@ -106,6 +111,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
 function bindElements() {
   els.shell = document.querySelector(".shell");
+  els.workspaceRail = document.getElementById("workspaceRail");
+  els.railToggleBtn = document.getElementById("railToggleBtn");
   els.conversation = document.querySelector(".conversation");
   els.historyList = document.getElementById("historyList");
   els.documentList = document.getElementById("documentList");
@@ -114,7 +121,7 @@ function bindElements() {
   els.conversationCountValue = document.getElementById("conversationCountValue");
   els.documentCountValue = document.getElementById("documentCountValue");
   els.readyDocumentCountValue = document.getElementById("readyDocumentCountValue");
-  els.profileBtn = document.getElementById("profileBtn");
+  els.profileSettingsBtn = document.getElementById("profileSettingsBtn");
   els.profileName = document.getElementById("profileName");
   els.profileTeam = document.getElementById("profileTeam");
   els.avatarText = document.getElementById("avatarText");
@@ -125,19 +132,23 @@ function bindElements() {
   els.railNewChatBtn = document.getElementById("railNewChatBtn");
   els.railConversationsBtn = document.getElementById("railConversationsBtn");
   els.railFilesBtn = document.getElementById("railFilesBtn");
-  els.railSettingsBtn = document.getElementById("railSettingsBtn");
-  els.conversationDrawer = document.getElementById("conversationDrawer");
   els.fileDrawer = document.getElementById("fileDrawer");
-  els.drawerNewChatBtn = document.getElementById("drawerNewChatBtn");
+  els.conversationDrawerStatus = document.getElementById("conversationDrawerStatus");
+  els.fileDrawerStatus = document.getElementById("fileDrawerStatus");
   els.chatWorkspacePanel = document.getElementById("chatWorkspacePanel");
   els.favoritesPanel = document.getElementById("favoritesPanel");
+  els.favoritesListPane = document.getElementById("favoritesListPane");
   els.favoriteList = document.getElementById("favoriteList");
+  els.favoriteDetailPane = document.getElementById("favoriteDetailPane");
+  els.favoriteEmptyState = document.getElementById("favoriteEmptyState");
+  els.favoriteDetailContent = document.getElementById("favoriteDetailContent");
   els.heroPanel = document.getElementById("heroPanel");
-  els.workspaceSettingsBtn = document.getElementById("workspaceSettingsBtn");
+  els.workspacePatternField = document.getElementById("workspacePatternField");
   els.settingsModal = document.getElementById("settingsModal");
   els.closeSettingsBtn = document.getElementById("closeSettingsBtn");
   els.switchAccountBtn = document.getElementById("switchAccountBtn");
   els.logoutBtn = document.getElementById("logoutBtn");
+  els.settingsStatus = document.getElementById("settingsStatus");
   els.settingsWorkspaceSummary = document.getElementById("settingsWorkspaceSummary");
   els.addModelBtn = document.getElementById("addModelBtn");
   els.addEmbeddingBtn = document.getElementById("addEmbeddingBtn");
@@ -160,10 +171,6 @@ function bindElements() {
   els.composerSession = document.getElementById("composerSession");
   els.composerHint = document.getElementById("composerHint");
   els.composerContextRow = document.getElementById("composerContextRow");
-  els.chatOnlyBtn = document.getElementById("chatOnlyBtn");
-  els.docAssistBtn = document.getElementById("docAssistBtn");
-  els.chatModeHint = document.getElementById("chatModeHint");
-  els.newSessionBtn = document.getElementById("newSessionBtn");
   els.toggleImportBtn = document.getElementById("toggleImportBtn");
   els.attachMenu = document.getElementById("attachMenu");
   els.uploadFileBtn = document.getElementById("uploadFileBtn");
@@ -232,19 +239,11 @@ function bindElements() {
 }
 
 function bindEvents() {
-  els.profileBtn.addEventListener("click", () => {
-    if (ensureIdentity()) {
-      openSettingsModal();
-      return;
-    }
-    openAuthModal(AUTH_MODE_LOGIN);
-  });
-  if (els.workspaceSettingsBtn) {
-    els.workspaceSettingsBtn.addEventListener("click", openSettingsModal);
+  if (els.profileSettingsBtn) {
+    els.profileSettingsBtn.addEventListener("click", openSettingsModal);
   }
-  if (els.railSettingsBtn) {
-    els.railSettingsBtn.onclick = null;
-    els.railSettingsBtn.addEventListener("click", openSettingsModal);
+  if (els.railToggleBtn) {
+    els.railToggleBtn.addEventListener("click", toggleRailMode);
   }
   if (els.closeSettingsBtn) {
     els.closeSettingsBtn.addEventListener("click", closeSettingsModal);
@@ -332,21 +331,14 @@ function bindEvents() {
       createAndSwitchConversation().catch((error) => showToast(error.message, true));
     });
   }
-  if (els.drawerNewChatBtn) {
-    els.drawerNewChatBtn.onclick = null;
-    els.drawerNewChatBtn.addEventListener("click", () => {
-      createAndSwitchConversation().catch((error) => showToast(error.message, true));
-    });
-  }
   if (els.railConversationsBtn) {
     els.railConversationsBtn.addEventListener("click", () => {
-      window.requestAnimationFrame(() => {
-        const nextSurface = state.activeSurface === ACTIVE_SURFACE_CONVERSATIONS
-          ? ACTIVE_SURFACE_NONE
-          : ACTIVE_SURFACE_CONVERSATIONS;
-        setActiveSurface(nextSurface);
-        refreshWorkspaceUi();
-      });
+      setActiveSurface(ACTIVE_SURFACE_NONE);
+      if (state.railMode === RAIL_MODE_COLLAPSED) {
+        setRailMode(RAIL_MODE_EXPANDED);
+      }
+      els.historyList?.querySelector(".history-item")?.focus();
+      refreshWorkspaceUi();
     });
   }
   if (els.railFilesBtn) {
@@ -360,10 +352,6 @@ function bindEvents() {
       });
     });
   }
-
-  els.newSessionBtn.addEventListener("click", () => {
-    createAndSwitchConversation().catch((error) => showToast(error.message, true));
-  });
 
   if (els.modelSelect) {
     els.modelSelect.addEventListener("change", () => {
@@ -400,12 +388,6 @@ function bindEvents() {
     }
   });
   els.messageInput.addEventListener("input", autoGrowTextarea);
-  if (els.chatOnlyBtn) {
-    els.chatOnlyBtn.addEventListener("click", () => setChatMode(CHAT_MODE_CHAT));
-  }
-  if (els.docAssistBtn) {
-    els.docAssistBtn.addEventListener("click", () => setChatMode(CHAT_MODE_DOCS));
-  }
 
   els.previewBackdrop.addEventListener("click", closePreviewDrawer);
   els.closePreviewBtn.addEventListener("click", closePreviewDrawer);
@@ -458,6 +440,16 @@ function handleGlobalDocumentClick(event) {
       closeAttachMenu();
     }
   }
+  if (state.activeSurface === ACTIVE_SURFACE_FILES) {
+    const clickInsideFileDrawer = els.fileDrawer?.contains(target);
+    const fileSurfaceTrigger = target instanceof Element
+      ? target.closest("#composerFilesBtn, #railFilesBtn")
+      : null;
+    if (!clickInsideFileDrawer && !fileSurfaceTrigger) {
+      setActiveSurface(ACTIVE_SURFACE_NONE);
+      refreshWorkspaceUi();
+    }
+  }
 }
 
 function hydrateState() {
@@ -467,9 +459,11 @@ function hydrateState() {
   state.userId = "";
   state.displayName = "";
   state.conversationId = localStorage.getItem(STORAGE_KEYS.conversationId) || "";
+  state.railMode = loadRailModeFromStorage();
   state.selectedModel = loadSelectedModelFromStorage();
   state.selectedEmbedding = loadSelectedEmbeddingFromStorage();
   state.authMode = AUTH_MODE_LOGIN;
+  syncRailMode();
 }
 
 function clearLegacyIdentityStorage() {
@@ -481,6 +475,41 @@ function clearLegacyIdentityStorage() {
 
 function persistConversation() {
   localStorage.setItem(STORAGE_KEYS.conversationId, state.conversationId || "");
+}
+
+function loadRailModeFromStorage() {
+  const value = localStorage.getItem(STORAGE_KEYS.railMode);
+  return value === RAIL_MODE_EXPANDED ? RAIL_MODE_EXPANDED : RAIL_MODE_COLLAPSED;
+}
+
+function persistRailMode() {
+  localStorage.setItem(STORAGE_KEYS.railMode, state.railMode);
+}
+
+function setRailMode(mode) {
+  state.railMode = mode === RAIL_MODE_EXPANDED ? RAIL_MODE_EXPANDED : RAIL_MODE_COLLAPSED;
+  persistRailMode();
+  syncRailMode();
+}
+
+function toggleRailMode() {
+  setRailMode(state.railMode === RAIL_MODE_EXPANDED ? RAIL_MODE_COLLAPSED : RAIL_MODE_EXPANDED);
+}
+
+function syncRailMode() {
+  const expanded = state.railMode === RAIL_MODE_EXPANDED;
+  els.shell?.setAttribute("data-rail-mode", state.railMode);
+  els.workspaceRail?.setAttribute("aria-expanded", String(expanded));
+  if (els.railToggleBtn) {
+    const railToggleLabel = expanded ? "Collapse sidebar" : "Expand sidebar";
+    els.railToggleBtn.setAttribute("aria-label", railToggleLabel);
+    els.railToggleBtn.setAttribute("aria-pressed", String(expanded));
+    els.railToggleBtn.setAttribute("title", railToggleLabel);
+  }
+}
+
+function isCompactWorkspaceLayout() {
+  return window.matchMedia("(max-width: 980px)").matches;
 }
 
 function freshConversationStorageKey() {
@@ -782,6 +811,9 @@ function getFavoriteWorkspaceAsset(type, messageId) {
 
 function setFavoriteItems(items) {
   state.favoriteItems = Array.isArray(items) ? [...items] : [];
+  if (!state.favoriteItems.some((item) => item.favorite_id === state.selectedFavoriteId)) {
+    state.selectedFavoriteId = state.favoriteItems[0]?.favorite_id || "";
+  }
 }
 
 function upsertFavoriteItem(item) {
@@ -797,6 +829,14 @@ function removeFavoriteItem(favoriteId) {
     return;
   }
   state.favoriteItems = state.favoriteItems.filter((item) => item.favorite_id !== favoriteId);
+  if (state.selectedFavoriteId === favoriteId) {
+    state.selectedFavoriteId = state.favoriteItems[0]?.favorite_id || "";
+  }
+}
+
+function setSelectedFavoriteId(favoriteId) {
+  state.selectedFavoriteId = favoriteId || "";
+  renderFavoriteWorkspace();
 }
 
 function getReadyDocumentCount() {
@@ -820,41 +860,24 @@ function formatEmbeddingDisplayName(model) {
 
 function getChatModeHint(readyCount, processingCount) {
   if (!ensureIdentity()) {
-    return "设置工作台后默认直接聊天；有 ready 文件时可显式切换到资料增强。";
+    return "设置工作台后默认直接聊天；有 ready 文件时会自动接入资料。";
   }
   if (!readyCount) {
     return processingCount
-      ? "当前默认直接聊天；文件就绪后，你可以再显式开启资料增强。"
-      : "当前默认直接聊天；需要依据时，再上传资料并显式开启资料增强。";
+      ? "当前默认直接聊天；文件就绪后会自动参与回答。"
+      : "当前默认直接聊天；需要依据时上传资料，ready 后会自动参与回答。";
   }
-  if (state.chatMode === CHAT_MODE_DOCS) {
-    return state.selectedDocumentIds.length
-      ? `资料增强已开启：当前仅检索 ${state.selectedDocumentIds.length} 个选中文件。`
-      : `资料增强已开启：当前会检索本会话全部 ${readyCount} 个 ready 文件。`;
-  }
-  return `当前是直接聊天模式；已有 ${readyCount} 个 ready 文件，切换到“资料增强”后才会使用。`;
+  return state.selectedDocumentIds.length
+    ? `已自动接入 ${state.selectedDocumentIds.length} 个选中文件参与回答。`
+    : `已自动接入本会话全部 ${readyCount} 个 ready 文件参与回答。`;
 }
 
-function setChatMode(mode, { silent = false } = {}) {
-  const wantsDocs = mode === CHAT_MODE_DOCS;
+function syncAutoChatMode() {
   const readyCount = getReadyDocumentCount();
-
-  if (wantsDocs && !readyCount) {
-    state.chatMode = CHAT_MODE_CHAT;
-    if (!silent) {
-      showToast("当前还没有可用资料，先上传并等待文件处理完成。", true);
-    }
-    refreshComposerChrome();
-    refreshWorkspaceUi();
-    return;
-  }
-
-  state.chatMode = wantsDocs ? CHAT_MODE_DOCS : CHAT_MODE_CHAT;
-  if (!wantsDocs) {
+  state.chatMode = readyCount ? CHAT_MODE_DOCS : CHAT_MODE_CHAT;
+  if (!readyCount) {
     state.selectedDocumentIds = [];
   }
-  refreshComposerChrome();
-  refreshWorkspaceUi();
 }
 
 function setWorkspaceStage(stage) {
@@ -866,16 +889,11 @@ function setWorkspaceStage(stage) {
 
 function syncWorkspaceStage() {
   const isChatStage = state.workspaceStage === WORKSPACE_STAGE_CHAT;
-  if (els.shell) {
-    els.shell.classList.toggle("workspace-stage-launch", !isChatStage);
-    els.shell.classList.toggle("workspace-stage-chat", isChatStage);
-  }
-  if (els.heroPanel) {
-    els.heroPanel.classList.toggle("hidden", isChatStage);
-  }
-  if (els.conversation) {
-    els.conversation.classList.toggle("has-messages", isChatStage);
-  }
+  els.shell?.classList.toggle("workspace-stage-chat", isChatStage);
+  els.shell?.classList.toggle("workspace-stage-launch", !isChatStage);
+  els.heroPanel?.classList.toggle("hidden", isChatStage);
+  els.workspacePatternField?.classList.toggle("is-muted", isChatStage);
+  els.conversation?.classList.toggle("has-messages", isChatStage);
 }
 
 function getDocumentScopeSummary() {
@@ -907,13 +925,9 @@ function getDocumentScopeSummary() {
 
   return {
     label: `${readyCount} 个 ready 文件`,
-    hint: state.chatMode === CHAT_MODE_DOCS
-      ? (processingCount
-        ? `资料增强已开启：默认检索全部 ready 文件，另有 ${processingCount} 个文件正在处理中`
-        : "资料增强已开启：默认检索本会话全部 ready 文件，也可以手动缩小范围")
-      : (processingCount
-        ? `当前是直接聊天模式；已有 ${readyCount} 个 ready 文件可随时开启资料增强，另有 ${processingCount} 个文件正在处理中`
-        : `当前是直接聊天模式；已有 ${readyCount} 个 ready 文件，切换到“资料增强”后才会使用`),
+    hint: processingCount
+      ? `已自动接入全部 ready 文件参与回答，另有 ${processingCount} 个文件正在处理中`
+      : "已自动接入本会话全部 ready 文件，也可以手动缩小范围",
   };
 }
 
@@ -931,42 +945,23 @@ async function setWorkspaceView(view) {
 }
 
 function setActiveSurface(surface) {
-  if (surface === ACTIVE_SURFACE_CONVERSATIONS) {
-    state.activeSurface = ACTIVE_SURFACE_CONVERSATIONS;
-    syncActiveSurface();
-    return;
+  if (
+    surface !== ACTIVE_SURFACE_CONVERSATIONS
+    && surface !== ACTIVE_SURFACE_FILES
+    && surface !== ACTIVE_SURFACE_SETTINGS
+  ) {
+    surface = ACTIVE_SURFACE_NONE;
   }
-  if (surface === ACTIVE_SURFACE_FILES) {
-    state.activeSurface = ACTIVE_SURFACE_FILES;
-    syncActiveSurface();
-    return;
-  }
-  if (surface === ACTIVE_SURFACE_SETTINGS) {
-    state.activeSurface = ACTIVE_SURFACE_SETTINGS;
-    syncActiveSurface();
-    return;
-  }
-  state.activeSurface = ACTIVE_SURFACE_NONE;
+  state.activeSurface = surface || ACTIVE_SURFACE_NONE;
   syncActiveSurface();
 }
 
 function syncActiveSurface() {
-  const isConversationSurface = state.activeSurface === ACTIVE_SURFACE_CONVERSATIONS;
-  const isFileSurface = state.activeSurface === ACTIVE_SURFACE_FILES;
-  const isSettingsSurface = state.activeSurface === ACTIVE_SURFACE_SETTINGS;
-
-  if (els.conversationDrawer) {
-    els.conversationDrawer.classList.toggle("hidden", !isConversationSurface);
-    els.conversationDrawer.setAttribute("aria-hidden", String(!isConversationSurface));
-  }
-  if (els.fileDrawer) {
-    els.fileDrawer.classList.toggle("hidden", !isFileSurface);
-    els.fileDrawer.setAttribute("aria-hidden", String(!isFileSurface));
-  }
-  if (els.settingsModal) {
-    els.settingsModal.classList.toggle("hidden", !isSettingsSurface);
-    els.settingsModal.setAttribute("aria-hidden", String(!isSettingsSurface));
-  }
+  const current = state.activeSurface || ACTIVE_SURFACE_NONE;
+  els.fileDrawer?.classList.toggle("hidden", current !== ACTIVE_SURFACE_FILES);
+  els.fileDrawer?.setAttribute("aria-hidden", String(current !== ACTIVE_SURFACE_FILES));
+  els.settingsModal?.classList.toggle("hidden", current !== ACTIVE_SURFACE_SETTINGS);
+  els.settingsModal?.setAttribute("aria-hidden", String(current !== ACTIVE_SURFACE_SETTINGS));
 }
 
 function syncWorkspaceView() {
@@ -1402,15 +1397,41 @@ async function loadEmbeddingConfigs() {
   initEmbeddingOptions();
 }
 
+function setSurfaceStatus(targetEl, message, isError = false) {
+  if (!targetEl) {
+    return;
+  }
+  targetEl.textContent = message;
+  targetEl.classList.remove("hidden", "error");
+  if (isError) {
+    targetEl.classList.add("error");
+  }
+}
+
+function clearSurfaceStatus(targetEl) {
+  if (!targetEl) {
+    return;
+  }
+  targetEl.textContent = "";
+  targetEl.classList.add("hidden");
+  targetEl.classList.remove("error");
+}
+
 async function loadConversations() {
-  const query = new URLSearchParams({
-    team_id: state.teamId,
-    user_id: state.userId,
-    limit: "100",
-  });
-  const response = await apiRequest(`/conversations?${query.toString()}`);
-  state.conversations = Array.isArray(response) ? response : [];
-  renderConversationList();
+  clearSurfaceStatus(els.conversationDrawerStatus);
+  try {
+    const query = new URLSearchParams({
+      team_id: state.teamId,
+      user_id: state.userId,
+      limit: "100",
+    });
+    const response = await apiRequest(`/conversations?${query.toString()}`);
+    state.conversations = Array.isArray(response) ? response : [];
+    renderConversationList();
+  } catch (error) {
+    setSurfaceStatus(els.conversationDrawerStatus, error.message, true);
+    throw error;
+  }
 }
 
 async function ensureActiveConversation() {
@@ -1767,6 +1788,9 @@ async function loadFavoriteWorkspaceAssets() {
   }
 
   for (const item of Array.isArray(conclusions) ? conclusions : []) {
+    if (normalizeStatus(item?.status) === "archived") {
+      continue;
+    }
     if (item?.source_message_id) {
       nextAssets.conclusionsByMessageId[item.source_message_id] = item;
     }
@@ -1857,22 +1881,30 @@ function appendFavoriteWorkspaceEmptyState(text) {
 }
 
 function renderFavoriteWorkspace() {
-  if (!els.favoriteList) {
+  if (!els.favoriteList || !els.favoriteEmptyState || !els.favoriteDetailContent) {
     return;
   }
 
   els.favoriteList.innerHTML = "";
 
   if (!ensureIdentity()) {
+    state.selectedFavoriteId = "";
     appendFavoriteWorkspaceEmptyState("设置工作台后可把回答收藏到这里，再继续整理为长期记忆、结论和资料库。");
+    renderFavoriteDetailPane();
     refreshWorkspaceUi();
     return;
   }
 
   if (!state.favoriteItems.length) {
+    state.selectedFavoriteId = "";
     appendFavoriteWorkspaceEmptyState("当前会话空间还没有收藏内容。先在回答卡片里点“收藏”，再回来整理。");
+    renderFavoriteDetailPane();
     refreshWorkspaceUi();
     return;
+  }
+
+  if (!state.favoriteItems.some((item) => item.favorite_id === state.selectedFavoriteId)) {
+    state.selectedFavoriteId = state.favoriteItems[0]?.favorite_id || "";
   }
 
   for (const favorite of state.favoriteItems) {
@@ -1882,7 +1914,12 @@ function renderFavoriteWorkspace() {
     const libraryRecord = getFavoriteWorkspaceAsset("libraryDocsByMessageId", favorite.message_id);
 
     const card = document.createElement("article");
-    card.className = "favorite-card";
+    card.className = "favorite-card favorite-list-item";
+    card.tabIndex = 0;
+    card.classList.toggle("active", favorite.favorite_id === state.selectedFavoriteId);
+    card.addEventListener("click", () => {
+      setSelectedFavoriteId(favorite.favorite_id);
+    });
 
     const head = document.createElement("div");
     head.className = "favorite-card-head";
@@ -1916,40 +1953,49 @@ function renderFavoriteWorkspace() {
     actions.className = "favorite-card-actions";
 
     actions.appendChild(createMessageActionButton(
-      memoryRecord ? "已成记忆" : "设为长期记忆",
+      memoryRecord ? "取消记忆" : "设为长期记忆",
       () => {
-        promoteFavoriteToMemory(favorite).catch((error) => showToast(error.message, true));
+        const task = memoryRecord
+          ? removeFavoriteMemory(favorite, memoryRecord)
+          : promoteFavoriteToMemory(favorite);
+        task.catch((error) => showToast(error.message, true));
       },
       {
         active: Boolean(memoryRecord),
-        disabled: Boolean(memoryRecord) || isCaptureActionPending(favorite.message_id, "memory"),
-        title: memoryRecord ? "这条收藏已经转为长期记忆" : "把这条收藏转为长期记忆",
+        disabled: isCaptureActionPending(favorite.message_id, "memory"),
+        title: memoryRecord ? "把这条收藏从长期记忆中移除" : "把这条收藏转为长期记忆",
         pressed: Boolean(memoryRecord),
       },
     ));
 
     actions.appendChild(createMessageActionButton(
-      conclusionRecord ? "已成结论" : "沉淀为结论",
+      conclusionRecord ? "取消结论" : "沉淀为结论",
       () => {
-        promoteFavoriteToConclusion(favorite).catch((error) => showToast(error.message, true));
+        const task = conclusionRecord
+          ? archiveFavoriteConclusion(favorite, conclusionRecord)
+          : promoteFavoriteToConclusion(favorite);
+        task.catch((error) => showToast(error.message, true));
       },
       {
         active: Boolean(conclusionRecord),
-        disabled: Boolean(conclusionRecord) || isCaptureActionPending(favorite.message_id, "conclusion"),
-        title: conclusionRecord ? "这条收藏已经沉淀为结论" : "把这条收藏沉淀为结论",
+        disabled: isCaptureActionPending(favorite.message_id, "conclusion"),
+        title: conclusionRecord ? "撤回这条收藏的结论沉淀" : "把这条收藏沉淀为结论",
         pressed: Boolean(conclusionRecord),
       },
     ));
 
     actions.appendChild(createMessageActionButton(
-      libraryRecord ? "已入资料库" : "发布到资料库",
+      libraryRecord ? "移出资料库" : "发布到资料库",
       () => {
-        publishFavoriteToLibrary(favorite).catch((error) => showToast(error.message, true));
+        const task = libraryRecord
+          ? removeFavoriteLibraryDocument(favorite, libraryRecord)
+          : publishFavoriteToLibrary(favorite);
+        task.catch((error) => showToast(error.message, true));
       },
       {
         active: Boolean(libraryRecord),
-        disabled: Boolean(libraryRecord) || isCaptureActionPending(favorite.message_id, "library"),
-        title: libraryRecord ? "这条收藏已经发布到资料库" : "把这条收藏发布到资料库",
+        disabled: isCaptureActionPending(favorite.message_id, "library"),
+        title: libraryRecord ? "把这条收藏从资料库中移除" : "把这条收藏发布到资料库",
         pressed: Boolean(libraryRecord),
       },
     ));
@@ -1979,7 +2025,40 @@ function renderFavoriteWorkspace() {
     els.favoriteList.appendChild(card);
   }
 
+  renderFavoriteDetailPane();
   refreshWorkspaceUi();
+}
+
+function renderFavoriteDetailPane() {
+  const detailEl = els.favoriteDetailContent;
+  const emptyEl = els.favoriteEmptyState;
+  if (!detailEl || !emptyEl) {
+    return;
+  }
+
+  const selected = state.favoriteItems.find((item) => item.favorite_id === state.selectedFavoriteId);
+  if (!selected) {
+    emptyEl.classList.remove("hidden");
+    detailEl.classList.add("hidden");
+    detailEl.innerHTML = "";
+    return;
+  }
+
+  emptyEl.classList.add("hidden");
+  detailEl.classList.remove("hidden");
+  detailEl.innerHTML = `
+    <article class="favorite-detail-card">
+      <h3>${escapeHtml(selected.title || buildCaptureTitle(selected.question_text || selected.answer_text, "收藏回答"))}</h3>
+      <p class="favorite-detail-meta">${escapeHtml(formatTime(selected.created_at))}</p>
+      <div class="favorite-card-question">${escapeHtml(selected.question_text || "未记录问题")}</div>
+      <div class="favorite-card-answer">${escapeHtml(selected.answer_text || "未记录回答")}</div>
+      <div class="favorite-detail-actions">
+        <button class="message-icon-btn" type="button" data-favorite-action="memory">Save to memory</button>
+        <button class="message-icon-btn" type="button" data-favorite-action="conclusion">Turn into conclusion</button>
+        <button class="message-icon-btn" type="button" data-favorite-action="library">Add to library</button>
+      </div>
+    </article>
+  `;
 }
 
 function focusMessageInConversation(messageId) {
@@ -2387,6 +2466,24 @@ async function promoteFavoriteToMemory(favorite) {
   });
 }
 
+async function removeFavoriteMemory(favorite, memoryRecord) {
+  const existing = memoryRecord || getFavoriteWorkspaceAsset("memoriesByMessageId", favorite.message_id);
+  if (!existing?.memory_id) {
+    showToast("这条收藏还没有转为长期记忆");
+    return null;
+  }
+
+  return runMessageCaptureAction(favorite.message_id, "memory", async () => {
+    await apiRequest(`/memory/cards/${encodeURIComponent(existing.memory_id)}`, {
+      method: "DELETE",
+    });
+    removeFavoriteWorkspaceAsset("memoriesByMessageId", favorite.message_id);
+    renderFavoriteWorkspace();
+    showToast("已取消长期记忆");
+    return null;
+  });
+}
+
 async function promoteFavoriteToConclusion(favorite) {
   const existing = getFavoriteWorkspaceAsset("conclusionsByMessageId", favorite.message_id);
   if (existing) {
@@ -2412,6 +2509,28 @@ async function promoteFavoriteToConclusion(favorite) {
     await loadFavoriteWorkspaceAssets();
     showToast("已沉淀为结论");
     return getFavoriteWorkspaceAsset("conclusionsByMessageId", favorite.message_id);
+  });
+}
+
+async function archiveFavoriteConclusion(favorite, conclusionRecord) {
+  const existing = conclusionRecord || getFavoriteWorkspaceAsset("conclusionsByMessageId", favorite.message_id);
+  if (!existing?.conclusion_id) {
+    showToast("这条收藏还没有沉淀为结论");
+    return null;
+  }
+
+  return runMessageCaptureAction(favorite.message_id, "conclusion", async () => {
+    await apiRequest(`/conclusions/${encodeURIComponent(existing.conclusion_id)}/archive`, {
+      method: "POST",
+      body: {
+        team_id: state.teamId,
+        user_id: state.userId,
+      },
+    });
+    removeFavoriteWorkspaceAsset("conclusionsByMessageId", favorite.message_id);
+    renderFavoriteWorkspace();
+    showToast("已取消结论沉淀");
+    return null;
   });
 }
 
@@ -2449,29 +2568,58 @@ async function publishFavoriteToLibrary(favorite) {
   });
 }
 
+async function removeFavoriteLibraryDocument(favorite, libraryRecord) {
+  const existing = libraryRecord || getFavoriteWorkspaceAsset("libraryDocsByMessageId", favorite.message_id);
+  if (!existing?.document_id) {
+    showToast("这条收藏还没有发布到资料库");
+    return null;
+  }
+
+  return runMessageCaptureAction(favorite.message_id, "library", async () => {
+    const query = new URLSearchParams();
+    if (existing.conversation_id) {
+      query.set("conversation_id", existing.conversation_id);
+    }
+    const requestPath = query.toString()
+      ? `/documents/${encodeURIComponent(existing.document_id)}?${query.toString()}`
+      : `/documents/${encodeURIComponent(existing.document_id)}`;
+    await apiRequest(requestPath, {
+      method: "DELETE",
+    });
+    removeFavoriteWorkspaceAsset("libraryDocsByMessageId", favorite.message_id);
+    renderFavoriteWorkspace();
+    showToast("已移出资料库");
+    return null;
+  });
+}
+
 async function loadDocuments() {
+  clearSurfaceStatus(els.fileDrawerStatus);
   if (!state.conversationId) {
     state.documents = [];
     state.selectedDocumentIds = [];
-    state.chatMode = CHAT_MODE_CHAT;
+    syncAutoChatMode();
     resetMessageCaptureState();
     renderDocuments();
     return;
   }
 
-  const query = new URLSearchParams({
-    team_id: state.teamId,
-    conversation_id: state.conversationId,
-  });
-  const response = await apiRequest(`/documents?${query.toString()}`);
-  state.documents = Array.isArray(response) ? response : [];
-  state.selectedDocumentIds = state.selectedDocumentIds.filter((documentId) => {
-    return state.documents.some((doc) => doc.document_id === documentId && normalizeStatus(doc.status) === "ready");
-  });
-  if (!getReadyDocumentCount()) {
-    state.chatMode = CHAT_MODE_CHAT;
+  try {
+    const query = new URLSearchParams({
+      team_id: state.teamId,
+      conversation_id: state.conversationId,
+    });
+    const response = await apiRequest(`/documents?${query.toString()}`);
+    state.documents = Array.isArray(response) ? response : [];
+    state.selectedDocumentIds = state.selectedDocumentIds.filter((documentId) => {
+      return state.documents.some((doc) => doc.document_id === documentId && normalizeStatus(doc.status) === "ready");
+    });
+    syncAutoChatMode();
+    renderDocuments();
+  } catch (error) {
+    setSurfaceStatus(els.fileDrawerStatus, error.message, true);
+    throw error;
   }
-  renderDocuments();
 }
 
 function renderDocuments() {
@@ -2595,6 +2743,42 @@ function renderComposerContextRow() {
     span.textContent = chip.label;
     els.composerContextRow.appendChild(span);
   }
+
+  const filesAction = document.createElement("button");
+  filesAction.id = "composerFilesBtn";
+  filesAction.type = "button";
+  filesAction.className = `composer-context-action${state.activeSurface === ACTIVE_SURFACE_FILES ? " active" : ""}${state.documents.length ? "" : " is-empty"}`;
+  filesAction.setAttribute("aria-pressed", String(state.activeSurface === ACTIVE_SURFACE_FILES));
+  filesAction.setAttribute(
+    "aria-label",
+    state.documents.length
+      ? `打开本会话文件，当前 ${state.documents.length} 个`
+      : "添加文件到当前会话",
+  );
+
+  const filesActionLabel = document.createElement("span");
+  filesActionLabel.className = "composer-context-action-label";
+  filesActionLabel.textContent = "文件";
+  filesAction.appendChild(filesActionLabel);
+
+  const filesActionCount = document.createElement("span");
+  filesActionCount.className = "composer-context-action-count";
+  filesActionCount.textContent = state.documents.length ? String(state.documents.length) : "添加";
+  filesAction.appendChild(filesActionCount);
+
+  filesAction.addEventListener("click", () => {
+    if (!state.documents.length) {
+      closeAttachMenu();
+      els.fileInput.click();
+      return;
+    }
+    const nextSurface = state.activeSurface === ACTIVE_SURFACE_FILES
+      ? ACTIVE_SURFACE_NONE
+      : ACTIVE_SURFACE_FILES;
+    setActiveSurface(nextSurface);
+    refreshWorkspaceUi();
+  });
+  els.composerContextRow.appendChild(filesAction);
 }
 
 function refreshComposerChrome() {
@@ -2617,15 +2801,13 @@ function renderAttachmentStrip() {
   const readyCount = getReadyDocumentCount();
   const processingCount = getProcessingDocumentCount();
   if (state.chatMode === CHAT_MODE_DOCS && state.selectedDocumentIds.length) {
-    helper.textContent = `资料增强已开启：本轮已选 ${state.selectedDocumentIds.length} 个文件，发送时只检索这些文件。`;
+    helper.textContent = `已自动接入资料：本轮已选 ${state.selectedDocumentIds.length} 个文件，发送时只检索这些文件。`;
   } else if (!readyCount) {
     helper.textContent = processingCount
       ? `当前有 ${processingCount} 个文件处理中。你现在也可以先直接聊天，完成后会自动可检索。`
       : "当前还没有 ready 文件。你也可以先直接聊天，上传资料后再增强回答。";
-  } else if (state.chatMode === CHAT_MODE_DOCS) {
-    helper.textContent = `资料增强已开启：默认检索本会话全部 ${readyCount} 个 ready 文件。单击附件切换范围，双击可预览。`;
   } else {
-    helper.textContent = `当前是直接聊天模式。这些文件暂不参与回答；切换到“资料增强”后才会检索。`;
+    helper.textContent = `已自动接入本会话全部 ${readyCount} 个 ready 文件。单击附件缩小范围，双击可预览。`;
   }
   els.attachmentStrip.appendChild(helper);
 
@@ -2711,8 +2893,8 @@ function toggleDocumentSelection(documentId) {
     state.selectedDocumentIds = state.selectedDocumentIds.filter((item) => item !== documentId);
   } else {
     state.selectedDocumentIds = [...state.selectedDocumentIds, documentId];
-    state.chatMode = CHAT_MODE_DOCS;
   }
+  syncAutoChatMode();
   refreshComposerChrome();
   refreshWorkspaceUi();
 }
@@ -3158,7 +3340,8 @@ async function handleSend() {
   syncSendButtonState();
 
   appendMessage("user", question);
-  const pendingLabel = state.chatMode === CHAT_MODE_DOCS
+  const usingDocumentScope = getReadyDocumentCount() > 0;
+  const pendingLabel = usingDocumentScope
     ? (getExplicitSelectedDocumentIds().length
       ? "正在基于选中文件检索并生成回答…"
       : "正在结合本会话资料增强回答…")
@@ -3174,7 +3357,7 @@ async function handleSend() {
       conversation_id: state.conversationId,
       question,
       top_k: 5,
-      use_document_scope: state.chatMode === CHAT_MODE_DOCS,
+      use_document_scope: usingDocumentScope,
       include_memory: false,
       include_library: false,
       embedding_model: state.selectedEmbedding || DEFAULT_EMBEDDING_ID,
@@ -3185,7 +3368,7 @@ async function handleSend() {
     }
 
     const selectedDocumentIds = getExplicitSelectedDocumentIds();
-    if (state.chatMode === CHAT_MODE_DOCS && selectedDocumentIds.length) {
+    if (usingDocumentScope && selectedDocumentIds.length) {
       payload.selected_document_ids = selectedDocumentIds;
     }
 
@@ -3987,12 +4170,6 @@ function applyScenarioCard(scene) {
     return;
   }
 
-  if (scene === "qa") {
-    setChatMode(CHAT_MODE_DOCS, { silent: true });
-  } else {
-    setChatMode(CHAT_MODE_CHAT, { silent: true });
-  }
-
   els.messageInput.value = prompt;
   autoGrowTextarea();
   els.messageInput.focus();
@@ -4087,16 +4264,16 @@ function getAiConfigurationSummary() {
 }
 
 function getResponseModeLabel() {
-  return state.chatMode === CHAT_MODE_DOCS ? "资料增强" : "直接聊天";
+  return getReadyDocumentCount() ? "资料增强" : "直接聊天";
 }
 
 function getResponseModeHint(readyCount) {
   if (!readyCount) {
-    return "需要依据时再导入资料并开启资料增强";
+    return "当前还没有 ready 文件，先直接聊天即可";
   }
-  return state.chatMode === CHAT_MODE_DOCS
-    ? `已接入 ${readyCount} 份可检索资料`
-    : "目前以直接聊天为主，需要时再切到资料增强";
+  return state.selectedDocumentIds.length
+    ? `已自动接入 ${state.selectedDocumentIds.length} 份选中资料`
+    : `已自动接入 ${readyCount} 份可检索资料`;
 }
 
 function updateIdentityCard() {
@@ -4134,6 +4311,8 @@ function refreshWorkspaceUi() {
   const scope = getDocumentScopeSummary();
   const activeTitle = activeConversation?.title || "新会话";
   const readyCount = getReadyDocumentCount();
+  const conversationRailActive = state.railMode === RAIL_MODE_EXPANDED;
+  const filesRailActive = state.activeSurface === ACTIVE_SURFACE_FILES;
 
   if (els.historySectionTitle) {
     els.historySectionTitle.textContent = state.conversations.length
@@ -4144,6 +4323,14 @@ function refreshWorkspaceUi() {
     els.documentSectionTitle.textContent = state.documents.length
       ? `本会话文件 · ${state.documents.length}`
       : "本会话文件";
+  }
+  if (els.railConversationsBtn) {
+    els.railConversationsBtn.classList.toggle("active", conversationRailActive);
+    els.railConversationsBtn.setAttribute("aria-pressed", String(conversationRailActive));
+  }
+  if (els.railFilesBtn) {
+    els.railFilesBtn.classList.toggle("active", filesRailActive);
+    els.railFilesBtn.setAttribute("aria-pressed", String(filesRailActive));
   }
   if (els.conversationCountValue) {
     els.conversationCountValue.textContent = String(state.conversations.length);
@@ -4162,7 +4349,7 @@ function refreshWorkspaceUi() {
   }
   if (els.workspaceDescription) {
     if (!loggedIn) {
-      els.workspaceDescription.textContent = "进入工作区后即可直接聊天、写方案和整理想法；只有需要依据时再开启资料增强。";
+      els.workspaceDescription.textContent = "进入工作区后即可直接聊天、写方案和整理想法；有资料时会自动接入回答。";
     } else {
       const desc = [activeTitle];
       if (state.history.length) {
@@ -4229,21 +4416,6 @@ function refreshWorkspaceUi() {
     } else {
       els.composerHint.textContent = "回答会附带来源卡片，双击附件可快速预览原文。";
     }
-  }
-  if (els.chatOnlyBtn) {
-    const isChatMode = state.chatMode === CHAT_MODE_CHAT;
-    els.chatOnlyBtn.classList.toggle("active", isChatMode);
-    els.chatOnlyBtn.setAttribute("aria-pressed", String(isChatMode));
-  }
-  if (els.docAssistBtn) {
-    const isDocsMode = state.chatMode === CHAT_MODE_DOCS;
-    const docsAvailable = readyCount > 0;
-    els.docAssistBtn.classList.toggle("active", isDocsMode);
-    els.docAssistBtn.setAttribute("aria-pressed", String(isDocsMode));
-    els.docAssistBtn.disabled = !docsAvailable;
-  }
-  if (els.chatModeHint) {
-    els.chatModeHint.textContent = getChatModeHint(readyCount, getProcessingDocumentCount());
   }
   if (els.shell) {
     els.shell.classList.toggle("has-history", Boolean(state.history.length || pendingAssistantRow));

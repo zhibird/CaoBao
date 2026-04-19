@@ -37,6 +37,12 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 });
 
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    closeDocModal();
+  }
+});
+
 function bindElements() {
   els.adminTokenInput = document.getElementById("adminTokenInput");
   els.adminLoginBtn = document.getElementById("adminLoginBtn");

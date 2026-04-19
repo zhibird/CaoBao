@@ -1,0 +1,33 @@
+{
+  "baseUrl": "http://127.0.0.1:8765",
+  "outDir": "D:\\work\\CaiBao\\output\\manual-smoke-2026-04-18T07-26-55-449Z",
+  "steps": [
+    {
+      "name": "1. launch panel appears before first message",
+      "status": "passed",
+      "details": {
+        "screenshot": "D:\\work\\CaiBao\\output\\manual-smoke-2026-04-18T07-26-55-449Z\\01-initial-desktop.png"
+      }
+    },
+    {
+      "name": "auth bootstrap via register modal",
+      "status": "failed",
+      "error": "page.click: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('#railSettingsBtn')\u001b[22m\n\u001b[2m    - locator resolved to <button type=\"button\" id=\"railSettingsBtn\" title=\"Me / Settings\" class=\"rail-btn rail-btn-bottom\" onclick=\"document.getElementById('workspaceSettingsBtn').click()\">Me</button>\u001b[22m\n\u001b[2m  - attempting click action\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - <div class=\"modal\" role=\"dialog\" id=\"authModal\" aria-modal=\"true\" aria-labelledby=\"authTitle\">…</div> intercepts pointer events\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m    - waiting 20ms\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - <div class=\"modal\" role=\"dialog\" id=\"authModal\" aria-modal=\"true\" aria-labelledby=\"authTitle\">…</div> intercepts pointer events\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m      - waiting 100ms\u001b[22m\n\u001b[2m    37 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m       - element is visible, enabled and stable\u001b[22m\n\u001b[2m       - scrolling into view if needed\u001b[22m\n\u001b[2m       - done scrolling\u001b[22m\n\u001b[2m       - <div class=\"modal\" role=\"dialog\" id=\"authModal\" aria-modal=\"true\" aria-labelledby=\"authTitle\">…</div> intercepts pointer events\u001b[22m\n\u001b[2m     - retrying click action\u001b[22m\n\u001b[2m       - waiting 500ms\u001b[22m\n\n    at D:\\work\\CaiBao\\output\\manual-smoke.js:100:18\n    at step (D:\\work\\CaiBao\\output\\manual-smoke.js:78:29)\n    at D:\\work\\CaiBao\\output\\manual-smoke.js:99:11"
+    }
+  ],
+  "console": [
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    }
+  ],
+  "pageErrors": [],
+  "failedResponses": [],
+  "screenshots": [
+    "D:\\work\\CaiBao\\output\\manual-smoke-2026-04-18T07-26-55-449Z\\01-initial-desktop.png"
+  ]
+}

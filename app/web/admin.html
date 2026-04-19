@@ -8,9 +8,9 @@
   <link rel="stylesheet" href="/web/admin.css?v=0.16.0&build=enterprise-desktop-1" />
 </head>
 <body>
-  <div class="admin-shell">
-    <header class="topbar">
-      <div>
+  <div class="admin-shell admin-enterprise-shell">
+    <header id="adminCommandBar" class="admin-command-bar surface-card">
+      <div class="command-bar-copy">
         <div class="badge">CaiBao</div>
         <h1>Developer Admin Console</h1>
         <p class="subtitle">开发者管理员：跨团队查看与管理团队、用户、会话和上传文件。</p>
@@ -31,7 +31,7 @@
     </section>
 
     <main id="adminMain" class="admin-main hidden">
-      <section class="stats-grid">
+      <section class="admin-panel-grid">
         <article class="stat-card">
           <span class="stat-label">Teams</span>
           <strong id="statTeams">0</strong>
@@ -54,7 +54,7 @@
         </article>
       </section>
 
-      <section class="panel">
+      <section class="admin-table-panel">
         <div class="panel-head">
           <h2>团队</h2>
           <button id="refreshTeamsBtn" class="ghost-btn compact" type="button">刷新</button>
@@ -77,7 +77,7 @@
         </div>
       </section>
 
-      <section class="panel">
+      <section class="admin-table-panel">
         <div class="panel-head">
           <h2>账户</h2>
           <div class="inline-actions">
@@ -107,7 +107,7 @@
         </div>
       </section>
 
-      <section class="panel">
+      <section class="admin-table-panel">
         <div class="panel-head">
           <h2>会话</h2>
           <div class="inline-actions">
@@ -141,7 +141,7 @@
         </div>
       </section>
 
-      <section class="panel">
+      <section class="admin-table-panel">
         <div class="panel-head">
           <h2>文件</h2>
           <div class="inline-actions">

@@ -17,6 +17,12 @@ body {
   gap: 14px;
 }
 
+.admin-enterprise-shell {
+  gap: 16px;
+  padding: 4px 0 12px;
+}
+
+.admin-command-bar,
 .topbar {
   display: flex;
   justify-content: space-between;
@@ -26,6 +32,16 @@ body {
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   background: var(--panel-strong);
+}
+
+.admin-command-bar {
+  align-items: center;
+}
+
+.command-bar-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
 }
 
 .badge {
@@ -117,6 +133,7 @@ select:focus {
   display: none !important;
 }
 
+.admin-panel-grid,
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -143,6 +160,7 @@ select:focus {
   color: #0a3d39;
 }
 
+.admin-table-panel,
 .panel {
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);

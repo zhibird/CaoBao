@@ -1,0 +1,108 @@
+{
+  "baseUrl": "http://127.0.0.1:8765",
+  "outDir": "D:\\work\\CaiBao\\output\\manual-smoke-2026-04-18T07-34-40-873Z",
+  "steps": [
+    {
+      "name": "1. launch panel appears before first message",
+      "status": "passed",
+      "details": {
+        "screenshot": "D:\\work\\CaiBao\\output\\manual-smoke-2026-04-18T07-34-40-873Z\\01-initial-desktop.png"
+      }
+    },
+    {
+      "name": "auth bootstrap via register modal",
+      "status": "passed",
+      "details": {
+        "userId": "smoke_1776497682765"
+      }
+    },
+    {
+      "name": "2. rail new chat returns focus to composer",
+      "status": "passed",
+      "details": {
+        "conversationCount": 1
+      }
+    },
+    {
+      "name": "3. conversations drawer opens and Escape closes it",
+      "status": "passed",
+      "details": {
+        "screenshot": "D:\\work\\CaiBao\\output\\manual-smoke-2026-04-18T07-34-40-873Z\\03-conversations-drawer.png"
+      }
+    },
+    {
+      "name": "4. files drawer previews an uploaded file",
+      "status": "passed",
+      "details": {
+        "previewTitle": "README.md",
+        "screenshot": "D:\\work\\CaiBao\\output\\manual-smoke-2026-04-18T07-34-40-873Z\\04-file-preview.png"
+      }
+    },
+    {
+      "name": "5. first message switches into chat stage",
+      "status": "passed",
+      "details": {
+        "focusedElement": "messageInput",
+        "screenshot": "D:\\work\\CaiBao\\output\\manual-smoke-2026-04-18T07-34-40-873Z\\05-chat-stage.png"
+      }
+    },
+    {
+      "name": "6. settings and auth surfaces still open from rail",
+      "status": "passed",
+      "details": {
+        "screenshot": "D:\\work\\CaiBao\\output\\manual-smoke-2026-04-18T07-34-40-873Z\\06-settings-modal.png"
+      }
+    },
+    {
+      "name": "7. favorites view and back keeps shell intact",
+      "status": "passed",
+      "details": {
+        "favoritesLabel": "收藏夹"
+      }
+    },
+    {
+      "name": "8. narrow viewport uses overlay-style recall surfaces",
+      "status": "passed",
+      "details": {
+        "railStyles": {
+          "display": "flex",
+          "flexDirection": "row"
+        },
+        "drawerStyles": {
+          "position": "absolute",
+          "top": 86,
+          "left": 13,
+          "width": 364,
+          "height": 159.046875
+        },
+        "screenshot": "D:\\work\\CaiBao\\output\\manual-smoke-2026-04-18T07-34-40-873Z\\08-mobile-overlay.png"
+      }
+    }
+  ],
+  "console": [
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    }
+  ],
+  "pageErrors": [],
+  "failedResponses": [],
+  "screenshots": [
+    "D:\\work\\CaiBao\\output\\manual-smoke-2026-04-18T07-34-40-873Z\\01-initial-desktop.png",
+    "D:\\work\\CaiBao\\output\\manual-smoke-2026-04-18T07-34-40-873Z\\03-conversations-drawer.png",
+    "D:\\work\\CaiBao\\output\\manual-smoke-2026-04-18T07-34-40-873Z\\04-file-preview.png",
+    "D:\\work\\CaiBao\\output\\manual-smoke-2026-04-18T07-34-40-873Z\\05-chat-stage.png",
+    "D:\\work\\CaiBao\\output\\manual-smoke-2026-04-18T07-34-40-873Z\\06-settings-modal.png",
+    "D:\\work\\CaiBao\\output\\manual-smoke-2026-04-18T07-34-40-873Z\\08-mobile-overlay.png"
+  ],
+  "summary": {
+    "seriousConsoleCount": 0,
+    "pageErrorCount": 0,
+    "failedResponseCount": 0,
+    "stepCount": 9
+  }
+}

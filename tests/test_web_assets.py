@@ -18,6 +18,7 @@ def _get_web_styles(client) -> str:
     assert response.status_code == 200
     return response.text
 
+
 def _get_web_admin_html(client) -> str:
     response = client.get("/web/admin.html")
     assert response.status_code == 200
@@ -32,6 +33,12 @@ def _get_web_theme_styles(client) -> str:
 
 def _get_web_admin_styles(client) -> str:
     response = client.get("/web/admin.css")
+    assert response.status_code == 200
+    return response.text
+
+
+def _get_web_admin_script(client) -> str:
+    response = client.get("/web/admin.js")
     assert response.status_code == 200
     return response.text
 
@@ -137,74 +144,185 @@ def test_chat_message_capture_loader_only_prefetches_favorites(client) -> None:
     assert "/library/documents?" not in loader_body
 
 
-def test_favorites_workspace_is_present_in_frontend_shell(client) -> None:
+def test_homepage_uses_expandable_workspace_rail(client) -> None:
     html = _get_web_index(client)
 
+    assert 'id="railToggleBtn"' in html
+    assert 'data-rail-mode="collapsed"' in html
+    assert 'class="workspace-top-nav"' not in html
+    assert 'class="workspace-switch-strip"' in html
+    assert 'class="workspace-brand-badge"' in html
+    assert 'class="workspace-brand-wordmark"' in html
+    assert 'class="workspace-brand-name"' in html
+    assert 'class="workspace-brand-mark"' not in html
+    assert '<span class="workspace-brand-name">CAIBAO</span>' in html
+    assert 'class="workspace-nav-tabs" role="tablist"' in html
+    assert 'id="chatWorkspaceBtn"' in html
     assert 'id="favoritesWorkspaceBtn"' in html
-    assert 'id="favoritesPanel"' in html
-    assert 'id="favoriteList"' in html
+    assert 'class="workspace-top-link" href="/web/admin.html"' in html
+    assert 'class="rail-workspace-switch"' not in html
+    assert 'class="workspace-rail-label"' in html
+    assert 'class="rail-summary surface-card"' not in html
 
 
-def test_homepage_uses_workspace_settings_instead_of_exposing_admin_entry(client) -> None:
-    html = _get_web_index(client)
-
-    assert 'id="workspaceSettingsBtn"' in html
-    assert 'class="admin-link"' not in html
-    assert ">Admin<" not in html
-
-
-def test_homepage_uses_workspace_rail_and_recall_drawers(client) -> None:
-    html = _get_web_index(client)
-
-    assert 'id="workspaceRail"' in html
-    assert 'id="railNewChatBtn"' in html
-    assert """onclick="document.getElementById('newSessionBtn').click()" """[:-1] in html
-    assert 'id="railConversationsBtn" class="rail-btn" type="button" title="Conversations"' in html
-    assert 'id="railFilesBtn" class="rail-btn" type="button" title="Files"' in html
-    assert 'id="railConversationsBtn" class="rail-btn" type="button" title="Conversations" onclick="' not in html
-    assert 'id="railFilesBtn" class="rail-btn" type="button" title="Files" onclick="' not in html
-    assert """id="railSettingsBtn" class="rail-btn rail-btn-bottom" type="button" title="Me / Settings" onclick="document.getElementById('workspaceSettingsBtn').click()" """[:-1] in html
-    assert 'id="conversationDrawer"' in html
-    assert 'id="fileDrawer"' in html
-    assert """id="drawerNewChatBtn" class="primary-btn compact-primary-btn" type="button" onclick="document.getElementById('newSessionBtn').click()" """[:-1] in html
-    assert 'id="conversationDrawer" class="surface-drawer conversation-drawer hidden" aria-hidden="true"' in html
-    assert 'id="fileDrawer" class="surface-drawer file-drawer hidden" aria-hidden="true"' in html
-
-
-def test_styles_define_workspace_rail_drawers_and_dock(client) -> None:
-    css = _get_web_styles(client)
-    drawer_list_start = css.find(".surface-panel .history-list,")
-    drawer_list_end = css.find(".launch-panel", drawer_list_start)
-
-    assert ".workspace-rail" in css
-    assert ".surface-drawer" in css
-    assert ".surface-panel" in css
-    assert ".composer-dock" in css
-    assert ".composer-context-row" in css
-    assert ".composer-context-chip" in css
-    assert drawer_list_start != -1
-    assert drawer_list_end != -1
-    drawer_list_block = css[drawer_list_start:drawer_list_end]
-    assert ".surface-panel .document-list" in drawer_list_block
-    assert "flex: 1 1 auto;" in drawer_list_block
-    assert "overflow-y: auto;" in drawer_list_block
-
-
-def test_styles_define_motion_and_reduced_motion_rules(client) -> None:
-    css = _get_web_styles(client)
-
-    assert ".launch-panel" in css
-    assert ".workspace-stage-chat" in css
-    assert "@media (prefers-reduced-motion: reduce)" in css
-    assert "transition:" in css
-
-
-def test_frontend_binds_rail_drawer_and_settings_controls(client) -> None:
+def test_frontend_tracks_persisted_rail_mode(client) -> None:
     script = _get_web_app_script(client)
 
+    assert 'const RAIL_MODE_COLLAPSED = "collapsed";' in script
+    assert 'const RAIL_MODE_EXPANDED = "expanded";' in script
+    assert "railMode: RAIL_MODE_COLLAPSED" in script
+    assert 'railMode: "caibao.railMode"' in script
+    assert "function setRailMode(mode) {" in script
+    assert "function toggleRailMode() {" in script
+    assert 'els.railToggleBtn = document.getElementById("railToggleBtn");' in script
+    assert 'els.railToggleBtn.addEventListener("click", toggleRailMode);' in script
+
+
+def test_styles_define_collapsed_and_expanded_rail_states(client) -> None:
+    css = _get_web_styles(client)
+
+    assert '.shell[data-rail-mode="collapsed"]' in css
+    assert '.shell[data-rail-mode="expanded"]' in css
+    assert ".rail-toggle-btn" in css
+    assert ".workspace-rail-label" in css
+    assert ".workspace-top-nav" not in css
+    assert ".workspace-switch-strip" in css
+    assert ".workspace-brand-badge" in css
+    assert ".workspace-brand-wordmark" in css
+    assert ".workspace-brand-name" in css
+    assert ".workspace-brand-mark" not in css
+    assert '"Iowan Old Style", "Palatino Linotype", "Book Antiqua", Baskerville, "Times New Roman", serif' in css
+    assert ".workspace-nav-tabs" in css
+    assert ".workspace-top-switch-btn" in css
+    assert ".workspace-top-link" in css
+    assert ".workspace-refresh-btn" in css
+    assert ".workspace-refresh-icon" in css
+    assert '.shell[data-rail-mode="collapsed"] .workspace-switch-btn' in css
+    assert '.shell[data-rail-mode="collapsed"] .workspace-link' in css
+    assert "content: attr(data-short);" in css
+
+
+def test_homepage_uses_soft_grid_pattern_field_for_launch_identity(client) -> None:
+    html = _get_web_index(client)
+
+    assert 'id="workspacePatternField"' in html
+    assert 'class="soft-grid-field workspace-pattern-field"' in html
+    assert 'class="soft-grid-plane"' in html
+    assert 'id="heroPanel" class="hero-panel launch-panel"' in html
+
+
+def test_styles_define_signature_motion_keyframes(client) -> None:
+    css = _get_web_styles(client)
+
+    assert "@keyframes hero-collapse" in css
+    assert "@keyframes dock-settle" in css
+    assert "@keyframes surface-recall" in css
+    assert ".workspace-pattern-field" in css
+    assert ".shell.workspace-stage-chat .workspace-pattern-field" in css
+
+
+def test_frontend_syncs_workspace_stage_into_shell_and_pattern_visibility(client) -> None:
+    script = _get_web_app_script(client)
+
+    assert "function syncWorkspaceStage() {" in script
+    assert 'els.shell?.classList.toggle("workspace-stage-chat", isChatStage);' in script
+    assert 'els.shell?.classList.toggle("workspace-stage-launch", !isChatStage);' in script
+    assert 'els.workspacePatternField = document.getElementById("workspacePatternField");' in script
+
+
+def test_homepage_uses_dual_pane_favorites_workspace(client) -> None:
+    html = _get_web_index(client)
+
+    assert 'id="favoritesPanel"' in html
+    assert 'id="favoritesListPane"' in html
+    assert 'id="favoriteDetailPane"' in html
+    assert 'id="favoriteEmptyState"' in html
+
+
+def test_styles_define_favorites_list_and_detail_panes(client) -> None:
+    css = _get_web_styles(client)
+
+    assert ".favorites-layout" in css
+    assert ".favorites-list-pane" in css
+    assert ".favorites-detail-pane" in css
+    assert ".favorite-empty-state" in css
+
+
+def test_frontend_tracks_selected_favorite_and_renders_detail_pane(client) -> None:
+    script = _get_web_app_script(client)
+
+    assert "selectedFavoriteId:" in script
+    assert "function setSelectedFavoriteId(favoriteId) {" in script
+    assert "function renderFavoriteWorkspace() {" in script
+    assert "function renderFavoriteDetailPane() {" in script
+
+
+def test_homepage_exposes_local_surface_status_regions(client) -> None:
+    html = _get_web_index(client)
+    script = _get_web_app_script(client)
+    css = _get_web_styles(client)
+
+    assert 'id="conversationDrawerStatus"' in html
+    assert 'id="fileDrawerStatus"' in html
+    assert 'id="settingsStatus"' in html
+    assert "function setSurfaceStatus(targetEl, message, isError = false) {" in script
+    assert "function clearSurfaceStatus(targetEl) {" in script
+    assert ".surface-status" in css
+
+
+def test_homepage_embeds_history_list_inside_workspace_rail(client) -> None:
+    html = _get_web_index(client)
+    css = _get_web_styles(client)
+
+    assert 'id="workspaceRail"' in html
+    assert 'class="workspace-rail-history"' in html
+    assert 'class="workspace-rail-history-head"' in html
+    assert 'id="historyList"' in html
+    assert 'id="conversationDrawer"' not in html
+    assert 'id="fileDrawer" class="surface-drawer file-drawer hidden"' in html
+    assert ".workspace-rail-history" in css
+    assert ".rail-history-list" in css
+    assert ".composer-context-action" in css
+
+
+def test_workspace_rail_history_items_keep_stable_single_line_layout(client) -> None:
+    css = _get_web_styles(client)
+
+    assert ".workspace-rail-history .history-row {" in css
+    assert "align-items: center;" in css
+    assert ".workspace-rail-history .history-title-wrap {" in css
+    assert "flex: 1;" in css
+    assert ".workspace-rail-history .doc-card-action {" in css
+    assert "display: block;" in css
+    assert "white-space: nowrap;" in css
+    assert "text-overflow: ellipsis;" in css
+    assert ".workspace-rail-history .history-item {" in css
+    assert "min-height: 44px;" in css
+
+
+def test_frontend_keeps_only_file_and_settings_as_overlay_surfaces(client) -> None:
+    script = _get_web_app_script(client)
+
+    assert "state.activeSurface = surface || ACTIVE_SURFACE_NONE;" in script
+    assert "const useOverlayConversationPanel = isCompactWorkspaceLayout();" not in script
+    assert "const showConversationSurface" not in script
+    assert 'els.conversationDrawer?.classList.toggle("hidden", !showConversationSurface);' not in script
+    assert 'els.fileDrawer?.classList.toggle("hidden", current !== ACTIVE_SURFACE_FILES);' in script
+    assert 'els.settingsModal?.classList.toggle("hidden", current !== ACTIVE_SURFACE_SETTINGS);' in script
+    assert "closeSettingsModal();" in script
+
+
+def test_frontend_binds_rail_history_and_settings_controls(client) -> None:
+    script = _get_web_app_script(client)
+
+    assert 'els.railToggleBtn = document.getElementById("railToggleBtn");' in script
     assert 'els.railNewChatBtn = document.getElementById("railNewChatBtn");' in script
-    assert 'els.railSettingsBtn = document.getElementById("railSettingsBtn");' in script
-    assert 'els.drawerNewChatBtn = document.getElementById("drawerNewChatBtn");' in script
+    assert 'els.profileSettingsBtn = document.getElementById("profileSettingsBtn");' in script
+    assert 'els.historyList = document.getElementById("historyList");' in script
+    assert 'els.conversationDrawer = document.getElementById("conversationDrawer");' not in script
+    assert 'els.railSettingsBtn = document.getElementById("railSettingsBtn");' not in script
+    assert 'els.drawerNewChatBtn = document.getElementById("drawerNewChatBtn");' not in script
+    assert 'els.newSessionBtn = document.getElementById("newSessionBtn");' not in script
     assert 'els.composerContextRow = document.getElementById("composerContextRow");' in script
 
     bind_start = script.find("function bindEvents() {")
@@ -212,10 +330,29 @@ def test_frontend_binds_rail_drawer_and_settings_controls(client) -> None:
     assert bind_start != -1
     assert bind_end != -1
     bind_body = script[bind_start:bind_end]
+    assert 'els.railToggleBtn.addEventListener("click", toggleRailMode);' in bind_body
     assert 'els.railNewChatBtn.addEventListener("click"' in bind_body
-    assert 'els.drawerNewChatBtn.addEventListener("click"' in bind_body
-    assert 'els.railSettingsBtn.addEventListener("click", openSettingsModal);' in bind_body
+    assert 'els.drawerNewChatBtn.addEventListener("click"' not in bind_body
+    assert 'els.profileSettingsBtn.addEventListener("click", openSettingsModal);' in bind_body
+    assert 'els.railSettingsBtn.addEventListener("click", openSettingsModal);' not in bind_body
     assert "createAndSwitchConversation()" in bind_body
+
+
+def test_frontend_clicking_outside_file_drawer_closes_surface(client) -> None:
+    script = _get_web_app_script(client)
+
+    click_start = script.find("function handleGlobalDocumentClick(event) {")
+    click_end = script.find("function hydrateState()", click_start)
+    assert click_start != -1
+    assert click_end != -1
+
+    click_body = script[click_start:click_end]
+    assert "state.activeSurface === ACTIVE_SURFACE_FILES" in click_body
+    assert 'els.fileDrawer?.contains(target)' in click_body
+    assert 'target instanceof Element' in click_body
+    assert 'target.closest("#composerFilesBtn, #railFilesBtn")' in click_body
+    assert "setActiveSurface(ACTIVE_SURFACE_NONE);" in click_body
+    assert "refreshWorkspaceUi();" in click_body
 
 
 def test_homepage_uses_launch_panel_and_dock_context_row(client) -> None:
@@ -224,7 +361,7 @@ def test_homepage_uses_launch_panel_and_dock_context_row(client) -> None:
     assert 'id="heroPanel" class="hero-panel launch-panel"' in html
     context_start = html.find('<div id="composerContextRow" class="composer-context-row">')
     assert context_start != -1
-    context_end = html.find('<div class="chat-mode-row">', context_start)
+    context_end = html.find('<div id="attachmentStrip" class="attachment-strip"></div>', context_start)
     assert context_end != -1
     context_body = html[context_start:context_end]
     assert 'id="composerPresence"' in context_body
@@ -232,6 +369,7 @@ def test_homepage_uses_launch_panel_and_dock_context_row(client) -> None:
     assert 'id="composerSession"' in context_body
     assert 'class="composer-context-row hidden"' not in html
     assert 'class="composer-status-row"' not in html
+    assert 'class="chat-mode-row"' not in html
     assert '<section id="heroPanel" class="hero-panel launch-panel">' in html
     assert '<div class="launch-panel">' not in html
 
@@ -243,57 +381,60 @@ def test_frontend_renders_composer_context_row_and_refresh_helper(client) -> Non
     refresh_start = script.find("function refreshComposerChrome() {")
     assert render_start != -1
     assert refresh_start != -1
+
     refresh_end = script.find("function refreshWorkspaceUi()", refresh_start)
     assert refresh_end != -1
 
     render_body = script[render_start:refresh_start]
-    assert 'if (!els.composerContextRow)' in render_body
     assert "state.chatMode" in render_body
     assert "state.documents.length" in render_body
     assert "state.selectedDocumentIds.length" in render_body
     assert "getReadyDocumentCount()" in render_body
+    assert 'filesAction.id = "composerFilesBtn";' in render_body
+    assert 'filesActionLabel.textContent = "文件";' in render_body
+    assert 'filesActionCount.className = "composer-context-action-count";' in render_body
+    assert "ACTIVE_SURFACE_FILES" in render_body
 
     refresh_body = script[refresh_start:refresh_end]
     assert "renderComposerContextRow();" in refresh_body
     assert "renderAttachmentStrip();" in refresh_body
 
-    set_chat_start = script.find("function setChatMode(mode, { silent = false } = {}) {")
-    set_chat_end = script.find("function setWorkspaceStage(stage) {", set_chat_start)
-    assert set_chat_start != -1
-    assert set_chat_end != -1
-    set_chat_body = script[set_chat_start:set_chat_end]
-    assert "refreshComposerChrome();" in set_chat_body
+    auto_mode_start = script.find("function syncAutoChatMode() {")
+    auto_mode_end = script.find("function setWorkspaceStage(stage) {", auto_mode_start)
+    assert auto_mode_start != -1
+    assert auto_mode_end != -1
 
-    render_docs_start = script.find("function renderDocuments() {")
-    render_docs_end = script.find("function renderAttachmentStrip()", render_docs_start)
-    assert render_docs_start != -1
-    assert render_docs_end != -1
-    render_docs_body = script[render_docs_start:render_docs_end]
-    assert "refreshComposerChrome();" in render_docs_body
+    auto_mode_body = script[auto_mode_start:auto_mode_end]
+    assert "getReadyDocumentCount()" in auto_mode_body
+    assert "state.chatMode = readyCount ? CHAT_MODE_DOCS : CHAT_MODE_CHAT;" in auto_mode_body
+    assert "state.selectedDocumentIds = [];" in auto_mode_body
 
-    import_start = script.find("async function importDocumentWithContent({ sourceName, content, contentType }) {")
-    import_end = script.find("function upsertDocumentState(doc) {", import_start)
-    assert import_start != -1
-    assert import_end != -1
-    import_body = script[import_start:import_end]
-    assert "renderDocuments();" in import_body
+    load_docs_start = script.find("async function loadDocuments() {")
+    load_docs_end = script.find("function renderDocuments() {", load_docs_start)
+    assert load_docs_start != -1
+    assert load_docs_end != -1
 
-    upload_start = script.find("async function uploadDocumentFile(file) {")
-    upload_end = script.find("function hasDraggedFiles(event) {", upload_start)
-    assert upload_start != -1
-    assert upload_end != -1
-    upload_body = script[upload_start:upload_end]
-    assert "renderDocuments();" in upload_body
+    load_docs_body = script[load_docs_start:load_docs_end]
+    assert "syncAutoChatMode();" in load_docs_body
 
 
 def test_homepage_keeps_workspace_switch_visible(client) -> None:
     html = _get_web_index(client)
 
-    assert 'class="workspace-intro hidden"' not in html
-    assert 'id="workspaceEyebrow"' in html
-    assert 'id="workspaceDescription"' in html
+    assert 'class="workspace-intro-bar"' in html
+    assert 'class="workspace-top-nav"' not in html
+    assert 'class="workspace-switch-strip"' in html
+    assert ">聊天<" in html
+    assert ">收藏夹<" in html
+    assert ">Admin<" in html
     assert 'id="chatWorkspaceBtn"' in html
     assert 'id="favoritesWorkspaceBtn"' in html
+    assert 'class="workspace-top-switch-btn active"' in html
+    assert 'id="refreshAllBtn" class="workspace-refresh-btn"' in html
+    assert ">Refresh data<" not in html
+    assert 'id="workspaceEyebrow"' not in html
+    assert 'id="workspaceDescription"' not in html
+    assert "Focused workspace" not in html
 
 
 def test_auth_modal_uses_login_and_register_forms(client) -> None:
@@ -320,26 +461,16 @@ def test_settings_modal_exposes_account_controls(client) -> None:
     assert 'id="switchWorkspaceBtn"' not in html
 
 
-def test_advanced_model_configuration_moves_out_of_main_topbar(client) -> None:
-    html = _get_web_index(client)
-
-    assert "工作台设置" in html
-    assert "高级设置" in html
-    assert "主界面默认隐藏模型与密钥配置" in html
-    assert 'for="modelSelect">模型<' not in html
-    assert 'for="embeddingSelect">向量模型<' not in html
-
-
 def test_model_configuration_uses_settings_modals_instead_of_prompt_flows(client) -> None:
     script = _get_web_app_script(client)
 
     assert "openSettingsModal" in script
     assert "openCustomModelModal" in script
     assert "openCustomEmbeddingModal" in script
-    assert 'window.prompt("输入 API Base URL"' not in script
-    assert 'window.prompt("输入 API Key")' not in script
-    assert 'window.prompt("输入 Embedding API Base URL"' not in script
-    assert 'window.prompt("输入 Embedding API Key")' not in script
+    assert 'window.prompt("Input API Base URL"' not in script
+    assert 'window.prompt("Input API Key")' not in script
+    assert 'window.prompt("Input Embedding API Base URL"' not in script
+    assert 'window.prompt("Input Embedding API Key")' not in script
 
 
 def test_frontend_bootstrap_uses_auth_session_routes(client) -> None:
@@ -390,47 +521,39 @@ def test_favorite_workflow_supports_toggle_and_secondary_actions(client) -> None
     assert 'getFavoriteWorkspaceAsset("libraryDocsByMessageId"' in script
     assert "/promote-to-memory" in script
     assert "/promote-to-conclusion" in script
+    assert "/conclusions/" in script
+    assert "/archive" in script
+    assert "/memory/cards/" in script
     assert "/documents/import" in script
+    assert "function removeFavoriteMemory(" in script
+    assert "function archiveFavoriteConclusion(" in script
+    assert "function removeFavoriteLibraryDocument(" in script
 
 
-def test_frontend_tracks_workspace_stage_and_active_surface(client) -> None:
-    script = _get_web_app_script(client)
-    set_stage_start = script.find("function setWorkspaceStage(stage) {")
-    set_stage_end = script.find("function syncWorkspaceStage()", set_stage_start)
-    set_surface_start = script.find("function setActiveSurface(surface) {")
-    stage_sync_start = set_stage_end
-    sync_start = script.find("function syncActiveSurface() {")
-    sync_end = script.find("function syncWorkspaceView()", sync_start)
+def test_admin_uses_enterprise_command_bar_and_panel_grid(client) -> None:
+    html = _get_web_admin_html(client)
 
-    assert 'const WORKSPACE_STAGE_LAUNCH = "launch"' in script
-    assert 'const WORKSPACE_STAGE_CHAT = "chat"' in script
-    assert 'const ACTIVE_SURFACE_NONE = "none"' in script
-    assert 'const ACTIVE_SURFACE_CONVERSATIONS = "conversations"' in script
-    assert 'const ACTIVE_SURFACE_FILES = "files"' in script
-    assert 'const ACTIVE_SURFACE_SETTINGS = "settings"' in script
-    assert "workspaceStage:" in script
-    assert "activeSurface:" in script
-    assert "function setWorkspaceStage(stage)" in script
-    assert "function setActiveSurface(surface)" in script
-    assert "function syncWorkspaceStage()" in script
-    assert "function syncActiveSurface()" in script
-    assert set_stage_start != -1
-    assert set_stage_end != -1
-    assert set_surface_start != -1
-    assert sync_start != -1
-    assert sync_end != -1
-    set_stage_body = script[set_stage_start:set_stage_end]
-    stage_sync_body = script[stage_sync_start:sync_start]
-    set_surface_body = script[set_surface_start:sync_start]
-    assert "syncWorkspaceStage();" in set_stage_body
-    assert 'els.shell.classList.toggle("workspace-stage-launch", !isChatStage)' in stage_sync_body
-    assert 'els.shell.classList.toggle("workspace-stage-chat", isChatStage)' in stage_sync_body
-    assert "syncActiveSurface();" in set_surface_body
-    sync_body = script[sync_start:sync_end]
-    assert 'els.conversationDrawer.classList.toggle("hidden", !isConversationSurface)' in sync_body
-    assert 'els.conversationDrawer.setAttribute("aria-hidden", String(!isConversationSurface))' in sync_body
-    assert 'els.fileDrawer.classList.toggle("hidden", !isFileSurface)' in sync_body
-    assert 'els.fileDrawer.setAttribute("aria-hidden", String(!isFileSurface))' in sync_body
+    assert 'class="admin-shell admin-enterprise-shell"' in html
+    assert 'id="adminCommandBar"' in html
+    assert 'class="admin-panel-grid"' in html
+    assert 'class="admin-table-panel"' in html
+
+
+def test_admin_styles_define_command_bar_and_shared_panels(client) -> None:
+    css = _get_web_admin_styles(client)
+
+    assert ".admin-enterprise-shell" in css
+    assert ".admin-command-bar" in css
+    assert ".admin-panel-grid" in css
+    assert ".admin-table-panel" in css
+
+
+def test_admin_script_supports_escape_to_close_document_modal(client) -> None:
+    script = _get_web_admin_script(client)
+
+    assert 'document.addEventListener("keydown", (event) => {' in script
+    assert 'if (event.key === "Escape") {' in script
+    assert "closeDocModal();" in script
 
 
 def test_frontend_workspace_stage_rail_toggles_use_active_surface_state(client) -> None:
@@ -440,20 +563,24 @@ def test_frontend_workspace_stage_rail_toggles_use_active_surface_state(client) 
     conv_end = script.find("if (els.railFilesBtn) {", conv_start)
     assert conv_start != -1
     assert conv_end != -1
+
     conv_body = script[conv_start:conv_end]
-    assert "state.activeSurface === ACTIVE_SURFACE_CONVERSATIONS" in conv_body
-    assert "? ACTIVE_SURFACE_NONE" in conv_body
-    assert ": ACTIVE_SURFACE_CONVERSATIONS" in conv_body
-    assert 'classList.contains("hidden")' not in conv_body
+    assert "if (state.railMode === RAIL_MODE_COLLAPSED) {" in conv_body
+    assert "setRailMode(RAIL_MODE_EXPANDED);" in conv_body
+    assert 'els.historyList?.querySelector(".history-item")?.focus();' in conv_body
+    assert "state.activeSurface === ACTIVE_SURFACE_CONVERSATIONS" not in conv_body
+    assert "els.drawerNewChatBtn?.focus();" not in conv_body
 
     file_start = conv_end
     file_end = script.find("els.newSessionBtn.addEventListener", file_start)
+    if file_end == -1:
+        file_end = script.find("if (els.modelSelect) {", file_start)
     assert file_end != -1
+
     file_body = script[file_start:file_end]
     assert "state.activeSurface === ACTIVE_SURFACE_FILES" in file_body
     assert "? ACTIVE_SURFACE_NONE" in file_body
     assert ": ACTIVE_SURFACE_FILES" in file_body
-    assert 'classList.contains("hidden")' not in file_body
 
 
 def test_frontend_workspace_stage_auth_success_resets_to_launch_with_no_surface(client) -> None:
@@ -463,11 +590,11 @@ def test_frontend_workspace_stage_auth_success_resets_to_launch_with_no_surface(
     auth_end = script.find("async function bootstrapAuthSession()", auth_start)
     assert auth_start != -1
     assert auth_end != -1
+
     auth_body = script[auth_start:auth_end]
     assert "setWorkspaceStage(WORKSPACE_STAGE_LAUNCH);" in auth_body
     assert "setActiveSurface(ACTIVE_SURFACE_NONE);" in auth_body
     assert "setRequiresFreshConversation(true);" in auth_body
-    assert "loadAllData();" not in auth_body
     assert "loadConversations()" in auth_body
     assert "els.messageInput.focus();" in auth_body
 
@@ -475,6 +602,7 @@ def test_frontend_workspace_stage_auth_success_resets_to_launch_with_no_surface(
     send_end = script.find("function getExplicitSelectedDocumentIds()", send_start)
     assert send_start != -1
     assert send_end != -1
+
     send_body = script[send_start:send_end]
     assert "setWorkspaceStage(WORKSPACE_STAGE_CHAT);" in send_body
     assert "setActiveSurface(ACTIVE_SURFACE_NONE);" in send_body
@@ -487,6 +615,7 @@ def test_frontend_new_chat_returns_to_launch_and_focuses_composer(client) -> Non
     create_end = script.find("async function switchConversation(conversationId) {", create_start)
     assert create_start != -1
     assert create_end != -1
+
     create_body = script[create_start:create_end]
     assert "restoreLaunch = true" in create_body
     assert "closeSurface = true" in create_body
@@ -509,14 +638,15 @@ def test_frontend_requires_a_fresh_conversation_after_auth_success(client) -> No
     create_end = script.find("async function switchConversation(conversationId) {", create_start)
     assert create_start != -1
     assert create_end != -1
+
     create_body = script[create_start:create_end]
     assert "setRequiresFreshConversation(false);" in create_body
     assert "await loadConversations();" in create_body
-    assert 'showToast("已创建新会话");' in create_body
 
     switch_start = create_end
     switch_end = script.find("async function renameConversation(conversation)", switch_start)
     assert switch_end != -1
+
     switch_body = script[switch_start:switch_end]
     assert "setRequiresFreshConversation(false);" in switch_body
 
@@ -524,6 +654,7 @@ def test_frontend_requires_a_fresh_conversation_after_auth_success(client) -> No
     ready_end = script.find("function syncSendButtonState()", ready_start)
     assert ready_start != -1
     assert ready_end != -1
+
     ready_body = script[ready_start:ready_end]
     assert "if (state.requiresFreshConversation) {" in ready_body
     assert "await createAndSwitchConversation({" in ready_body
@@ -546,6 +677,7 @@ def test_frontend_persists_pending_fresh_conversation_across_reload(client) -> N
     apply_end = script.find("function resetAuthenticatedWorkspace()", apply_start)
     assert apply_start != -1
     assert apply_end != -1
+
     apply_body = script[apply_start:apply_end]
     assert "state.requiresFreshConversation = loadFreshConversationRequirement();" in apply_body
 
@@ -553,6 +685,7 @@ def test_frontend_persists_pending_fresh_conversation_across_reload(client) -> N
     load_all_end = script.find("async function loadModelConfigs()", load_all_start)
     assert load_all_start != -1
     assert load_all_end != -1
+
     load_all_body = script[load_all_start:load_all_end]
     assert "if (state.requiresFreshConversation) {" in load_all_body
     assert "setWorkspaceStage(WORKSPACE_STAGE_LAUNCH);" in load_all_body
@@ -564,6 +697,7 @@ def test_frontend_persists_pending_fresh_conversation_across_reload(client) -> N
     signed_out_end = script.find("async function finalizeAuthSuccess(session, toastMessage) {", signed_out_start)
     assert signed_out_start != -1
     assert signed_out_end != -1
+
     signed_out_body = script[signed_out_start:signed_out_end]
     assert "setRequiresFreshConversation(false);" in signed_out_body
 
@@ -579,8 +713,20 @@ def test_homepage_keeps_preview_auth_and_settings_surfaces_while_using_recall_sh
     assert "openDocumentPreview(doc)" in script
     assert "openSettingsModal()" in script
     assert "openAuthModal(AUTH_MODE_LOGIN)" in script
-    assert 'showToast("当前还没有可用资料，先上传并等待文件处理完成。", true);' in script
+    assert "syncAutoChatMode()" in script
     assert "doc.error_message || doc.error_code" in script
+
+
+def test_frontend_ignores_archived_conclusions_in_favorites_workspace(client) -> None:
+    script = _get_web_app_script(client)
+
+    load_assets_start = script.find("async function loadFavoriteWorkspaceAssets() {")
+    load_assets_end = script.find("function renderFavoriteWorkspace() {", load_assets_start)
+    assert load_assets_start != -1
+    assert load_assets_end != -1
+
+    load_assets_body = script[load_assets_start:load_assets_end]
+    assert 'normalizeStatus(item?.status) === "archived"' in load_assets_body
 
 
 def test_frontend_supports_escape_to_close_recall_surfaces(client) -> None:

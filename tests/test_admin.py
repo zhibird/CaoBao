@@ -1,40 +1,22 @@
 from uuid import uuid4
 
+from tests.auth_helpers import register_workspace_user
+
 
 def _admin_headers() -> dict[str, str]:
     return {"X-Dev-Admin-Token": "test-admin-token"}
 
 
 def _create_team_user_conversation_with_doc(client, suffix: str) -> tuple[str, str, str, str]:
-    team_id = f"team_admin_{suffix}"
-    user_id = f"user_admin_{suffix}"
-
-    team_response = client.post(
-        "/api/v1/teams",
-        json={
-            "team_id": team_id,
-            "name": "Admin Team",
-            "description": "for admin test",
-        },
+    team_id, user_id = register_workspace_user(
+        client,
+        prefix=f"admin_{suffix}",
+        display_name="Admin Test User",
     )
-    assert team_response.status_code == 201
-
-    user_response = client.post(
-        "/api/v1/users",
-        json={
-            "user_id": user_id,
-            "team_id": team_id,
-            "display_name": "Admin Test User",
-            "role": "member",
-        },
-    )
-    assert user_response.status_code == 201
 
     conversation_response = client.post(
         "/api/v1/conversations",
         json={
-            "team_id": team_id,
-            "user_id": user_id,
             "title": "Admin Conversation",
         },
     )
