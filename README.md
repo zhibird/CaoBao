@@ -1,3 +1,9 @@
+## 项目预览
+
+<p align="center">
+  <img src="./caibao_pic.png" alt="CaiBao 项目预览" width="720">
+</p>
+
 ## changelogs
 
 - **v0.1.0**：后端 MVP + 前端基础页面
@@ -36,3 +42,4 @@
   - **v0.14.4**：隐藏Admin入口，修复409冲突问题
 - **v0.15.0**：升级技术栈，数据库从SQLite升级至postgreSQL
 - **v0.16.0**：实现登录鉴权闭环
+- **v0.17.0**：前端究极大更新！
