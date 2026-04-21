@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CaiBao Chat</title>
   <link rel="stylesheet" href="/web/theme.css?v=0.16.0&build=enterprise-desktop-1" />
-  <link rel="stylesheet" href="/web/styles.css?v=0.16.7&build=20260419-refresh-glass-right" />
+  <link rel="stylesheet" href="/web/styles.css?v=0.16.12&build=20260421-rail-simple-slide" />
 </head>
 <body>
   <div class="bg-orb orb-a" aria-hidden="true"></div>
@@ -111,7 +111,6 @@
               <div class="workspace-nav-tabs" role="tablist" aria-label="Workspace views">
                 <button id="chatWorkspaceBtn" class="workspace-top-switch-btn active" type="button" aria-pressed="true" aria-label="聊天工作台" title="聊天工作台">聊天</button>
                 <button id="favoritesWorkspaceBtn" class="workspace-top-switch-btn" type="button" aria-pressed="false" aria-label="收藏夹工作台" title="收藏夹工作台">收藏夹</button>
-                <a class="workspace-top-link" href="/web/admin.html" aria-label="Admin console" title="Admin console">Admin</a>
               </div>
             </div>
             <button id="refreshAllBtn" class="workspace-refresh-btn" type="button" aria-label="Refresh data" title="Refresh data">
@@ -340,63 +339,65 @@
   </div>
 
   <div id="settingsModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
-    <div class="modal-card modal-card-wide">
-      <div class="modal-head">
-        <div>
+    <div class="modal-card modal-card-wide settings-modal-card">
+      <div class="modal-head settings-modal-head">
+        <div class="settings-modal-copy">
           <h2 id="settingsTitle">工作台设置</h2>
-          <p class="modal-tip">主界面默认隐藏模型与密钥配置，只有需要时才在这里调整。</p>
+          <p class="modal-tip">主界面默认不展示模型和密钥配置，需要时再来这里集中调整。</p>
         </div>
         <button id="closeSettingsBtn" class="drawer-close modal-close" type="button" aria-label="关闭设置">×</button>
       </div>
 
       <div class="settings-grid">
         <p id="settingsStatus" class="surface-status hidden" role="status"></p>
-          <section class="settings-section">
-            <div class="settings-section-head">
-              <div>
-                <h3>当前账号</h3>
-                <p id="settingsWorkspaceSummary" class="settings-note">尚未登录</p>
-              </div>
-              <div class="settings-inline-actions">
-                <button id="switchAccountBtn" class="ghost-btn compact-btn" type="button">切换账号</button>
-                <button id="logoutBtn" class="ghost-btn compact-btn danger-btn" type="button">退出登录</button>
-              </div>
+        <section class="settings-section settings-section-account">
+          <div class="settings-section-copy">
+            <h3>当前账号</h3>
+            <p class="settings-note">登录与切换都在这里处理。</p>
+          </div>
+          <div class="settings-account-row">
+            <p id="settingsWorkspaceSummary" class="settings-account-summary">尚未登录</p>
+            <div class="settings-inline-actions">
+              <button id="switchAccountBtn" class="ghost-btn compact-btn settings-action-btn" type="button">切换账号</button>
+              <button id="logoutBtn" class="ghost-btn compact-btn danger-btn settings-action-btn" type="button">退出登录</button>
             </div>
-          </section>
+          </div>
+        </section>
 
         <section class="settings-section">
           <div class="settings-section-head">
-            <div>
+            <div class="settings-section-copy">
               <h3>默认回答模型</h3>
-              <p class="settings-note">只在这里调整默认模型，不打扰主工作台。</p>
+              <p class="settings-note">只影响主工作台的默认回答。</p>
             </div>
-            <button id="addModelBtn" class="ghost-btn compact-btn" type="button">新增模型</button>
+            <button id="addModelBtn" class="ghost-btn compact-btn settings-action-btn" type="button">新增模型</button>
           </div>
-          <div class="field">
-            <label for="settingsModelSelect">默认回答模型</label>
+          <div class="field settings-field">
+            <label for="settingsModelSelect">当前默认模型</label>
             <select id="settingsModelSelect" aria-label="选择默认回答模型"></select>
           </div>
         </section>
 
         <section class="settings-section">
           <div class="settings-section-head">
-            <div>
+            <div class="settings-section-copy">
               <h3>资料增强模型</h3>
-              <p class="settings-note">检索与向量模型只在资料增强场景使用。</p>
+              <p class="settings-note">仅在资料增强时参与检索与向量处理。</p>
             </div>
-            <button id="addEmbeddingBtn" class="ghost-btn compact-btn" type="button">新增向量模型</button>
+            <button id="addEmbeddingBtn" class="ghost-btn compact-btn settings-action-btn" type="button">新增向量模型</button>
           </div>
-          <div class="field">
-            <label for="settingsEmbeddingSelect">默认向量模型</label>
+          <div class="field settings-field">
+            <label for="settingsEmbeddingSelect">当前默认向量模型</label>
             <select id="settingsEmbeddingSelect" aria-label="选择默认向量模型"></select>
           </div>
         </section>
 
-        <section class="settings-section settings-section-compact">
-          <h3>高级设置</h3>
-          <p class="settings-note">主界面默认隐藏模型与密钥配置</p>
-          <p class="settings-note">开发者管理台、API Key、Base URL 等能力都留在这里，避免把终端用户带到开发者心智里。</p>
-          <a class="modal-link" href="/web/admin.html" target="_blank" rel="noopener">开发者管理台</a>
+        <section class="settings-section settings-section-advanced">
+          <div class="settings-section-copy">
+            <h3>高级设置</h3>
+            <p class="settings-note">API Key、Base URL 和开发者管理台统一放在这里，主界面保持更简洁。</p>
+          </div>
+          <a class="modal-link settings-cta-link" href="/web/admin.html" target="_blank" rel="noopener">前往开发者管理台</a>
         </section>
       </div>
     </div>

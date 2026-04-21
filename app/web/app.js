@@ -487,7 +487,11 @@ function persistRailMode() {
 }
 
 function setRailMode(mode) {
-  state.railMode = mode === RAIL_MODE_EXPANDED ? RAIL_MODE_EXPANDED : RAIL_MODE_COLLAPSED;
+  const nextMode = mode === RAIL_MODE_EXPANDED ? RAIL_MODE_EXPANDED : RAIL_MODE_COLLAPSED;
+  if (state.railMode === nextMode) {
+    return;
+  }
+  state.railMode = nextMode;
   persistRailMode();
   syncRailMode();
 }
@@ -500,6 +504,10 @@ function syncRailMode() {
   const expanded = state.railMode === RAIL_MODE_EXPANDED;
   els.shell?.setAttribute("data-rail-mode", state.railMode);
   els.workspaceRail?.setAttribute("aria-expanded", String(expanded));
+  els.workspaceRail?.setAttribute("aria-hidden", String(!expanded));
+  if (els.workspaceRail && "inert" in els.workspaceRail) {
+    els.workspaceRail.inert = !expanded;
+  }
   if (els.railToggleBtn) {
     const railToggleLabel = expanded ? "Collapse sidebar" : "Expand sidebar";
     els.railToggleBtn.setAttribute("aria-label", railToggleLabel);

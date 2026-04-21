@@ -159,7 +159,9 @@ def test_homepage_uses_expandable_workspace_rail(client) -> None:
     assert 'class="workspace-nav-tabs" role="tablist"' in html
     assert 'id="chatWorkspaceBtn"' in html
     assert 'id="favoritesWorkspaceBtn"' in html
-    assert 'class="workspace-top-link" href="/web/admin.html"' in html
+    assert 'class="workspace-top-link" href="/web/admin.html"' not in html
+    assert 'class="settings-section settings-section-advanced"' in html
+    assert 'class="modal-link settings-cta-link" href="/web/admin.html"' in html
     assert 'class="rail-workspace-switch"' not in html
     assert 'class="workspace-rail-label"' in html
     assert 'class="rail-summary surface-card"' not in html
@@ -176,6 +178,9 @@ def test_frontend_tracks_persisted_rail_mode(client) -> None:
     assert "function toggleRailMode() {" in script
     assert 'els.railToggleBtn = document.getElementById("railToggleBtn");' in script
     assert 'els.railToggleBtn.addEventListener("click", toggleRailMode);' in script
+    assert 'els.workspaceRail?.setAttribute("aria-expanded", String(expanded));' in script
+    assert 'els.workspaceRail?.setAttribute("aria-hidden", String(!expanded));' in script
+    assert 'els.workspaceRail.inert = !expanded;' in script
 
 
 def test_styles_define_collapsed_and_expanded_rail_states(client) -> None:
@@ -298,6 +303,49 @@ def test_workspace_rail_history_items_keep_stable_single_line_layout(client) -> 
     assert "text-overflow: ellipsis;" in css
     assert ".workspace-rail-history .history-item {" in css
     assert "min-height: 44px;" in css
+
+
+def test_workspace_stage_does_not_resize_workspace_rail(client) -> None:
+    css = _get_web_styles(client)
+
+    assert ".workspace-rail {" in css
+    assert "padding: 18px 12px;" in css
+    assert ".shell.workspace-stage-launch .workspace-rail {" not in css
+    assert ".shell.workspace-stage-chat .workspace-rail {" not in css
+
+
+def test_workspace_rail_hides_by_collapsing_shell_column_without_column_animation(client) -> None:
+    css = _get_web_styles(client)
+
+    assert ".shell {" in css
+    assert '.shell[data-rail-mode="collapsed"] {' in css
+    assert "grid-template-columns: 0 minmax(0, 1fr);" in css
+    assert '.shell[data-rail-mode="expanded"] {' in css
+    assert "grid-template-columns: 230px minmax(0, 1fr);" in css
+    assert "transition: grid-template-columns 0.26s ease;" not in css
+    assert '.shell[data-rail-mode="collapsed"] .workspace-rail {' in css
+    assert "opacity: 0;" in css
+    assert "pointer-events: none;" in css
+    assert "position: relative;" in css
+
+
+def test_workspace_rail_uses_simple_horizontal_motion_without_extra_main_area_animation(client) -> None:
+    css = _get_web_styles(client)
+    script = _get_web_app_script(client)
+
+    rail_start = css.find(".workspace-rail {")
+    rail_end = css.find(".workspace-rail-history {", rail_start)
+    assert rail_start != -1
+    assert rail_end != -1
+    rail_block = css[rail_start:rail_end]
+    assert "border-radius: 0;" in rail_block
+    assert "border-radius: 28px;" not in rail_block
+
+    assert "@keyframes rail-main-open" not in css
+    assert "@keyframes rail-main-close" not in css
+    assert ".shell.rail-motion" not in css
+    assert "RAIL_MOTION_DURATION_MS" not in script
+    assert "queueRailMotion(" not in script
 
 
 def test_frontend_keeps_only_file_and_settings_as_overlay_surfaces(client) -> None:
@@ -426,7 +474,8 @@ def test_homepage_keeps_workspace_switch_visible(client) -> None:
     assert 'class="workspace-switch-strip"' in html
     assert ">聊天<" in html
     assert ">收藏夹<" in html
-    assert ">Admin<" in html
+    assert ">Admin<" not in html
+    assert ">前往开发者管理台<" in html
     assert 'id="chatWorkspaceBtn"' in html
     assert 'id="favoritesWorkspaceBtn"' in html
     assert 'class="workspace-top-switch-btn active"' in html

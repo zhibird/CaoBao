@@ -38,7 +38,7 @@ def create_app() -> FastAPI:
     web_dir = Path(__file__).resolve().parent / "web"
     app.mount("/web", StaticFiles(directory=web_dir), name="web")
 
-    @app.get("/", include_in_schema=False)
+    @app.api_route("/", methods=["GET", "HEAD"], include_in_schema=False)
     def serve_frontend() -> FileResponse:
         return FileResponse(web_dir / "index.html")
 

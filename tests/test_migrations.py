@@ -7,8 +7,11 @@ from uuid import uuid4
 from alembic import command
 from alembic.config import Config
 import pytest
+import sqlalchemy as sa
 from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.engine import Engine, make_url
+from sqlalchemy.schema import CreateColumn
 
 from app.db.base import Base
 from app.models import *  # noqa: F401,F403
@@ -138,6 +141,18 @@ def test_auth_migration_adds_auth_tables_and_user_columns(tmp_path) -> None:
 
     assert {"password_hash", "is_active", "password_updated_at"} <= users_columns
     assert {"session_id", "user_id", "refresh_token_hash", "expires_at", "revoked_at"} <= refresh_columns
+
+
+def test_auth_boolean_default_compiles_for_postgresql() -> None:
+    ddl = str(
+        CreateColumn(
+            sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.true())
+        ).compile(dialect=postgresql.dialect())
+    ).lower()
+
+    assert "boolean" in ddl
+    assert "default true" in ddl
+    assert "default 1" not in ddl
 
 
 @pytest.mark.skipif(

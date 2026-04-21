@@ -33,7 +33,7 @@ def upgrade() -> None:
         if "is_active" not in user_columns:
             op.add_column(
                 "users",
-                sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("1")),
+                sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.true()),
             )
         if "password_updated_at" not in user_columns:
             op.add_column(

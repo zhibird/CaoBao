@@ -4,6 +4,109 @@
   <img src="./caibao_pic.png" alt="CaiBao 项目预览" width="720">
 </p>
 
+## 快速开始
+
+### 本地 Python 运行
+
+```bash
+python -m venv .venv
+. .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+Windows PowerShell 可将激活命令替换为：
+
+```powershell
+.venv\Scripts\Activate.ps1
+Copy-Item .env.example .env
+```
+
+启动后可访问：
+
+- 前端首页：`http://localhost:8000/`
+- 健康检查：`http://localhost:8000/api/v1/health`
+
+## Docker 运行
+
+### 1. 准备环境变量
+
+```bash
+cp .env.example .env
+```
+
+至少建议修改以下配置后再启动：
+
+- `AUTH_JWT_SECRET`
+- `POSTGRES_PASSWORD`
+- `LLM_API_KEY`（如果你要接真实模型）
+
+### 2. 启动服务
+
+```bash
+docker compose up --build -d
+```
+
+默认会启动两项服务：
+
+- `postgres`：PostgreSQL 16
+- `caibao-api`：FastAPI + Alembic 自动迁移
+
+### 3. 首次启动会做什么
+
+1. `postgres` 先启动并等待健康检查通过。
+2. `caibao-api` 容器启动时会先执行 `alembic upgrade head`。
+3. 迁移完成后再启动 `uvicorn`，并用 `/api/v1/health` 做容器健康检查。
+4. 上传目录会落到 Docker volume 的 `/data/uploads`，重启容器后仍然保留。
+
+### 4. 容器默认约束
+
+- API 和 PostgreSQL 默认只绑定到本机回环地址：`127.0.0.1`
+- 应用进程会以非 root 用户 `caibao` 运行
+- 镜像内已包含 `tesseract-ocr` 与 `tesseract-ocr-chi-sim`
+- `.dockerignore` 已排除本地数据库、缓存、输出目录和 `.env`
+
+如果你需要让其他机器访问，可在 `.env` 中覆盖：
+
+```env
+APP_PORT=8000
+POSTGRES_PORT=5432
+```
+
+并自行把 `docker-compose.yml` 中的 `127.0.0.1:` 端口绑定调整为对外暴露。
+
+### 5. 常用命令
+
+```bash
+docker compose ps
+docker compose logs -f caibao-api
+docker compose logs -f postgres
+docker compose exec caibao-api sh
+docker compose down
+```
+
+如需连同数据库卷一起清理：
+
+```bash
+docker compose down -v
+```
+
+当前 Docker 镜像已经补齐：
+
+- PostgreSQL 运行环境
+- Alembic 启动迁移
+- `/data` 持久化卷
+- 容器健康检查
+- 非 root 用户运行
+- `tesseract-ocr` + `tesseract-ocr-chi-sim`，支持容器内中文 OCR
+
+### 6. 发布建议
+
+1. 正式环境请务必替换 `.env` 里的 `AUTH_JWT_SECRET`、`POSTGRES_PASSWORD` 和外部模型密钥。
+2. 发布前建议至少执行一次 `docker compose up --build -d` 与 `docker compose logs --tail=100 caibao-api` 做烟测。
+3. 若只更新前端资源但浏览器仍显示旧页面，先强刷页面，再确认 `app.js` / `styles.css` 的版本串是否已经更新。
+
 ## changelogs
 
 - **v0.1.0**：后端 MVP + 前端基础页面
@@ -43,3 +146,4 @@
 - **v0.15.0**：升级技术栈，数据库从SQLite升级至postgreSQL
 - **v0.16.0**：实现登录鉴权闭环
 - **v0.17.0**：前端究极大更新！
+- **v0.18.0**：补齐docker相关内容，顺便修复部分bug
